@@ -132,6 +132,13 @@ Phase 19 guided Cloudflare setup is in place:
 - Setup output explains the required manual follow-up: copy the D1 `database_id`, configure secrets, configure R2 CORS, and run a deploy readiness check.
 - Setup remains conservative; it does not write secrets, edit DNS, create custom domains, configure CORS automatically, or update source-controlled Wrangler config.
 
+Phase 20 release/versioning groundwork is in place:
+
+- The deployed Glyph version shown in `/admin` is read from the package version through `src/version.ts`.
+- `pnpm run release:check` validates the version source and runs non-publishing release checks.
+- Release documentation now describes version bumps, GitHub release notes, migration expectations, and manual update expectations.
+- Release checks remain local and conservative; they do not publish releases, deploy, apply remote migrations, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -251,12 +258,33 @@ When multipart direct-to-R2 mode is enabled and configured, files at or above th
 
 The self-update panel is groundwork for a future public repository workflow. It stores update settings in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. The manual check is intentionally read-only in this phase. It does not reuse the deploy helper yet except as the documented future path for applying migrations, running verification, and deploying safely.
 
+## Release Checks
+
+Glyph uses `package.json` as the release version source. The Worker imports that value through `src/version.ts`, and `/admin` displays it as the deployed Glyph version. Future self-update checks should compare this deployed version against the selected GitHub release tag after trimming a leading `v`.
+
+Before tagging a release, update `package.json` with the next semver version and prepare GitHub release notes that call out:
+
+- User-visible changes.
+- New migrations and whether they are required before deploy.
+- Deployment or setup changes.
+- New secrets, bindings, CORS, or custom-domain expectations.
+- Known limitations or rollback notes.
+
+Run the local release checklist:
+
+```sh
+pnpm run release:check
+```
+
+The release check validates the package-backed version source, runs typecheck and tests, performs a Wrangler deploy dry-run, and checks local D1 migrations. Use `--skip-d1` only when local Wrangler D1 is unavailable and the migration status has been checked another way. The command does not publish GitHub releases, deploy the Worker, apply remote migrations, make the repository public, or mutate Cloudflare resources.
+
 ## Verification
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm test
+pnpm run release:check
 pnpm wrangler deploy --dry-run --outdir /tmp/glyph-dry-run
 ```
 
@@ -277,6 +305,7 @@ Final MVP smoke checks should include:
 - `POST /admin/settings/updates` saves read-only self-update settings for an authenticated same-origin admin request.
 - `POST /admin/updates/check` checks configured GitHub release metadata without deploying or mutating code.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
+- `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
 
 ## Dependency Policy
 
@@ -372,6 +401,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
+- Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
 - Self-update is read-only groundwork only; it cannot run updates, deploy, apply migrations, restart Workers, or schedule checks yet.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.

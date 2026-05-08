@@ -31,6 +31,7 @@ The next product goal is to evolve Glyph from a minimal private file drop into a
 - Upload UI can show progress and estimated time remaining.
 - Deployment can become a guided one-command setup/deploy workflow with explicit safety gates.
 - Admins can check for updates and choose manual or opt-in automatic self-updates once the repository is public.
+- Releases have a single package-backed version source and a local, non-publishing readiness check.
 - Expired/deleted objects can be reconciled with R2 by a simple retryable cleanup path.
 - Custom-domain setup can start with deploy-time readiness checks and clear manual Cloudflare steps, then move toward fuller automation after the basic deploy workflow is boring and reliable.
 
@@ -136,6 +137,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - R2 cleanup can find expired/deleted uploads whose objects may still exist, retry deletion safely, and report cleanup status without serving those links publicly.
 - Custom-domain deployment support can validate public base URL and Wrangler route readiness, document manual Cloudflare setup, and leave deeper DNS/route/domain API automation as an explicit future path.
 - Guided setup can create the basic D1/R2 resources on explicit request while keeping secrets, CORS, DNS, and custom-domain attachment manual until safer automation exists.
+- Release/versioning groundwork keeps the deployed admin version tied to the package version and documents manual update/release expectations before executable self-updates exist.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -155,3 +157,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 17. Add self-update system with manual updates and opt-in automatic updates. Groundwork completed.
 18. Add custom-domain deployment support. Completed.
 19. Improve one-command deploy with guided Cloudflare resource setup. Completed.
+20. Add release/versioning groundwork for future public self-updates. Completed.

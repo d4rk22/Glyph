@@ -76,6 +76,7 @@ import {
 } from "./db.ts";
 import { formatBytes } from "./format.ts";
 import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http.ts";
+import { GLYPH_VERSION } from "./version.ts";
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; connect-src 'self' https://*.r2.cloudflarestorage.com; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
@@ -89,7 +90,6 @@ const DIRECT_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 const DIRECT_UPLOAD_PRESIGN_TTL_SECONDS = 15 * 60;
 const MULTIPART_UPLOAD_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MULTIPART_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
-const GLYPH_VERSION = "0.1.0";
 
 interface UploadedFile extends Blob {
   name: string;
