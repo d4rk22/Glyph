@@ -1,19 +1,61 @@
 import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
+  type RegistrationResponseJSON,
+  type WebAuthnCredential as SimpleWebAuthnCredential
+} from "@simplewebauthn/server";
+
+import {
+  ADMIN_SESSION_COOKIE,
+  base64UrlDecode,
+  base64UrlEncode,
+  challengeExpiresAt,
+  clearSessionCookie,
+  createSessionCookie,
+  decodeClientDataChallenge,
+  expectedOriginFromUrl,
+  getCookieValue,
+  isHttpsUrl,
+  rpIdFromUrl,
+  sessionExpiresAt,
+  utf8Bytes
+} from "./auth";
+import {
+  consumeWebAuthnChallenge,
+  countAdminUsers,
+  createAdminSession,
   createUploadMetadata,
+  createAdminUser,
+  createWebAuthnChallenge,
+  createWebAuthnCredential,
+  deleteAdminUser,
   deleteUploadMetadata,
+  getActiveAdminSessionByToken,
   getActiveUploadMetadata,
+  getActiveWebAuthnChallenge,
+  getAdminUserById,
+  getWebAuthnCredentialByCredentialId,
+  listWebAuthnCredentials,
+  touchAdminUserLogin,
+  updateWebAuthnCredentialUse,
+  type AdminUser,
   type UploadMetadata
 } from "./db";
 import { formatBytes } from "./format";
 import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http";
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff"
 } as const;
 
 const UPLOAD_FIELD_NAME = "file";
+const ADMIN_USERNAME = "admin";
 
 interface UploadedFile extends Blob {
   name: string;
@@ -35,8 +77,32 @@ export default {
       return handleUpload(request, env);
     }
 
+    if (url.pathname === "/admin.js" && request.method === "GET") {
+      return javascript(adminClientScript());
+    }
+
     if (url.pathname === "/admin" && request.method === "GET") {
-      return html(renderShell("Glyph Admin", adminPlaceholder()));
+      return handleAdminPage(request, env);
+    }
+
+    if (url.pathname === "/admin/logout" && request.method === "POST") {
+      return handleAdminLogout(request, env);
+    }
+
+    if (url.pathname === "/admin/passkeys/register/options" && request.method === "POST") {
+      return handleRegistrationOptions(request, env);
+    }
+
+    if (url.pathname === "/admin/passkeys/register/verify" && request.method === "POST") {
+      return handleRegistrationVerify(request, env);
+    }
+
+    if (url.pathname === "/admin/passkeys/login/options" && request.method === "POST") {
+      return handleAuthenticationOptions(request, env);
+    }
+
+    if (url.pathname === "/admin/passkeys/login/verify" && request.method === "POST") {
+      return handleAuthenticationVerify(request, env);
     }
 
     const shortId = getShortIdFromPath(url.pathname);
@@ -112,12 +178,240 @@ async function handleDownload(request: Request, env: Env, id: string): Promise<R
   });
 }
 
+async function handleAdminPage(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+
+  if (auth) {
+    return html(renderShell("Glyph Admin", adminDashboardPage(auth.user)));
+  }
+
+  if ((await countAdminUsers(env.DB)) === 0) {
+    return html(renderShell("Glyph Admin Setup", adminBootstrapPage()));
+  }
+
+  return html(renderShell("Glyph Admin Login", adminLoginPage()));
+}
+
+async function handleAdminLogout(request: Request, env: Env): Promise<Response> {
+  const token = getCookieValue(request, ADMIN_SESSION_COOKIE);
+
+  if (token) {
+    const session = await getActiveAdminSessionByToken(env.DB, token);
+    if (session) {
+      await env.DB.prepare("UPDATE admin_sessions SET revoked_at = ? WHERE id = ?")
+        .bind(new Date().toISOString(), session.id)
+        .run();
+    }
+  }
+
+  return redirect("/admin", {
+    "Set-Cookie": clearSessionCookie(isHttpsUrl(new URL(request.url)))
+  });
+}
+
+async function handleRegistrationOptions(request: Request, env: Env): Promise<Response> {
+  if ((await countAdminUsers(env.DB)) > 0) {
+    return json({ error: "Admin bootstrap is already complete." }, 409);
+  }
+
+  const url = new URL(request.url);
+  const rpID = rpIdFromUrl(url);
+  const body = await readJsonObject(request);
+  const displayName = stringFromBody(body, "displayName") || "Glyph Admin";
+  const adminUserId = crypto.randomUUID();
+
+  const options = await generateRegistrationOptions({
+    rpName: "Glyph",
+    rpID,
+    userID: utf8Bytes(adminUserId),
+    userName: ADMIN_USERNAME,
+    userDisplayName: displayName,
+    attestationType: "none",
+    authenticatorSelection: {
+      residentKey: "preferred",
+      userVerification: "required"
+    }
+  });
+
+  await createWebAuthnChallenge(env.DB, {
+    challenge: options.challenge,
+    purpose: "registration",
+    adminUserId,
+    username: ADMIN_USERNAME,
+    displayName,
+    expiresAt: challengeExpiresAt()
+  });
+
+  return json(options);
+}
+
+async function handleRegistrationVerify(request: Request, env: Env): Promise<Response> {
+  if ((await countAdminUsers(env.DB)) > 0) {
+    return json({ error: "Admin bootstrap is already complete." }, 409);
+  }
+
+  let response: RegistrationResponseJSON;
+  let challenge: string;
+  try {
+    response = (await request.json()) as RegistrationResponseJSON;
+    challenge = decodeClientDataChallenge(response.response.clientDataJSON);
+  } catch {
+    return json({ error: "Passkey setup response was invalid." }, 400);
+  }
+
+  const storedChallenge = await getActiveWebAuthnChallenge(env.DB, challenge, "registration");
+
+  if (!storedChallenge || !storedChallenge.adminUserId || !storedChallenge.username) {
+    return json({ error: "Passkey setup expired. Try again." }, 400);
+  }
+
+  try {
+    const url = new URL(request.url);
+    const verification = await verifyRegistrationResponse({
+      response,
+      expectedChallenge: storedChallenge.challenge,
+      expectedOrigin: expectedOriginFromUrl(url),
+      expectedRPID: rpIdFromUrl(url),
+      requireUserVerification: true
+    });
+
+    if (!verification.verified) {
+      await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+      return json({ error: "Passkey setup could not be verified." }, 400);
+    }
+
+    const user = await createAdminUser(env.DB, {
+      id: storedChallenge.adminUserId,
+      username: storedChallenge.username,
+      displayName: storedChallenge.displayName || "Glyph Admin"
+    });
+    const credential = verification.registrationInfo.credential;
+
+    try {
+      await createWebAuthnCredential(env.DB, {
+        adminUserId: user.id,
+        credentialId: credential.id,
+        publicKey: base64UrlEncode(credential.publicKey),
+        signatureCounter: credential.counter,
+        transports: response.response.transports ?? credential.transports ?? []
+      });
+    } catch (error) {
+      await deleteAdminUser(env.DB, user.id);
+      throw error;
+    }
+
+    await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+
+    return await createAdminSessionResponse(request, env, user.id);
+  } catch (error) {
+    console.error("Passkey registration failed", error);
+    await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+    return json({ error: "Passkey setup failed. Try again." }, 400);
+  }
+}
+
+async function handleAuthenticationOptions(request: Request, env: Env): Promise<Response> {
+  if ((await countAdminUsers(env.DB)) === 0) {
+    return json({ error: "Admin bootstrap is required first." }, 409);
+  }
+
+  const url = new URL(request.url);
+  const credentials = await listWebAuthnCredentials(env.DB);
+  const options = await generateAuthenticationOptions({
+    rpID: rpIdFromUrl(url),
+    allowCredentials: credentials.map((credential) => ({
+      id: credential.credentialId,
+      transports: credential.transports as AuthenticatorTransportFuture[]
+    })),
+    userVerification: "required"
+  });
+
+  await createWebAuthnChallenge(env.DB, {
+    challenge: options.challenge,
+    purpose: "authentication",
+    expiresAt: challengeExpiresAt()
+  });
+
+  return json(options);
+}
+
+async function handleAuthenticationVerify(request: Request, env: Env): Promise<Response> {
+  let response: AuthenticationResponseJSON;
+  let challenge: string;
+  try {
+    response = (await request.json()) as AuthenticationResponseJSON;
+    challenge = decodeClientDataChallenge(response.response.clientDataJSON);
+  } catch {
+    return json({ error: "Passkey login response was invalid." }, 400);
+  }
+
+  const credential = await getWebAuthnCredentialByCredentialId(env.DB, response.id);
+
+  if (!credential) {
+    return json({ error: "Passkey is not registered for this Glyph admin." }, 400);
+  }
+
+  const storedChallenge = await getActiveWebAuthnChallenge(env.DB, challenge, "authentication");
+
+  if (!storedChallenge) {
+    return json({ error: "Passkey login expired. Try again." }, 400);
+  }
+
+  try {
+    const url = new URL(request.url);
+    const simpleCredential: SimpleWebAuthnCredential = {
+      id: credential.credentialId,
+      publicKey: base64UrlDecode(credential.publicKey) as Uint8Array<ArrayBuffer>,
+      counter: credential.signatureCounter,
+      transports: credential.transports as AuthenticatorTransportFuture[]
+    };
+    const verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: storedChallenge.challenge,
+      expectedOrigin: expectedOriginFromUrl(url),
+      expectedRPID: rpIdFromUrl(url),
+      credential: simpleCredential,
+      requireUserVerification: true
+    });
+
+    if (!verification.verified) {
+      await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+      return json({ error: "Passkey login could not be verified." }, 400);
+    }
+
+    await updateWebAuthnCredentialUse(
+      env.DB,
+      credential.credentialId,
+      verification.authenticationInfo.newCounter
+    );
+    await touchAdminUserLogin(env.DB, credential.adminUserId);
+    await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+
+    return await createAdminSessionResponse(request, env, credential.adminUserId);
+  } catch (error) {
+    console.error("Passkey authentication failed", error);
+    await consumeWebAuthnChallenge(env.DB, storedChallenge.id);
+    return json({ error: "Passkey login failed. Try again." }, 400);
+  }
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       ...SECURITY_HEADERS
+    }
+  });
+}
+
+function jsonWithHeaders(data: unknown, headers: HeadersInit, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...SECURITY_HEADERS,
+      ...headers
     }
   });
 }
@@ -130,6 +424,59 @@ function html(body: string, status = 200): Response {
       ...SECURITY_HEADERS
     }
   });
+}
+
+function javascript(body: string): Response {
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      ...SECURITY_HEADERS
+    }
+  });
+}
+
+function redirect(location: string, headers: HeadersInit = {}): Response {
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: location,
+      ...SECURITY_HEADERS,
+      ...headers
+    }
+  });
+}
+
+async function createAdminSessionResponse(request: Request, env: Env, adminUserId: string): Promise<Response> {
+  const expiresAt = sessionExpiresAt();
+  const created = await createAdminSession(env.DB, {
+    adminUserId,
+    expiresAt
+  });
+
+  return jsonWithHeaders(
+    { ok: true, redirect: "/admin" },
+    {
+      "Set-Cookie": createSessionCookie(created.token, expiresAt, isHttpsUrl(new URL(request.url)))
+    }
+  );
+}
+
+async function getAuthenticatedAdmin(
+  request: Request,
+  env: Env
+): Promise<{ user: AdminUser } | null> {
+  const token = getCookieValue(request, ADMIN_SESSION_COOKIE);
+  if (!token) {
+    return null;
+  }
+
+  const session = await getActiveAdminSessionByToken(env.DB, token);
+  if (!session) {
+    return null;
+  }
+
+  const user = await getAdminUserById(env.DB, session.adminUserId);
+  return user ? { user } : null;
 }
 
 function renderShell(title: string, main: string): string {
@@ -434,6 +781,59 @@ function adminPlaceholder(): string {
 </div>`;
 }
 
+function adminBootstrapPage(): string {
+  return `<p class="eyebrow">Admin setup</p>
+<h1>Create passkey</h1>
+<p class="lede">Register the first admin passkey for this private Glyph instance.</p>
+<p class="error" id="admin-status" hidden></p>
+<form id="register-form">
+  <label for="display-name">Display name</label>
+  <input id="display-name" name="displayName" autocomplete="name" value="Glyph Admin">
+  <div class="actions">
+    <button type="submit">Create passkey</button>
+    <a class="button secondary" href="/">Home</a>
+  </div>
+</form>
+<script type="module" src="/admin.js"></script>`;
+}
+
+function adminLoginPage(): string {
+  return `<p class="eyebrow">Admin</p>
+<h1>Use passkey</h1>
+<p class="lede">Sign in with the passkey registered for this Glyph instance.</p>
+<p class="error" id="admin-status" hidden></p>
+<form id="login-form">
+  <div class="actions">
+    <button type="submit">Sign in</button>
+    <a class="button secondary" href="/">Home</a>
+  </div>
+</form>
+<script type="module" src="/admin.js"></script>`;
+}
+
+function adminDashboardPage(user: AdminUser): string {
+  const name = user.displayName || user.username;
+  return `<p class="eyebrow">Admin</p>
+<h1>Signed in</h1>
+<p class="lede">Welcome, ${escapeHtml(name)}. File listing, metadata, link copying, and deletion come next.</p>
+<div class="meta">
+  <div class="meta-item">
+    <span class="meta-label">User</span>
+    <span class="meta-value">${escapeHtml(user.username)}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Last login</span>
+    <span class="meta-value">${escapeHtml(user.lastLoginAt || "First session")}</span>
+  </div>
+</div>
+<form method="post" action="/admin/logout">
+  <div class="actions">
+    <button type="submit">Sign out</button>
+    <a class="button secondary" href="/">Home</a>
+  </div>
+</form>`;
+}
+
 function notFoundPage(): string {
   return `<p class="eyebrow">Unavailable link</p>
 <h1>Not found</h1>
@@ -503,4 +903,148 @@ function errorMessage(error: unknown): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value);
+}
+
+async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = await request.json();
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringFromBody(body: Record<string, unknown>, key: string): string | null {
+  const value = body[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function adminClientScript(): string {
+  return `
+const statusEl = document.getElementById("admin-status");
+const registerForm = document.getElementById("register-form");
+const loginForm = document.getElementById("login-form");
+
+function setStatus(message) {
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.hidden = !message;
+}
+
+function fromBase64Url(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function toBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer || new ArrayBuffer(0));
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+}
+
+function creationOptions(options) {
+  return {
+    ...options,
+    challenge: fromBase64Url(options.challenge),
+    user: {
+      ...options.user,
+      id: fromBase64Url(options.user.id),
+    },
+    excludeCredentials: (options.excludeCredentials || []).map((credential) => ({
+      ...credential,
+      id: fromBase64Url(credential.id),
+    })),
+  };
+}
+
+function requestOptions(options) {
+  return {
+    ...options,
+    challenge: fromBase64Url(options.challenge),
+    allowCredentials: (options.allowCredentials || []).map((credential) => ({
+      ...credential,
+      id: fromBase64Url(credential.id),
+    })),
+  };
+}
+
+function registrationJSON(credential) {
+  return {
+    id: credential.id,
+    rawId: toBase64Url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: {
+      clientDataJSON: toBase64Url(credential.response.clientDataJSON),
+      attestationObject: toBase64Url(credential.response.attestationObject),
+      transports: credential.response.getTransports ? credential.response.getTransports() : [],
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+  };
+}
+
+function authenticationJSON(credential) {
+  return {
+    id: credential.id,
+    rawId: toBase64Url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: {
+      clientDataJSON: toBase64Url(credential.response.clientDataJSON),
+      authenticatorData: toBase64Url(credential.response.authenticatorData),
+      signature: toBase64Url(credential.response.signature),
+      userHandle: credential.response.userHandle ? toBase64Url(credential.response.userHandle) : undefined,
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+  };
+}
+
+async function postJSON(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Passkey request failed.");
+  }
+  return data;
+}
+
+registerForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setStatus("");
+  try {
+    const displayName = new FormData(registerForm).get("displayName") || "Glyph Admin";
+    const options = await postJSON("/admin/passkeys/register/options", { displayName });
+    const credential = await navigator.credentials.create({ publicKey: creationOptions(options) });
+    const result = await postJSON("/admin/passkeys/register/verify", registrationJSON(credential));
+    window.location.assign(result.redirect || "/admin");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Passkey setup failed.");
+  }
+});
+
+loginForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setStatus("");
+  try {
+    const options = await postJSON("/admin/passkeys/login/options", {});
+    const credential = await navigator.credentials.get({ publicKey: requestOptions(options) });
+    const result = await postJSON("/admin/passkeys/login/verify", authenticationJSON(credential));
+    window.location.assign(result.redirect || "/admin");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Passkey login failed.");
+  }
+});
+`;
 }

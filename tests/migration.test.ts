@@ -4,9 +4,14 @@ import test from "node:test";
 
 const migration = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
 
-test("initial migration includes the phase 2 metadata tables", () => {
-  for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions"]) {
-    assert.match(migration, new RegExp(`CREATE TABLE ${table} \\(`));
+test("migrations include the core metadata and auth tables", () => {
+  const allMigrations = [
+    migration,
+    readFileSync(new URL("../migrations/0002_webauthn_challenges.sql", import.meta.url), "utf8")
+  ].join("\n");
+
+  for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges"]) {
+    assert.match(allMigrations, new RegExp(`CREATE TABLE ${table} \\(`));
   }
 });
 

@@ -1,4 +1,5 @@
 import { DEFAULT_SHORT_ID_LENGTH, generateShortId, sanitizeObjectName } from "./ids";
+import type { WebAuthnChallengePurpose } from "./auth";
 
 const DEFAULT_MAX_ID_ATTEMPTS = 8;
 const SESSION_TOKEN_BYTES = 32;
@@ -98,6 +99,41 @@ export interface AdminSession {
   createdAt: string;
   expiresAt: string;
   revokedAt: string | null;
+}
+
+export interface WebAuthnChallenge {
+  id: string;
+  challenge: string;
+  purpose: WebAuthnChallengePurpose;
+  adminUserId: string | null;
+  username: string | null;
+  displayName: string | null;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt: string | null;
+}
+
+export interface CreateWebAuthnChallengeInput {
+  id?: string;
+  challenge: string;
+  purpose: WebAuthnChallengePurpose;
+  adminUserId?: string | null;
+  username?: string | null;
+  displayName?: string | null;
+  expiresAt: Date;
+  now?: Date;
+}
+
+interface WebAuthnChallengeRow {
+  id: string;
+  challenge: string;
+  purpose: WebAuthnChallengePurpose;
+  admin_user_id: string | null;
+  username: string | null;
+  display_name: string | null;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
 }
 
 export interface CreateAdminSessionInput {
@@ -245,6 +281,11 @@ export async function createAdminUser(db: D1Database, input: CreateAdminUserInpu
   };
 }
 
+export async function countAdminUsers(db: D1Database): Promise<number> {
+  const row = await db.prepare("SELECT COUNT(*) AS count FROM admin_users").first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
 export async function getAdminUserById(db: D1Database, id: string): Promise<AdminUser | null> {
   const row = await db.prepare("SELECT * FROM admin_users WHERE id = ?").bind(id).first<AdminUserRow>();
   return row ? mapAdminUser(row) : null;
@@ -257,6 +298,11 @@ export async function getAdminUserByUsername(db: D1Database, username: string): 
     .first<AdminUserRow>();
 
   return row ? mapAdminUser(row) : null;
+}
+
+export async function deleteAdminUser(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare("DELETE FROM admin_users WHERE id = ?").bind(id).run();
+  return result.meta.changes > 0;
 }
 
 export async function touchAdminUserLogin(db: D1Database, id: string, now = new Date()): Promise<boolean> {
@@ -331,6 +377,14 @@ export async function listWebAuthnCredentialsForAdminUser(
   const rows = await db
     .prepare("SELECT * FROM webauthn_credentials WHERE admin_user_id = ? ORDER BY created_at ASC")
     .bind(adminUserId)
+    .all<WebAuthnCredentialRow>();
+
+  return rows.results.map(mapWebAuthnCredential);
+}
+
+export async function listWebAuthnCredentials(db: D1Database): Promise<WebAuthnCredential[]> {
+  const rows = await db
+    .prepare("SELECT * FROM webauthn_credentials ORDER BY created_at ASC")
     .all<WebAuthnCredentialRow>();
 
   return rows.results.map(mapWebAuthnCredential);
@@ -424,6 +478,76 @@ export async function revokeAdminSession(db: D1Database, id: string, now = new D
   return result.meta.changes > 0;
 }
 
+export async function createWebAuthnChallenge(
+  db: D1Database,
+  input: CreateWebAuthnChallengeInput
+): Promise<WebAuthnChallenge> {
+  const id = input.id ?? crypto.randomUUID();
+  const createdAt = iso(input.now);
+  const expiresAt = input.expiresAt.toISOString();
+  const adminUserId = input.adminUserId ?? null;
+  const username = input.username ?? null;
+  const displayName = input.displayName ?? null;
+
+  await db
+    .prepare(
+      `INSERT INTO webauthn_challenges (
+        id,
+        challenge,
+        purpose,
+        admin_user_id,
+        username,
+        display_name,
+        created_at,
+        expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, input.challenge, input.purpose, adminUserId, username, displayName, createdAt, expiresAt)
+    .run();
+
+  return {
+    id,
+    challenge: input.challenge,
+    purpose: input.purpose,
+    adminUserId,
+    username,
+    displayName,
+    createdAt,
+    expiresAt,
+    consumedAt: null
+  };
+}
+
+export async function getActiveWebAuthnChallenge(
+  db: D1Database,
+  challenge: string,
+  purpose: WebAuthnChallengePurpose,
+  now = new Date()
+): Promise<WebAuthnChallenge | null> {
+  const row = await db
+    .prepare(
+      `SELECT *
+        FROM webauthn_challenges
+        WHERE challenge = ?
+          AND purpose = ?
+          AND consumed_at IS NULL
+          AND expires_at > ?`
+    )
+    .bind(challenge, purpose, now.toISOString())
+    .first<WebAuthnChallengeRow>();
+
+  return row ? mapWebAuthnChallenge(row) : null;
+}
+
+export async function consumeWebAuthnChallenge(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE webauthn_challenges SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL")
+    .bind(now.toISOString(), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
 export function buildUploadObjectKey(id: string, filename: string): string {
   return `uploads/${id}/${sanitizeObjectName(filename)}`;
 }
@@ -496,6 +620,20 @@ function mapAdminSession(row: AdminSessionRow): AdminSession {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at
+  };
+}
+
+function mapWebAuthnChallenge(row: WebAuthnChallengeRow): WebAuthnChallenge {
+  return {
+    id: row.id,
+    challenge: row.challenge,
+    purpose: row.purpose,
+    adminUserId: row.admin_user_id,
+    username: row.username,
+    displayName: row.display_name,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    consumedAt: row.consumed_at
   };
 }
 

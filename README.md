@@ -34,7 +34,14 @@ Phase 4 UI polish is in place:
 - Upload errors are presented inline with stronger visual treatment.
 - Success pages expose the short URL, file name, size, and direct download action.
 
-Passkey and admin management flows are intentionally still pending.
+Phase 5 admin authentication is in place:
+
+- `/admin` bootstraps the first admin passkey when no admin exists.
+- Existing admins sign in with their registered passkey.
+- Admin sessions are stored in D1 and scoped to `/admin` with HTTP-only cookies.
+- The protected admin page remains a placeholder for the file-management phase.
+
+Admin file management flows are intentionally still pending.
 
 ## Prerequisites
 
@@ -93,7 +100,11 @@ pnpm run typecheck
 pnpm test
 ```
 
-No runtime dependencies are currently used. Dev dependencies are limited to Cloudflare/TypeScript tooling: Wrangler, TypeScript, and Cloudflare Workers types.
+Dev dependencies are limited to Cloudflare/TypeScript tooling: Wrangler, TypeScript, and Cloudflare Workers types.
+
+Runtime dependency justification:
+
+- `@simplewebauthn/server` verifies passkey registration and authentication responses. This is security-sensitive protocol work, so Glyph uses a focused, reputable WebAuthn package instead of hand-rolled cryptographic verification.
 
 `pnpm-workspace.yaml` explicitly allows install-time builds for Wrangler's native transitive tooling packages: `esbuild`, `sharp`, and `workerd`.
 
@@ -107,6 +118,5 @@ pnpm run deploy
 
 ## Known MVP Limitations
 
-- Passkey bootstrap and login are not implemented yet.
 - Admin listing, metadata viewing, link copying, and deletion are not implemented yet.
 - Direct-to-R2 and multipart uploads are intentionally deferred.
