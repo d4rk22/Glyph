@@ -12,6 +12,14 @@ Phase 1 scaffold is in place:
 - Initial D1 migration for uploads, passkey credentials, admin users, and sessions.
 - Minimal placeholder UI for `/`, `/admin`, `/health`, and not-found responses.
 
+Phase 2 metadata helpers are also in place:
+
+- Upload metadata creation, lookup, listing, soft deletion, and hard deletion.
+- Short ID generation with retry handling for upload ID collisions.
+- Admin user creation, lookup, and login timestamp helpers.
+- WebAuthn credential creation, lookup, listing, usage update, and deletion.
+- Admin session creation, token hashing, active lookup, and revocation.
+
 Upload, download, passkey, and admin management flows are intentionally still pending.
 
 ## Prerequisites

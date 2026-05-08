@@ -13,4 +13,3 @@
   },
   "include": ["src/**/*.ts", "worker-configuration.d.ts"]
 }
-
