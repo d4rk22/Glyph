@@ -139,6 +139,13 @@ Phase 20 release/versioning groundwork is in place:
 - Release documentation now describes version bumps, GitHub release notes, migration expectations, and manual update expectations.
 - Release checks remain local and conservative; they do not publish releases, deploy, apply remote migrations, or mutate Cloudflare resources.
 
+Phase 21 manual self-update workflow is in place:
+
+- `/admin` update checks display GitHub release tag, name, release notes summary, published date, release URL, and update status.
+- Version comparison is semver-aware for semver-like tags while staying dependency-free.
+- The update result page includes a manual operator checklist for reviewing release notes, pulling a tag locally, running release checks, applying migrations intentionally, and deploying through the deploy helper.
+- Admin update checks remain read-only; they do not deploy, apply migrations, restart the Worker, mutate code, store GitHub tokens, or run automatic updates.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -256,7 +263,17 @@ When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-
 
 When multipart direct-to-R2 mode is enabled and configured, files at or above the conservative multipart threshold use R2 multipart upload. The Worker creates pending metadata, initiates the R2 multipart upload, signs individual part uploads, completes the multipart upload after all expected parts are reported, verifies the final object size where practical, and only then marks the short link stored. Smaller files in multipart mode continue through the direct single-part path. Failed or aborted multipart uploads are marked unavailable in D1. The normal Worker-mediated `POST /` path remains available as a fallback.
 
-The self-update panel is groundwork for a future public repository workflow. It stores update settings in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. The manual check is intentionally read-only in this phase. It does not reuse the deploy helper yet except as the documented future path for applying migrations, running verification, and deploying safely.
+The self-update panel is groundwork for a future public repository workflow. It stores update settings in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. The manual check is intentionally read-only in this phase. It displays release metadata and a manual update checklist, but it does not reuse the deploy helper from admin except as the documented future path for applying migrations, running verification, and deploying safely.
+
+The recommended manual update workflow is:
+
+- Review release notes and migration notes in `/admin`.
+- Pull the selected release or tag locally.
+- Run `pnpm install --frozen-lockfile`.
+- Run `pnpm run release:check`.
+- Apply remote migrations intentionally.
+- Run `pnpm run deploy:glyph -- --check`.
+- Deploy with `pnpm run deploy:glyph -- --yes`.
 
 ## Release Checks
 
@@ -303,7 +320,7 @@ Final MVP smoke checks should include:
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
 - `POST /admin/settings/upload-mode` switches between Worker-mediated, direct-to-R2, and multipart direct-to-R2 upload mode for an authenticated same-origin admin request.
 - `POST /admin/settings/updates` saves read-only self-update settings for an authenticated same-origin admin request.
-- `POST /admin/updates/check` checks configured GitHub release metadata without deploying or mutating code.
+- `POST /admin/updates/check` checks configured GitHub release metadata, release notes, and manual update guidance without deploying or mutating code.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 - `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
 
@@ -402,7 +419,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
-- Self-update is read-only groundwork only; it cannot run updates, deploy, apply migrations, restart Workers, or schedule checks yet.
+- Self-update is a read-only manual workflow only; it cannot run updates, deploy, apply migrations, restart Workers, store GitHub tokens, or schedule checks yet.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.

@@ -133,11 +133,12 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Direct-to-R2 uploads work without bypassing D1 metadata/finalization controls.
 - Multipart uploads support large files with progress, retry behavior, and estimated time remaining.
 - One-command deploy can create or reuse Cloudflare resources, apply migrations, deploy the Worker, and print live/admin URLs.
-- Self-update can check the public GitHub repository for newer releases, show current/deployed version and release notes, run manual updates, and support conservative opt-in automatic updates.
+- Self-update can check the public GitHub repository for newer releases, show current/deployed version and release notes, guide manual updates, and eventually support conservative opt-in automatic updates.
 - R2 cleanup can find expired/deleted uploads whose objects may still exist, retry deletion safely, and report cleanup status without serving those links publicly.
 - Custom-domain deployment support can validate public base URL and Wrangler route readiness, document manual Cloudflare setup, and leave deeper DNS/route/domain API automation as an explicit future path.
 - Guided setup can create the basic D1/R2 resources on explicit request while keeping secrets, CORS, DNS, and custom-domain attachment manual until safer automation exists.
 - Release/versioning groundwork keeps the deployed admin version tied to the package version and documents manual update/release expectations before executable self-updates exist.
+- Manual self-update workflow shows release metadata, release notes, semver-aware update status, and operator update steps without executing deploys or migrations from admin.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -158,3 +159,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 18. Add custom-domain deployment support. Completed.
 19. Improve one-command deploy with guided Cloudflare resource setup. Completed.
 20. Add release/versioning groundwork for future public self-updates. Completed.
+21. Improve self-update check into a manual update workflow. Completed.

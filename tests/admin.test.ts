@@ -1486,9 +1486,10 @@ test("admin update check fetches release metadata without mutating deploy state"
       requestedUrls.push(String(input));
       return new Response(
         JSON.stringify({
-          tag_name: "v0.2.0",
-          name: "Glyph 0.2.0",
-          html_url: "https://github.com/example/glyph/releases/tag/v0.2.0",
+          tag_name: "v0.10.0",
+          name: "Glyph 0.10.0",
+          body: "## Changes\n\n- Safer updates\n- Escaped <script>alert(1)</script>",
+          html_url: "https://github.com/example/glyph/releases/tag/v0.10.0",
           published_at: "2026-05-08T12:00:00.000Z"
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -1504,11 +1505,18 @@ test("admin update check fetches release metadata without mutating deploy state"
 
       assert.equal(response.status, 200);
       assert.deepEqual(requestedUrls, ["https://api.github.com/repos/example/glyph/releases/latest"]);
-      assert.match(body, /A newer release is available: v0\.2\.0/);
+      assert.match(body, /A newer release is available: v0\.10\.0/);
+      assert.match(body, /Glyph 0\.10\.0/);
       assert.match(body, /Current<\/span>/);
       assert.match(body, /0\.1\.0/);
       assert.match(body, /Latest<\/span>/);
-      assert.match(body, /v0\.2\.0/);
+      assert.match(body, /v0\.10\.0/);
+      assert.match(body, /aria-label="Release notes"/);
+      assert.match(body, /Escaped &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+      assert.doesNotMatch(body, /<script>alert\(1\)<\/script>/);
+      assert.match(body, /aria-label="Manual update workflow"/);
+      assert.match(body, /pnpm run release:check/);
+      assert.match(body, /This admin page does not deploy, apply migrations, restart the Worker, mutate code, or store GitHub tokens\./);
       assert.match(body, /Open release/);
       assert.deepEqual(env.settingsUpdates, []);
     }
@@ -1544,6 +1552,36 @@ test("admin beta update check reads the newest release list entry", async () => 
       assert.equal(response.status, 200);
       assert.deepEqual(requestedUrls, ["https://api.github.com/repos/example/glyph/releases?per_page=1"]);
       assert.match(body, /This deployment is current for beta/);
+    }
+  );
+});
+
+test("admin update check treats older semver releases as not newer", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "stable", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
+  });
+
+  await withMockedFetch(
+    async () =>
+      new Response(JSON.stringify({ tag_name: "v0.0.9", name: "Glyph 0.0.9" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }),
+    async () => {
+      const response = await worker.fetch(
+        adminRequest("/admin/updates/check", { method: "POST" }),
+        env,
+        createExecutionContext()
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.match(body, /This deployment is current for stable/);
+      assert.doesNotMatch(body, /A newer release is available/);
     }
   );
 });

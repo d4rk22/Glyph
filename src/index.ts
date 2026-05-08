@@ -107,6 +107,7 @@ interface UpdateCheckResult {
   currentVersion: string;
   latestVersion: string | null;
   latestName: string | null;
+  releaseNotes: string | null;
   releaseUrl: string | null;
   publishedAt: string | null;
   updateAvailable: boolean;
@@ -1869,10 +1870,18 @@ function updateCheckPage(settings: AppSettings, result: UpdateCheckResult): stri
   const releaseLink = result.releaseUrl
     ? `<a class="button" href="${escapeAttribute(result.releaseUrl)}">Open release</a>`
     : "";
+  const releaseName = result.latestName ? `<p class="lede">${escapeHtml(result.latestName)}</p>` : "";
+  const releaseNotes = result.releaseNotes
+    ? `<section class="settings-panel" aria-label="Release notes">
+  <h2>Release notes</h2>
+  <p>${escapeHtml(result.releaseNotes)}</p>
+</section>`
+    : "";
 
   return `<p class="eyebrow">Update check</p>
 <h1>Updates</h1>
 <p class="lede">${escapeHtml(summary)}</p>
+${releaseName}
 <div class="meta">
   <div class="meta-item">
     <span class="meta-label">Current</span>
@@ -1899,10 +1908,28 @@ function updateCheckPage(settings: AppSettings, result: UpdateCheckResult): stri
     <span class="meta-value">${escapeHtml(result.checkedAt)}</span>
   </div>
 </div>
+${releaseNotes}
+${manualUpdatePanel()}
 <div class="actions">
   ${releaseLink}
   <a class="button secondary" href="/admin">Back</a>
 </div>`;
+}
+
+function manualUpdatePanel(): string {
+  return `<section class="settings-panel" aria-label="Manual update workflow">
+  <h2>Manual update workflow</h2>
+  <ol>
+    <li>Review the release notes and migration notes.</li>
+    <li>Pull the selected release or tag locally.</li>
+    <li>Run <code>pnpm install --frozen-lockfile</code>.</li>
+    <li>Run <code>pnpm run release:check</code>.</li>
+    <li>Apply remote migrations intentionally.</li>
+    <li>Run <code>pnpm run deploy:glyph -- --check</code>.</li>
+    <li>Deploy with <code>pnpm run deploy:glyph -- --yes</code>.</li>
+  </ol>
+  <p>This admin page does not deploy, apply migrations, restart the Worker, mutate code, or store GitHub tokens.</p>
+</section>`;
 }
 
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
@@ -2168,6 +2195,7 @@ async function checkForUpdates(settings: AppSettings): Promise<UpdateCheckResult
     currentVersion: GLYPH_VERSION,
     latestVersion: null,
     latestName: null,
+    releaseNotes: null,
     releaseUrl: null,
     publishedAt: null,
     updateAvailable: false,
@@ -2207,13 +2235,17 @@ async function checkForUpdates(settings: AppSettings): Promise<UpdateCheckResult
     }
 
     const latestVersion = release.tag_name.trim();
+    const versionComparison = compareVersions(latestVersion, GLYPH_VERSION);
     return {
       ...base,
       latestVersion,
       latestName: release.name || null,
+      releaseNotes: release.body ? summarizeReleaseNotes(release.body) : null,
       releaseUrl: release.html_url || null,
       publishedAt: release.published_at || null,
-      updateAvailable: normalizeVersion(latestVersion) !== normalizeVersion(GLYPH_VERSION)
+      updateAvailable: versionComparison === null
+        ? normalizeVersion(latestVersion) !== normalizeVersion(GLYPH_VERSION)
+        : versionComparison > 0
     };
   } catch (error) {
     return {
@@ -2260,12 +2292,109 @@ function isReleaseRecord(value: unknown): value is {
   name?: string | null;
   html_url?: string | null;
   published_at?: string | null;
+  body?: string | null;
 } {
   return typeof value === "object" && value !== null && typeof (value as { tag_name?: unknown }).tag_name === "string";
 }
 
 function normalizeVersion(value: string): string {
   return value.trim().replace(/^v/iu, "");
+}
+
+function summarizeReleaseNotes(value: string): string {
+  const normalized = value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+
+  if (normalized.length <= 1200) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 1197).trimEnd()}...`;
+}
+
+function compareVersions(candidate: string, current: string): number | null {
+  const candidateVersion = parseSemver(candidate);
+  const currentVersion = parseSemver(current);
+  if (!candidateVersion || !currentVersion) {
+    return null;
+  }
+
+  for (const key of ["major", "minor", "patch"] as const) {
+    if (candidateVersion[key] > currentVersion[key]) {
+      return 1;
+    }
+    if (candidateVersion[key] < currentVersion[key]) {
+      return -1;
+    }
+  }
+
+  if (candidateVersion.prerelease === currentVersion.prerelease) {
+    return 0;
+  }
+
+  if (candidateVersion.prerelease === null) {
+    return 1;
+  }
+
+  if (currentVersion.prerelease === null) {
+    return -1;
+  }
+
+  return comparePrerelease(candidateVersion.prerelease, currentVersion.prerelease);
+}
+
+function parseSemver(value: string): { major: number; minor: number; patch: number; prerelease: string | null } | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] ?? null
+  };
+}
+
+function comparePrerelease(candidate: string, current: string): number {
+  const candidateParts = candidate.split(".");
+  const currentParts = current.split(".");
+  const length = Math.max(candidateParts.length, currentParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const candidatePart = candidateParts[index];
+    const currentPart = currentParts[index];
+    if (candidatePart === undefined) {
+      return -1;
+    }
+    if (currentPart === undefined) {
+      return 1;
+    }
+    if (candidatePart === currentPart) {
+      continue;
+    }
+
+    const candidateNumber = /^\d+$/u.test(candidatePart) ? Number(candidatePart) : null;
+    const currentNumber = /^\d+$/u.test(currentPart) ? Number(currentPart) : null;
+    if (candidateNumber !== null && currentNumber !== null) {
+      return candidateNumber > currentNumber ? 1 : -1;
+    }
+    if (candidateNumber !== null) {
+      return -1;
+    }
+    if (currentNumber !== null) {
+      return 1;
+    }
+
+    return candidatePart > currentPart ? 1 : -1;
+  }
+
+  return 0;
 }
 
 async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSeconds: number): Promise<string> {
