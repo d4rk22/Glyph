@@ -68,6 +68,7 @@ interface FakeEnvOptions {
   adminCount?: number;
   authenticated?: boolean;
   activeUploadById?: unknown | null;
+  storageUsage?: unknown;
   uploads?: unknown[];
   uploadById?: unknown | null;
 }
@@ -120,6 +121,21 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
 
           if (sql.includes("FROM uploads WHERE id = ?")) {
             return options.uploadById ?? null;
+          }
+
+          if (sql.includes("FROM uploads")) {
+            return (
+              options.storageUsage ?? {
+                active_bytes: 1536,
+                active_count: 1,
+                expired_bytes: 0,
+                expired_count: 0,
+                deleted_bytes: 4096,
+                deleted_count: 1,
+                total_bytes: 5632,
+                total_count: 2
+              }
+            );
           }
 
           throw new Error(`Unhandled first query: ${sql}`);
@@ -222,6 +238,14 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.equal(response.status, 200);
   assert.match(body, /<h1>Files<\/h1>/);
   assert.match(body, /Upload deleted/);
+  assert.match(body, /aria-label="Usage summary"/);
+  assert.match(body, /<span class="usage-label">Active<\/span>/);
+  assert.match(body, /<span class="usage-value">1.50 KB<\/span>/);
+  assert.match(body, /<span class="usage-subvalue">1 upload<\/span>/);
+  assert.match(body, /<span class="usage-label">Deleted<\/span>/);
+  assert.match(body, /<span class="usage-value">4.00 KB<\/span>/);
+  assert.match(body, /<span class="usage-label">Total<\/span>/);
+  assert.match(body, /<span class="usage-value">5.50 KB<\/span>/);
   assert.match(body, /report\.pdf/);
   assert.match(body, /archive\.zip/);
   assert.match(body, /1\.50 KB/);
@@ -239,6 +263,16 @@ test("authenticated admin page lists active and deleted upload metadata", async 
 test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
   const env = createFakeEnv({
     authenticated: true,
+    storageUsage: {
+      active_bytes: 0,
+      active_count: 0,
+      expired_bytes: 12,
+      expired_count: 1,
+      deleted_bytes: 0,
+      deleted_count: 0,
+      total_bytes: 12,
+      total_count: 1
+    },
     uploads: [expiredUploadRow]
   });
 
@@ -246,6 +280,8 @@ test("authenticated admin page displays expired upload state and expiration time
   const body = await response.text();
 
   assert.equal(response.status, 200);
+  assert.match(body, /<span class="usage-label">Expired<\/span>/);
+  assert.match(body, /<span class="usage-value">12 B<\/span>/);
   assert.match(body, /status deleted">Expired/);
   assert.match(body, /Expires 2020-01-01T00:00:00.000Z/);
   assert.match(body, /value="2020-01-01T00:00"/);

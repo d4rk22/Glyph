@@ -30,6 +30,7 @@ The next product goal is to evolve Glyph from a minimal private file drop into a
 - Large files can use multipart uploads.
 - Upload UI can show progress and estimated time remaining.
 - Deployment can become a one-command setup/deploy workflow.
+- Admins can check for updates and choose manual or opt-in automatic self-updates once the repository is public.
 - Custom-domain setup can be automated after the basic deploy workflow is boring and reliable.
 
 ## v2 Requirements
@@ -129,6 +130,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Direct-to-R2 uploads work without bypassing D1 metadata/finalization controls.
 - Multipart uploads support large files with progress, retry behavior, and estimated time remaining.
 - One-command deploy can create or reuse Cloudflare resources, apply migrations, deploy the Worker, and print live/admin URLs.
+- Self-update can check the public GitHub repository for newer releases, show current/deployed version and release notes, run manual updates, and support conservative opt-in automatic updates.
 - Custom-domain automation can attach/manage an optional domain with clear Cloudflare permission docs.
 - Type checking passes.
 - Available tests pass.
@@ -145,4 +147,5 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 13. Add direct-to-R2 uploads.
 14. Add multipart uploads, upload progress, and estimated time remaining.
 15. Add one-command deploy script.
-16. Add custom-domain automation.
+16. Add self-update system with manual updates and opt-in automatic updates.
+17. Add custom-domain automation.

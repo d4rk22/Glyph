@@ -178,17 +178,27 @@ test("storage usage helper maps aggregate counters", async () => {
         expired_bytes: 300,
         expired_count: 1,
         deleted_bytes: 400,
-        deleted_count: 1
+        deleted_count: 1,
+        total_bytes: 1900,
+        total_count: 4
       }
     }
   ]);
 
-  assert.deepEqual(await getUploadStorageUsage(db), {
+  assert.deepEqual(await getUploadStorageUsage(db, new Date("2026-05-08T12:00:00.000Z")), {
     activeBytes: 1200,
     activeCount: 2,
     expiredBytes: 300,
     expiredCount: 1,
     deletedBytes: 400,
-    deletedCount: 1
+    deletedCount: 1,
+    totalBytes: 1900,
+    totalCount: 4
   });
+  assert.deepEqual(db.bindings[0], [
+    "2026-05-08T12:00:00.000Z",
+    "2026-05-08T12:00:00.000Z",
+    "2026-05-08T12:00:00.000Z",
+    "2026-05-08T12:00:00.000Z"
+  ]);
 });

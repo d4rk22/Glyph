@@ -77,6 +77,8 @@ export interface StorageUsage {
   expiredCount: number;
   deletedBytes: number;
   deletedCount: number;
+  totalBytes: number;
+  totalCount: number;
 }
 
 export interface AdminUser {
@@ -357,18 +359,22 @@ export async function listUploadsDueForExpiration(db: D1Database, now = new Date
   return rows.results.map(mapUpload);
 }
 
-export async function getUploadStorageUsage(db: D1Database): Promise<StorageUsage> {
+export async function getUploadStorageUsage(db: D1Database, now = new Date()): Promise<StorageUsage> {
+  const nowIso = now.toISOString();
   const row = await db
     .prepare(
       `SELECT
-        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL THEN size_bytes ELSE 0 END), 0) AS active_bytes,
-        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL THEN 1 ELSE 0 END), 0) AS active_count,
-        COALESCE(SUM(CASE WHEN expired_at IS NOT NULL AND deleted_at IS NULL THEN size_bytes ELSE 0 END), 0) AS expired_bytes,
-        COALESCE(SUM(CASE WHEN expired_at IS NOT NULL AND deleted_at IS NULL THEN 1 ELSE 0 END), 0) AS expired_count,
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL AND (expires_at IS NULL OR expires_at > ?) THEN size_bytes ELSE 0 END), 0) AS active_bytes,
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END), 0) AS active_count,
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND (expired_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= ?)) THEN size_bytes ELSE 0 END), 0) AS expired_bytes,
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND (expired_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= ?)) THEN 1 ELSE 0 END), 0) AS expired_count,
         COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN size_bytes ELSE 0 END), 0) AS deleted_bytes,
-        COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS deleted_count
+        COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS deleted_count,
+        COALESCE(SUM(size_bytes), 0) AS total_bytes,
+        COUNT(*) AS total_count
         FROM uploads`
     )
+    .bind(nowIso, nowIso, nowIso, nowIso)
     .first<{
       active_bytes: number;
       active_count: number;
@@ -376,6 +382,8 @@ export async function getUploadStorageUsage(db: D1Database): Promise<StorageUsag
       expired_count: number;
       deleted_bytes: number;
       deleted_count: number;
+      total_bytes: number;
+      total_count: number;
     }>();
 
   return {
@@ -384,7 +392,9 @@ export async function getUploadStorageUsage(db: D1Database): Promise<StorageUsag
     expiredBytes: row?.expired_bytes ?? 0,
     expiredCount: row?.expired_count ?? 0,
     deletedBytes: row?.deleted_bytes ?? 0,
-    deletedCount: row?.deleted_count ?? 0
+    deletedCount: row?.deleted_count ?? 0,
+    totalBytes: row?.total_bytes ?? 0,
+    totalCount: row?.total_count ?? 0
   };
 }
 

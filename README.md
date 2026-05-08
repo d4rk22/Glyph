@@ -70,6 +70,12 @@ Phase 10 manual expiring links are in place:
 - Public short links return the polished not-found page when `expires_at` is in the past or `expired_at` is set.
 - Clearing expiration also clears the expired marker so an upload can become active again if it has not been deleted.
 
+Phase 11 usage dashboard is in place:
+
+- `/admin` shows active, expired, deleted, and total upload counts and file-size summaries.
+- Usage accounting treats past `expires_at` timestamps as expired even before a public link is revisited.
+- The v2 roadmap now includes a future self-update system phase after one-command deploy and before custom-domain automation.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -144,6 +150,7 @@ For local passkey testing, use a browser on the local Wrangler origin. Passkeys 
 
 The protected admin panel lists the 100 most recent uploads, including active and deleted rows. Each upload card shows:
 
+- Usage totals for active, expired, deleted, and total uploads.
 - Original filename.
 - Short URL with an in-browser copy button.
 - Size and content type.

@@ -40,6 +40,7 @@ import {
   getActiveWebAuthnChallenge,
   getAdminUserById,
   getUploadMetadata,
+  getUploadStorageUsage,
   getWebAuthnCredentialByCredentialId,
   listUploadMetadata,
   markUploadExpired,
@@ -49,6 +50,7 @@ import {
   updateUploadExpiration,
   updateWebAuthnCredentialUse,
   type AdminUser,
+  type StorageUsage,
   type UploadMetadata
 } from "./db.ts";
 import { formatBytes } from "./format.ts";
@@ -209,11 +211,12 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
       includeDeleted: true,
       limit: 100
     });
+    const usage = await getUploadStorageUsage(env.DB);
 
     return html(
       renderShell(
         "Glyph Admin",
-        adminDashboardPage(auth.user, uploads, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
+        adminDashboardPage(auth.user, uploads, usage, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
         { wide: true }
       )
     );
@@ -794,6 +797,44 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
       margin-top: 24px;
     }
 
+    .usage-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .usage-item {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .usage-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .usage-value {
+      display: block;
+      margin-top: 4px;
+      color: var(--text);
+      font-size: 1.2rem;
+      font-weight: 800;
+    }
+
+    .usage-subvalue {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
     .upload-card {
       display: grid;
       grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.9fr) auto;
@@ -952,6 +993,10 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
         grid-template-columns: 1fr;
       }
 
+      .usage-grid {
+        grid-template-columns: 1fr;
+      }
+
       .upload-actions {
         justify-content: stretch;
       }
@@ -1063,6 +1108,7 @@ function adminLoginPage(): string {
 function adminDashboardPage(
   user: AdminUser,
   uploads: UploadMetadata[],
+  usage: StorageUsage,
   origin: string,
   configuredBaseUrl: string | undefined,
   notice: string | null
@@ -1091,6 +1137,7 @@ ${noticeMarkup(notice)}
     <span class="meta-value">${uploads.length}</span>
   </div>
 </div>
+${usageDashboard(usage)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
 }
@@ -1176,6 +1223,23 @@ function uploadList(uploads: UploadMetadata[], origin: string, configuredBaseUrl
   return `<div class="upload-list">
 ${uploads.map((upload) => uploadCard(upload, buildPublicUrl(origin, configuredBaseUrl, upload.id))).join("\n")}
 </div>`;
+}
+
+function usageDashboard(usage: StorageUsage): string {
+  return `<section class="usage-grid" aria-label="Usage summary">
+  ${usageItem("Active", usage.activeBytes, usage.activeCount)}
+  ${usageItem("Expired", usage.expiredBytes, usage.expiredCount)}
+  ${usageItem("Deleted", usage.deletedBytes, usage.deletedCount)}
+  ${usageItem("Total", usage.totalBytes, usage.totalCount)}
+</section>`;
+}
+
+function usageItem(label: string, bytes: number, count: number): string {
+  return `<div class="usage-item">
+    <span class="usage-label">${escapeHtml(label)}</span>
+    <span class="usage-value">${formatBytes(bytes)}</span>
+    <span class="usage-subvalue">${count} ${count === 1 ? "upload" : "uploads"}</span>
+  </div>`;
 }
 
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
