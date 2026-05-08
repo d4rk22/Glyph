@@ -4,6 +4,7 @@ import {
   getActiveUploadMetadata,
   type UploadMetadata
 } from "./db";
+import { formatBytes } from "./format";
 import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http";
 
 const SECURITY_HEADERS = {
@@ -141,12 +142,17 @@ function renderShell(title: string, main: string): string {
   <style>
     :root {
       color-scheme: light dark;
-      --bg: #f7f4ed;
-      --panel: #fffdf8;
-      --text: #24221e;
-      --muted: #69635b;
-      --border: #ddd5c8;
-      --accent: #176b87;
+      --bg: #f5f7f6;
+      --surface: #ffffff;
+      --surface-muted: #eef3f0;
+      --text: #202321;
+      --muted: #626b66;
+      --border: #d9e0dc;
+      --accent: #276749;
+      --accent-strong: #1f5139;
+      --danger-bg: #fff0ec;
+      --danger-border: #efb2a5;
+      --danger-text: #8c2f1f;
     }
 
     * {
@@ -156,9 +162,10 @@ function renderShell(title: string, main: string): string {
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
       background: var(--bg);
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -166,18 +173,25 @@ function renderShell(title: string, main: string): string {
     }
 
     main {
-      width: min(100%, 520px);
-      padding: 28px;
-      background: var(--panel);
+      width: min(100%, 560px);
+      padding: 32px;
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 8px;
-      box-shadow: 0 16px 48px rgb(36 34 30 / 0.08);
+      box-shadow: 0 18px 48px rgb(32 35 33 / 0.08);
     }
 
     h1 {
+      margin: 0;
+      font-size: clamp(2.25rem, 9vw, 4rem);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    h2 {
       margin: 0 0 8px;
-      font-size: clamp(2rem, 7vw, 3.25rem);
-      line-height: 1;
+      font-size: 1rem;
+      line-height: 1.2;
       letter-spacing: 0;
     }
 
@@ -186,8 +200,23 @@ function renderShell(title: string, main: string): string {
       color: var(--muted);
     }
 
+    .eyebrow {
+      margin-bottom: 14px;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      margin-top: 12px;
+      font-size: 1.05rem;
+    }
+
     form {
-      margin-top: 24px;
+      margin-top: 28px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
     }
 
     label {
@@ -201,10 +230,10 @@ function renderShell(title: string, main: string): string {
     input[readonly] {
       width: 100%;
       min-height: 44px;
-      padding: 10px 12px;
+      padding: 11px 12px;
       border: 1px solid var(--border);
       border-radius: 6px;
-      background: transparent;
+      background: var(--surface);
       color: var(--text);
       font: inherit;
     }
@@ -214,9 +243,15 @@ function renderShell(title: string, main: string): string {
       margin-right: 12px;
       border: 1px solid var(--border);
       border-radius: 6px;
-      background: var(--panel);
+      background: var(--surface-muted);
       color: var(--text);
       font: inherit;
+    }
+
+    input[readonly] {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92rem;
     }
 
     .actions {
@@ -238,7 +273,15 @@ function renderShell(title: string, main: string): string {
       background: var(--accent);
       color: white;
       font: inherit;
+      font-weight: 700;
       text-decoration: none;
+      cursor: pointer;
+    }
+
+    button:hover,
+    a.button:hover {
+      background: var(--accent-strong);
+      border-color: var(--accent-strong);
     }
 
     .secondary {
@@ -246,23 +289,91 @@ function renderShell(title: string, main: string): string {
       color: var(--accent);
     }
 
+    .secondary:hover {
+      background: var(--surface-muted);
+      color: var(--accent-strong);
+    }
+
     .error {
-      margin-top: 16px;
-      color: #a43131;
+      margin-top: 20px;
+      padding: 12px 14px;
+      border: 1px solid var(--danger-border);
+      border-radius: 6px;
+      background: var(--danger-bg);
+      color: var(--danger-text);
     }
 
     .copy-row {
-      margin-top: 20px;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .meta-item {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-muted);
+    }
+
+    .meta-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .meta-value {
+      display: block;
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    @media (max-width: 520px) {
+      body {
+        align-items: stretch;
+        padding: 12px;
+      }
+
+      main {
+        padding: 24px;
+      }
+
+      .actions,
+      button,
+      a.button {
+        width: 100%;
+      }
+
+      .meta {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #151717;
-        --panel: #1e2222;
-        --text: #f3f0e9;
-        --muted: #bbb5aa;
-        --border: #333a39;
-        --accent: #71c4d6;
+        --bg: #141716;
+        --surface: #1f2422;
+        --surface-muted: #29312d;
+        --text: #f4f7f4;
+        --muted: #b5bdb8;
+        --border: #36413c;
+        --accent: #87d6a6;
+        --accent-strong: #a4e7bb;
+        --danger-bg: #351f1a;
+        --danger-border: #7f4033;
+        --danger-text: #f5b9ab;
       }
     }
   </style>
@@ -276,8 +387,9 @@ function renderShell(title: string, main: string): string {
 function uploadPage(error?: string): string {
   const errorMarkup = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
 
-  return `<h1>Glyph</h1>
-<p>A private file drop for short, unlisted links.</p>
+  return `<p class="eyebrow">Private file drop</p>
+<h1>Glyph</h1>
+<p class="lede">Upload a file and get a short, unlisted download link backed by Cloudflare R2.</p>
 ${errorMarkup}
 <form method="post" enctype="multipart/form-data">
   <label for="file">File</label>
@@ -290,10 +402,22 @@ ${errorMarkup}
 }
 
 function uploadSuccessPage(metadata: UploadMetadata, shortUrl: string): string {
-  return `<h1>Ready</h1>
-<p>${escapeHtml(metadata.originalFilename)} is available at an unlisted short URL.</p>
+  return `<p class="eyebrow">Upload complete</p>
+<h1>Ready</h1>
+<p class="lede">${escapeHtml(metadata.originalFilename)} is available at an unlisted short URL.</p>
 <div class="copy-row">
-  <input value="${escapeAttribute(shortUrl)}" readonly aria-label="Short URL">
+  <label for="short-url">Short URL</label>
+  <input id="short-url" value="${escapeAttribute(shortUrl)}" readonly aria-label="Short URL">
+</div>
+<div class="meta">
+  <div class="meta-item">
+    <span class="meta-label">File</span>
+    <span class="meta-value">${escapeHtml(metadata.originalFilename)}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Size</span>
+    <span class="meta-value">${formatBytes(metadata.sizeBytes)}</span>
+  </div>
 </div>
 <div class="actions">
   <a class="button" href="${escapeAttribute(shortUrl)}">Download</a>
@@ -302,16 +426,18 @@ function uploadSuccessPage(metadata: UploadMetadata, shortUrl: string): string {
 }
 
 function adminPlaceholder(): string {
-  return `<h1>Admin</h1>
-<p>Passkey setup, upload listing, metadata, copy links, and deletion will be added in the admin phase.</p>
+  return `<p class="eyebrow">Admin</p>
+<h1>Not ready</h1>
+<p class="lede">Passkey setup, upload listing, metadata, copy links, and deletion will be added in the admin phase.</p>
 <div class="actions">
   <a class="button secondary" href="/">Back</a>
 </div>`;
 }
 
 function notFoundPage(): string {
-  return `<h1>Not found</h1>
-<p>This Glyph link does not exist or is no longer available.</p>
+  return `<p class="eyebrow">Unavailable link</p>
+<h1>Not found</h1>
+<p class="lede">This Glyph link does not exist or is no longer available.</p>
 <div class="actions">
   <a class="button secondary" href="/">Home</a>
 </div>`;
@@ -335,7 +461,18 @@ function escapeHtml(value: string): string {
 }
 
 async function readUploadFile(request: Request): Promise<UploadedFile> {
-  const formData = await request.formData();
+  const requestContentType = request.headers.get("Content-Type") || "";
+  if (!requestContentType.toLowerCase().includes("multipart/form-data")) {
+    throw new Error("Choose a file to upload.");
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    throw new Error("Choose a file to upload.");
+  }
+
   const value = formData.get(UPLOAD_FIELD_NAME);
 
   if (!isUploadedFile(value)) {

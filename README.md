@@ -28,6 +28,12 @@ Phase 3 upload/download flow is in place:
 - `/{id}` streams active uploads back with original filename and content type.
 - Missing, deleted, or unavailable uploads return the polished not-found response.
 
+Phase 4 UI polish is in place:
+
+- Upload, success, admin placeholder, and not-found pages use a cleaner responsive app surface.
+- Upload errors are presented inline with stronger visual treatment.
+- Success pages expose the short URL, file name, size, and direct download action.
+
 Passkey and admin management flows are intentionally still pending.
 
 ## Prerequisites
@@ -84,6 +90,7 @@ Then open the local URL printed by Wrangler.
 
 ```sh
 pnpm run typecheck
+pnpm test
 ```
 
 No runtime dependencies are currently used. Dev dependencies are limited to Cloudflare/TypeScript tooling: Wrangler, TypeScript, and Cloudflare Workers types.
@@ -100,7 +107,6 @@ pnpm run deploy
 
 ## Known MVP Limitations
 
-- Anonymous upload and short-link download flows are not implemented yet.
 - Passkey bootstrap and login are not implemented yet.
 - Admin listing, metadata viewing, link copying, and deletion are not implemented yet.
 - Direct-to-R2 and multipart uploads are intentionally deferred.
