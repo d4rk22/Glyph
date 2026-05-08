@@ -1,5 +1,5 @@
-import { DEFAULT_SHORT_ID_LENGTH, generateShortId, sanitizeObjectName } from "./ids";
-import type { WebAuthnChallengePurpose } from "./auth";
+import { DEFAULT_SHORT_ID_LENGTH, generateShortId, sanitizeObjectName } from "./ids.ts";
+import type { WebAuthnChallengePurpose } from "./auth.ts";
 
 const DEFAULT_MAX_ID_ATTEMPTS = 8;
 const SESSION_TOKEN_BYTES = 32;

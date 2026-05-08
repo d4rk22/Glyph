@@ -9,7 +9,7 @@ import {
   type WebAuthnCredential as SimpleWebAuthnCredential
 } from "@simplewebauthn/server";
 
-import { adminNoticeMessage, isSameOriginAdminRequest } from "./admin";
+import { adminNoticeMessage, isSameOriginAdminRequest } from "./admin.ts";
 import {
   ADMIN_SESSION_COOKIE,
   base64UrlDecode,
@@ -24,7 +24,7 @@ import {
   rpIdFromUrl,
   sessionExpiresAt,
   utf8Bytes
-} from "./auth";
+} from "./auth.ts";
 import {
   consumeWebAuthnChallenge,
   countAdminUsers,
@@ -48,9 +48,9 @@ import {
   updateWebAuthnCredentialUse,
   type AdminUser,
   type UploadMetadata
-} from "./db";
-import { formatBytes } from "./format";
-import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http";
+} from "./db.ts";
+import { formatBytes } from "./format.ts";
+import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http.ts";
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
