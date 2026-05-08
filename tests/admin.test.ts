@@ -68,6 +68,8 @@ interface FakeEnvOptions {
   adminCount?: number;
   authenticated?: boolean;
   activeUploadById?: unknown | null;
+  appSettings?: unknown[];
+  oldestActiveUploads?: unknown[];
   storageUsage?: unknown;
   uploads?: unknown[];
   uploadById?: unknown | null;
@@ -85,11 +87,14 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   expirationUpdates: unknown[][];
   markedExpiredIds: string[];
   markedDeletedIds: string[];
+  settingsUpdates: unknown[][];
 } {
   const deletedObjectKeys: string[] = [];
   const expirationUpdates: unknown[][] = [];
   const markedExpiredIds: string[] = [];
   const markedDeletedIds: string[] = [];
+  const settingsUpdates: unknown[][] = [];
+  const settingsRows = [...(options.appSettings ?? [])] as Array<{ key: string; value: string; updated_at: string }>;
   const adminCount = options.adminCount ?? 1;
   const authenticated = options.authenticated ?? false;
 
@@ -141,7 +146,15 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
           throw new Error(`Unhandled first query: ${sql}`);
         },
         async all() {
+          if (sql.includes("FROM app_settings")) {
+            return { results: settingsRows };
+          }
+
           if (sql.includes("FROM uploads")) {
+            if (sql.includes("ORDER BY created_at ASC")) {
+              return { results: options.oldestActiveUploads ?? [] };
+            }
+
             return { results: options.uploads ?? [] };
           }
 
@@ -160,6 +173,19 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
 
           if (sql.includes("SET expired_at = ?")) {
             markedExpiredIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("INSERT INTO app_settings")) {
+            settingsUpdates.push(bindings);
+            const [key, value, updatedAt] = bindings as [string, string, string];
+            const existing = settingsRows.find((row) => row.key === key);
+            if (existing) {
+              existing.value = value;
+              existing.updated_at = updatedAt;
+            } else {
+              settingsRows.push({ key, value, updated_at: updatedAt });
+            }
             return { meta: { changes: 1 } };
           }
 
@@ -186,8 +212,15 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     deletedObjectKeys,
     expirationUpdates,
     markedExpiredIds,
-    markedDeletedIds
-  } as Env & { deletedObjectKeys: string[]; expirationUpdates: unknown[][]; markedExpiredIds: string[]; markedDeletedIds: string[] };
+    markedDeletedIds,
+    settingsUpdates
+  } as Env & {
+    deletedObjectKeys: string[];
+    expirationUpdates: unknown[][];
+    markedExpiredIds: string[];
+    markedDeletedIds: string[];
+    settingsUpdates: unknown[][];
+  };
 }
 
 function adminRequest(path: string, init: RequestInit = {}): Request {
@@ -207,6 +240,12 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("expiration-updated"), "Upload expiration updated.");
   assert.equal(adminNoticeMessage("expiration-cleared"), "Upload expiration cleared.");
   assert.equal(adminNoticeMessage("invalid-expiration"), "That expiration date could not be read.");
+  assert.equal(
+    adminNoticeMessage("storage-cap-updated"),
+    "Storage cap updated. Oldest active uploads were expired if active storage was over the cap."
+  );
+  assert.equal(adminNoticeMessage("storage-cap-cleared"), "Storage cap cleared.");
+  assert.equal(adminNoticeMessage("invalid-storage-cap"), "Storage cap must be a non-negative whole number of bytes.");
   assert.equal(adminNoticeMessage("unknown"), null);
 });
 
@@ -246,6 +285,9 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /<span class="usage-value">4.00 KB<\/span>/);
   assert.match(body, /<span class="usage-label">Total<\/span>/);
   assert.match(body, /<span class="usage-value">5.50 KB<\/span>/);
+  assert.match(body, /aria-label="Storage cap"/);
+  assert.match(body, /Current No cap/);
+  assert.match(body, /name="storageCapBytes"/);
   assert.match(body, /report\.pdf/);
   assert.match(body, /archive\.zip/);
   assert.match(body, /1\.50 KB/);
@@ -258,6 +300,22 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /name="expiresAt"/);
   assert.match(body, /name="id" value="active123"/);
   assert.doesNotMatch(body, /name="id" value="deleted123"/);
+});
+
+test("authenticated admin page displays configured storage cap", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [{ key: "storage_cap_bytes", value: "2048", updated_at: "2026-05-08T12:00:00.000Z" }],
+    uploads: [activeUploadRow]
+  });
+
+  const response = await worker.fetch(adminRequest("/admin"), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Current 2\.00 KB/);
+  assert.match(body, /Remaining 512 B/);
+  assert.match(body, /value="2048"/);
 });
 
 test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
@@ -426,6 +484,130 @@ test("admin expiration update sets and clears upload expiration", async () => {
   assert.equal(clearResponse.status, 303);
   assert.equal(clearResponse.headers.get("Location"), "/admin?notice=expiration-cleared");
   assert.deepEqual(env.expirationUpdates[1], [null, "active123"]);
+});
+
+test("admin storage cap update validates origin before touching settings or uploads", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/storage-cap", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: new URLSearchParams({ storageCapBytes: "150" })
+    }),
+    env,
+    createExecutionContext()
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 403);
+  assert.match(body, /Action blocked/);
+  assert.deepEqual(env.settingsUpdates, []);
+  assert.deepEqual(env.markedExpiredIds, []);
+  assert.deepEqual(env.deletedObjectKeys, []);
+});
+
+test("admin storage cap update rejects invalid byte limits", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/storage-cap", {
+      method: "POST",
+      body: new URLSearchParams({ storageCapBytes: "-1" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=invalid-storage-cap");
+  assert.deepEqual(env.settingsUpdates, []);
+  assert.deepEqual(env.markedExpiredIds, []);
+});
+
+test("admin storage cap update expires oldest active uploads until usage is under cap", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    storageUsage: {
+      active_bytes: 300,
+      active_count: 2,
+      expired_bytes: 0,
+      expired_count: 0,
+      deleted_bytes: 512,
+      deleted_count: 1,
+      total_bytes: 812,
+      total_count: 3
+    },
+    oldestActiveUploads: [
+      {
+        ...activeUploadRow,
+        id: "oldest",
+        object_key: "uploads/oldest/a.txt",
+        original_filename: "a.txt",
+        size_bytes: 200,
+        created_at: "2026-05-08T00:00:00.000Z"
+      },
+      {
+        ...activeUploadRow,
+        id: "newest",
+        object_key: "uploads/newest/b.txt",
+        original_filename: "b.txt",
+        size_bytes: 100,
+        created_at: "2026-05-08T01:00:00.000Z"
+      },
+      {
+        ...deletedUploadRow,
+        id: "deleted-old",
+        object_key: "uploads/deleted-old/c.txt",
+        original_filename: "c.txt",
+        size_bytes: 512,
+        created_at: "2026-05-07T01:00:00.000Z"
+      }
+    ]
+  });
+
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/storage-cap", {
+      method: "POST",
+      body: new URLSearchParams({ storageCapBytes: "150" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=storage-cap-updated");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["storage_cap_bytes", "150"]);
+  assert.deepEqual(env.markedExpiredIds, ["oldest"]);
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/oldest/a.txt"]);
+});
+
+test("admin storage cap can be cleared without enforcement", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [{ key: "storage_cap_bytes", value: "150", updated_at: "2026-05-08T12:00:00.000Z" }],
+    storageUsage: {
+      active_bytes: 300,
+      active_count: 2,
+      expired_bytes: 0,
+      expired_count: 0,
+      deleted_bytes: 0,
+      deleted_count: 0,
+      total_bytes: 300,
+      total_count: 2
+    },
+    oldestActiveUploads: [activeUploadRow]
+  });
+
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/storage-cap", { method: "POST", body: new URLSearchParams() }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=storage-cap-cleared");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["storage_cap_bytes", ""]);
+  assert.deepEqual(env.markedExpiredIds, []);
+  assert.deepEqual(env.deletedObjectKeys, []);
 });
 
 test("admin delete removes the R2 object and marks metadata deleted", async () => {

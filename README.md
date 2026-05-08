@@ -76,6 +76,13 @@ Phase 11 usage dashboard is in place:
 - Usage accounting treats past `expires_at` timestamps as expired even before a public link is revisited.
 - The v2 roadmap now includes a future self-update system phase after one-command deploy and before custom-domain automation.
 
+Phase 12 simple storage cap enforcement is in place:
+
+- Admins can view, set, update, and clear a storage cap in bytes from `/admin`.
+- Storage-cap enforcement runs after successful uploads and after admin cap updates.
+- When active stored bytes exceed the cap, Glyph expires the oldest active uploads first and asks R2 to delete those objects best-effort.
+- Enforcement stays request-driven for now; there are no scheduled Workers, queues, or retry systems.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -151,6 +158,7 @@ For local passkey testing, use a browser on the local Wrangler origin. Passkeys 
 The protected admin panel lists the 100 most recent uploads, including active and deleted rows. Each upload card shows:
 
 - Usage totals for active, expired, deleted, and total uploads.
+- Current storage cap, active usage, and remaining capacity.
 - Original filename.
 - Short URL with an in-browser copy button.
 - Size and content type.
@@ -160,7 +168,9 @@ The protected admin panel lists the 100 most recent uploads, including active an
 
 Deleting an upload asks R2 to remove the stored object, then marks the D1 metadata row with `deleted_at`. Deleted short links return the same polished not-found response as missing links. If the R2 delete request fails, Glyph still marks the metadata deleted so the public link is unavailable.
 
-Admins can set or clear a manual expiration for active uploads. Expiration timestamps are stored as UTC. Expired short links return the not-found response, but the metadata remains visible in the admin panel. Automatic storage-cap expiration is intentionally deferred to a later v2 phase.
+Admins can set or clear a manual expiration for active uploads. Expiration timestamps are stored as UTC. Expired short links return the not-found response, but the metadata remains visible in the admin panel.
+
+Admins can also set or clear a storage cap in bytes. When active stored bytes exceed that cap after an upload or cap update, Glyph marks the oldest active uploads expired until active usage is at or below the cap, and requests best-effort R2 object deletion for those expired uploads. This is intentionally simple request-time enforcement; scheduled cleanup, retry queues, and richer policy controls are deferred.
 
 ## Verification
 
@@ -183,6 +193,7 @@ Final MVP smoke checks should include:
 - Authenticated `/admin` shows upload metadata, copy affordances, and delete actions.
 - `POST /admin/uploads/delete` marks metadata deleted and requests R2 object removal.
 - `GET /{deleted-id}` returns the polished not-found page.
+- `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
 
 ## Dependency Policy
 
@@ -216,7 +227,8 @@ Recommended deployment checklist:
 
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
 - Uploads are Worker-mediated for the MVP. Direct-to-R2 and multipart uploads are intentionally deferred.
-- No folders, public file browsing, billing, usage dashboard, expiring links, or custom-domain automation.
+- No folders, public file browsing, billing, direct-to-R2 uploads, multipart uploads, upload progress, deploy automation, self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
+- Storage-cap expiration is request-driven and best-effort; it does not use scheduled Workers, background queues, or retry tracking yet.
 - Passkeys are origin-bound, so local and deployed admin credentials are separate.

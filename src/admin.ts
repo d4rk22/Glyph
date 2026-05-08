@@ -12,6 +12,12 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "Upload expiration cleared.";
     case "invalid-expiration":
       return "That expiration date could not be read.";
+    case "storage-cap-updated":
+      return "Storage cap updated. Oldest active uploads were expired if active storage was over the cap.";
+    case "storage-cap-cleared":
+      return "Storage cap cleared.";
+    case "invalid-storage-cap":
+      return "Storage cap must be a non-negative whole number of bytes.";
     default:
       return null;
   }

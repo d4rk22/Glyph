@@ -5,6 +5,7 @@ import {
   createUploadMetadata,
   getAppSettings,
   getUploadStorageUsage,
+  listOldestActiveUploads,
   listUploadsDueForExpiration,
   markUploadExpired,
   setAppSetting,
@@ -111,6 +112,38 @@ test("expiration helpers update and list expiration metadata", async () => {
   assert.equal(due.length, 1);
   assert.equal(due[0].id, "upload1");
   assert.equal(due[0].expiresAt, dueAt);
+});
+
+test("oldest active upload helper excludes inactive uploads at query time", async () => {
+  const db = createFakeDb([
+    {
+      all: [
+        {
+          id: "oldest",
+          object_key: "uploads/oldest/file.txt",
+          original_filename: "file.txt",
+          content_type: "text/plain",
+          size_bytes: 12,
+          created_at: "2026-05-08T09:00:00.000Z",
+          deleted_at: null,
+          expires_at: null,
+          expired_at: null,
+          upload_mode: "worker",
+          storage_state: "stored"
+        }
+      ]
+    }
+  ]);
+
+  const uploads = await listOldestActiveUploads(db, new Date("2026-05-08T12:00:00.000Z"), 25);
+
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].id, "oldest");
+  assert.equal(db.bindings[0][0], "2026-05-08T12:00:00.000Z");
+  assert.equal(db.bindings[0][1], 25);
+  assert.match(db.queries[0], /deleted_at IS NULL/);
+  assert.match(db.queries[0], /expired_at IS NULL/);
+  assert.match(db.queries[0], /ORDER BY created_at ASC/);
 });
 
 test("app settings helpers parse defaults and typed values", async () => {

@@ -359,6 +359,23 @@ export async function listUploadsDueForExpiration(db: D1Database, now = new Date
   return rows.results.map(mapUpload);
 }
 
+export async function listOldestActiveUploads(db: D1Database, now = new Date(), limit = 50): Promise<UploadMetadata[]> {
+  const rows = await db
+    .prepare(
+      `SELECT *
+        FROM uploads
+        WHERE deleted_at IS NULL
+          AND expired_at IS NULL
+          AND (expires_at IS NULL OR expires_at > ?)
+        ORDER BY created_at ASC
+        LIMIT ?`
+    )
+    .bind(now.toISOString(), clampLimit(limit))
+    .all<UploadRow>();
+
+  return rows.results.map(mapUpload);
+}
+
 export async function getUploadStorageUsage(db: D1Database, now = new Date()): Promise<StorageUsage> {
   const nowIso = now.toISOString();
   const row = await db

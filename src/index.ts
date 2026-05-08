@@ -39,16 +39,20 @@ import {
   getActiveUploadMetadata,
   getActiveWebAuthnChallenge,
   getAdminUserById,
+  getAppSettings,
   getUploadMetadata,
   getUploadStorageUsage,
   getWebAuthnCredentialByCredentialId,
+  listOldestActiveUploads,
   listUploadMetadata,
   markUploadExpired,
   listWebAuthnCredentials,
   markUploadDeleted,
   touchAdminUserLogin,
+  updateAppSettings,
   updateUploadExpiration,
   updateWebAuthnCredentialUse,
+  type AppSettings,
   type AdminUser,
   type StorageUsage,
   type UploadMetadata
@@ -103,6 +107,10 @@ export default {
 
     if (url.pathname === "/admin/uploads/expiration" && request.method === "POST") {
       return handleAdminUploadExpiration(request, env);
+    }
+
+    if (url.pathname === "/admin/settings/storage-cap" && request.method === "POST") {
+      return handleAdminStorageCap(request, env);
     }
 
     if (url.pathname === "/admin/passkeys/register/options" && request.method === "POST") {
@@ -163,6 +171,8 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
     return html(renderShell("Upload Error", uploadPage("The file could not be stored. Try again.")), 500);
   }
 
+  await enforceStorageCap(env);
+
   const origin = new URL(request.url).origin;
   return html(renderShell("Upload Ready", uploadSuccessPage(metadata, buildPublicUrl(origin, env.PUBLIC_BASE_URL, metadata.id))), 201);
 }
@@ -212,11 +222,12 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
       limit: 100
     });
     const usage = await getUploadStorageUsage(env.DB);
+    const settings = await getAppSettings(env.DB);
 
     return html(
       renderShell(
         "Glyph Admin",
-        adminDashboardPage(auth.user, uploads, usage, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
+        adminDashboardPage(auth.user, uploads, usage, settings, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
         { wide: true }
       )
     );
@@ -290,6 +301,28 @@ async function handleAdminUploadExpiration(request: Request, env: Env): Promise<
 
   await updateUploadExpiration(env.DB, id, expiresAt);
   return redirect(`/admin?notice=${expiresAt === null ? "expiration-cleared" : "expiration-updated"}`);
+}
+
+async function handleAdminStorageCap(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The storage cap request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const storageCapBytes = parseStorageCapFormValue(formString(formData, "storageCapBytes"));
+  if (storageCapBytes instanceof Error) {
+    return redirect("/admin?notice=invalid-storage-cap");
+  }
+
+  await updateAppSettings(env.DB, { storageCapBytes });
+  await enforceStorageCap(env);
+
+  return redirect(`/admin?notice=${storageCapBytes === null ? "storage-cap-cleared" : "storage-cap-updated"}`);
 }
 
 async function handleAdminLogout(request: Request, env: Env): Promise<Response> {
@@ -680,6 +713,7 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
     }
 
     input[type="file"],
+    input[type="number"],
     input[readonly] {
       width: 100%;
       min-height: 44px;
@@ -833,6 +867,43 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
       margin-top: 2px;
       color: var(--muted);
       font-size: 0.86rem;
+    }
+
+    .settings-panel {
+      margin-top: 24px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .settings-panel form {
+      margin-top: 16px;
+      padding-top: 16px;
+    }
+
+    .settings-panel form:first-of-type {
+      margin-top: 18px;
+    }
+
+    .settings-detail {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .settings-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .settings-form label {
+      margin-bottom: 8px;
     }
 
     .upload-card {
@@ -997,6 +1068,10 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
         grid-template-columns: 1fr;
       }
 
+      .settings-form {
+        grid-template-columns: 1fr;
+      }
+
       .upload-actions {
         justify-content: stretch;
       }
@@ -1109,6 +1184,7 @@ function adminDashboardPage(
   user: AdminUser,
   uploads: UploadMetadata[],
   usage: StorageUsage,
+  settings: AppSettings,
   origin: string,
   configuredBaseUrl: string | undefined,
   notice: string | null
@@ -1138,6 +1214,7 @@ ${noticeMarkup(notice)}
   </div>
 </div>
 ${usageDashboard(usage)}
+${storageCapPanel(settings, usage)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
 }
@@ -1242,6 +1319,32 @@ function usageItem(label: string, bytes: number, count: number): string {
   </div>`;
 }
 
+function storageCapPanel(settings: AppSettings, usage: StorageUsage): string {
+  const cap = settings.storageCapBytes;
+  const capValue = cap === null ? "" : String(cap);
+  const capLabel = cap === null ? "No cap" : formatBytes(cap);
+  const remainingLabel = cap === null ? "Unlimited" : formatBytes(Math.max(0, cap - usage.activeBytes));
+
+  return `<section class="settings-panel" aria-label="Storage cap">
+  <h2>Storage cap</h2>
+  <div class="settings-detail">
+    <span>Current ${escapeHtml(capLabel)}</span>
+    <span>Active ${formatBytes(usage.activeBytes)}</span>
+    <span>Remaining ${escapeHtml(remainingLabel)}</span>
+  </div>
+  <form class="settings-form" method="post" action="/admin/settings/storage-cap">
+    <div>
+      <label for="storage-cap-bytes">Cap in bytes</label>
+      <input id="storage-cap-bytes" name="storageCapBytes" type="number" min="0" step="1" inputmode="numeric" value="${escapeAttribute(capValue)}">
+    </div>
+    <button type="submit">Save cap</button>
+  </form>
+  <form method="post" action="/admin/settings/storage-cap">
+    <button class="secondary" type="submit">Clear cap</button>
+  </form>
+</section>`;
+}
+
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
   const isDeleted = upload.deletedAt !== null;
   const isExpired = !isDeleted && isUploadExpired(upload);
@@ -1327,6 +1430,73 @@ function parseExpirationFormValue(value: string | null): string | null | Error {
   }
 
   return parsed.toISOString();
+}
+
+function parseStorageCapFormValue(value: string | null): number | null | Error {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return new Error("Invalid storage cap.");
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    return new Error("Invalid storage cap.");
+  }
+
+  return parsed;
+}
+
+async function enforceStorageCap(env: Env): Promise<{ expiredCount: number; expiredBytes: number }> {
+  const settings = await getAppSettings(env.DB);
+  if (settings.storageCapBytes === null) {
+    return { expiredCount: 0, expiredBytes: 0 };
+  }
+
+  const cap = settings.storageCapBytes;
+  const usage = await getUploadStorageUsage(env.DB);
+  let activeBytes = usage.activeBytes;
+  let expiredCount = 0;
+  let expiredBytes = 0;
+
+  while (activeBytes > cap) {
+    const candidates = await listOldestActiveUploads(env.DB, new Date(), 50);
+    if (candidates.length === 0) {
+      break;
+    }
+
+    let changed = false;
+    for (const upload of candidates) {
+      if (activeBytes <= cap) {
+        break;
+      }
+
+      const expired = await markUploadExpired(env.DB, upload.id);
+      if (!expired) {
+        continue;
+      }
+
+      changed = true;
+      expiredCount += 1;
+      expiredBytes += upload.sizeBytes;
+      activeBytes = Math.max(0, activeBytes - upload.sizeBytes);
+
+      try {
+        await env.FILES.delete(upload.objectKey);
+      } catch (error) {
+        console.error("R2 auto-expire delete failed", error);
+      }
+    }
+
+    if (!changed) {
+      break;
+    }
+  }
+
+  return { expiredCount, expiredBytes };
 }
 
 function datetimeLocalValue(value: string | null): string {
