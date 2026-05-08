@@ -32,7 +32,7 @@ The next product goal is to evolve Glyph from a minimal private file drop into a
 - Deployment can become a one-command setup/deploy workflow.
 - Admins can check for updates and choose manual or opt-in automatic self-updates once the repository is public.
 - Expired/deleted objects can be reconciled with R2 by a simple retryable cleanup path.
-- Custom-domain setup can be automated after the basic deploy workflow is boring and reliable.
+- Custom-domain setup can start with deploy-time readiness checks and clear manual Cloudflare steps, then move toward fuller automation after the basic deploy workflow is boring and reliable.
 
 ## v2 Requirements
 
@@ -134,7 +134,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - One-command deploy can create or reuse Cloudflare resources, apply migrations, deploy the Worker, and print live/admin URLs.
 - Self-update can check the public GitHub repository for newer releases, show current/deployed version and release notes, run manual updates, and support conservative opt-in automatic updates.
 - R2 cleanup can find expired/deleted uploads whose objects may still exist, retry deletion safely, and report cleanup status without serving those links publicly.
-- Custom-domain automation can attach/manage an optional domain with clear Cloudflare permission docs.
+- Custom-domain deployment support can validate public base URL and Wrangler route readiness, document manual Cloudflare setup, and leave deeper DNS/route/domain API automation as an explicit future path.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -152,4 +152,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 15. Add multipart uploads, upload progress, and estimated time remaining. Completed.
 16. Add one-command deploy script. Completed.
 17. Add self-update system with manual updates and opt-in automatic updates. Groundwork completed.
-18. Add custom-domain automation.
+18. Add custom-domain deployment support. Completed.

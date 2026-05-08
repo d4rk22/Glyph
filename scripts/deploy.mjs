@@ -108,7 +108,51 @@ export function validateWranglerConfig(configText, options = {}) {
     errors.push("wrangler.jsonc must define vars.APP_ENV.");
   }
 
+  const publicBaseUrl = config.vars?.PUBLIC_BASE_URL;
+  const routeHosts = wranglerRouteHosts(config);
+  if (publicBaseUrl !== undefined) {
+    if (typeof publicBaseUrl !== "string") {
+      errors.push("vars.PUBLIC_BASE_URL must be a string when configured.");
+    } else {
+      const publicBaseResult = validatePublicBaseUrl(publicBaseUrl);
+      if (publicBaseResult.error) {
+        errors.push(publicBaseResult.error);
+      } else if (publicBaseResult.url) {
+        const publicBaseHost = publicBaseResult.url.hostname.toLowerCase();
+        if (routeHosts.length === 0) {
+          warnings.push("vars.PUBLIC_BASE_URL is set, but wrangler.jsonc does not declare routes; confirm the Worker is attached to that custom domain manually.");
+        } else if (!routeHosts.some((routeHost) => routeHostMatches(routeHost, publicBaseHost))) {
+          warnings.push(`vars.PUBLIC_BASE_URL host ${publicBaseHost} does not match configured Wrangler route host(s): ${routeHosts.join(", ")}.`);
+        }
+      }
+    }
+  } else if (routeHosts.length > 0) {
+    warnings.push("wrangler.jsonc has route/custom-domain configuration, but vars.PUBLIC_BASE_URL is not set; generated short links will use the request origin.");
+  }
+
   return { errors, warnings };
+}
+
+export function summarizeDeploymentTarget(configText) {
+  let config;
+
+  try {
+    config = JSON.parse(stripJsonComments(configText));
+  } catch {
+    return ["Deployment target: wrangler.jsonc could not be parsed."];
+  }
+
+  const lines = [];
+  const publicBaseUrl = typeof config.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const routeHosts = wranglerRouteHosts(config);
+
+  lines.push(`Worker name: ${typeof config.name === "string" ? config.name : "unknown"}`);
+  lines.push(publicBaseUrl ? `Public base URL: ${publicBaseUrl}` : "Public base URL: request origin fallback");
+  lines.push(routeHosts.length > 0 ? `Wrangler route hosts: ${routeHosts.join(", ")}` : "Wrangler route hosts: none configured");
+
+  return lines;
 }
 
 export function buildDeploySteps(options) {
@@ -160,6 +204,10 @@ Options:
   --database <name>   D1 database name or binding to migrate. Default: glyph.
   --outdir <path>     Wrangler dry-run output directory. Default: /tmp/glyph-deploy-dry-run.
   --help, -h          Show this help.
+
+Custom domain readiness:
+  Set vars.PUBLIC_BASE_URL in wrangler.jsonc to the deployed https:// origin when using a custom domain.
+  The helper validates the URL shape and warns when it does not line up with Wrangler routes.
 `;
 }
 
@@ -218,6 +266,92 @@ function stripJsonComments(value) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
+function validatePublicBaseUrl(value) {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return { url: null, error: "vars.PUBLIC_BASE_URL cannot be empty when configured." };
+  }
+
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return { url: null, error: "vars.PUBLIC_BASE_URL must be a valid absolute URL." };
+  }
+
+  if (url.protocol !== "https:") {
+    return { url: null, error: "vars.PUBLIC_BASE_URL must use https:// for deployed custom-domain passkeys and short links." };
+  }
+
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    return { url: null, error: "vars.PUBLIC_BASE_URL must be an origin only, such as https://files.example.com." };
+  }
+
+  return { url, error: null };
+}
+
+function wranglerRouteHosts(config) {
+  const patterns = [];
+
+  if (typeof config.route === "string") {
+    patterns.push(config.route);
+  } else if (config.route && typeof config.route.pattern === "string") {
+    patterns.push(config.route.pattern);
+  }
+
+  if (Array.isArray(config.routes)) {
+    for (const route of config.routes) {
+      if (typeof route === "string") {
+        patterns.push(route);
+      } else if (route && typeof route.pattern === "string") {
+        patterns.push(route.pattern);
+      }
+    }
+  }
+
+  if (Array.isArray(config.custom_domains)) {
+    for (const domain of config.custom_domains) {
+      if (typeof domain === "string") {
+        patterns.push(domain);
+      } else if (domain && typeof domain.pattern === "string") {
+        patterns.push(domain.pattern);
+      }
+    }
+  }
+
+  return [...new Set(patterns.map(routeHost).filter(Boolean))];
+}
+
+function routeHost(pattern) {
+  let value = pattern.trim();
+  if (value.length === 0) {
+    return null;
+  }
+
+  if (value.startsWith("*.")) {
+    return value.split("/")[0].toLowerCase();
+  }
+
+  try {
+    const urlValue = value.includes("://") ? value : `https://${value}`;
+    return new URL(urlValue.replace(/\/\*.*$/u, "/")).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function routeHostMatches(routeHostValue, publicBaseHost) {
+  if (routeHostValue === publicBaseHost) {
+    return true;
+  }
+
+  if (routeHostValue.startsWith("*.")) {
+    return publicBaseHost.endsWith(routeHostValue.slice(1));
+  }
+
+  return false;
+}
+
 function runStep(step, rootDir) {
   console.log(`\n==> ${step.label}`);
   console.log(`$ ${step.command.join(" ")}`);
@@ -259,6 +393,13 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   }
 
   console.log(effectiveOptions.yes ? "Glyph deploy: checks, remote migrations, dry-run, deploy." : "Glyph deploy check: checks, remote migration list, dry-run.");
+
+  const wranglerPath = join(rootDir, "wrangler.jsonc");
+  if (existsSync(wranglerPath)) {
+    for (const line of summarizeDeploymentTarget(readFileSync(wranglerPath, "utf8"))) {
+      console.log(line);
+    }
+  }
 
   for (const step of buildDeploySteps(effectiveOptions)) {
     runStep(step, rootDir);

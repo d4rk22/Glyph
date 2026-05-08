@@ -118,6 +118,13 @@ Phase 17 self-update groundwork is in place:
 - Admins can manually check a configured GitHub release source for newer release metadata.
 - Update checks are read-only; they do not deploy, apply migrations, restart the Worker, or mutate code.
 
+Phase 18 simple custom-domain deployment support is in place:
+
+- The deploy helper validates that `PUBLIC_BASE_URL`, when configured, is an origin-only `https://` URL.
+- The deploy helper reports the configured public base URL and Wrangler route hosts during deploy checks.
+- Wrangler route/custom-domain mismatches are surfaced as warnings so manual Cloudflare setup can be corrected before rollout.
+- Custom-domain support remains conservative; Glyph does not create DNS records, certificates, zones, routes, or custom domains through the Cloudflare API yet.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -156,6 +163,8 @@ The Worker expects these bindings:
 - `R2_BUCKET_NAME`: optional R2 bucket name for presigned URLs. Defaults to `glyph-files`.
 
 Direct-to-R2 and multipart direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Multipart mode also requires CORS to expose the `ETag` response header so the browser can report completed part ETags back to the Worker for finalization. Without the credential values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct or multipart.
+
+For a custom domain, configure Cloudflare so the Worker is reachable at the desired `https://` origin, then set `vars.PUBLIC_BASE_URL` in `wrangler.jsonc` to that exact origin, for example `https://files.example.com`. Keep it origin-only: no path, query string, or fragment. Generated short links use this value, and passkeys registered for `/admin` are bound to that origin. If direct-to-R2 or multipart uploads are enabled, the R2 bucket CORS allowed origin must match the deployed Glyph origin.
 
 ## Migrations
 
@@ -294,6 +303,15 @@ The deploy helper validates that `wrangler.jsonc` contains:
 - R2 binding `FILES`.
 - `APP_ENV`.
 - A non-placeholder D1 `database_id` when running with `--yes`.
+- `PUBLIC_BASE_URL`, when present, is an origin-only `https://` URL.
+
+The deploy helper also reports:
+
+- Worker name.
+- Public base URL, or that Glyph will use the request-origin fallback.
+- Wrangler route hosts discovered from `route`, `routes`, or `custom_domains` config.
+
+If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
 Before deploying, make sure these Cloudflare pieces already exist:
 
@@ -301,9 +319,18 @@ Before deploying, make sure these Cloudflare pieces already exist:
 - The D1 database exists and its real `database_id` is in `wrangler.jsonc`.
 - The R2 bucket exists and is bound as `FILES`.
 - Optional `PUBLIC_BASE_URL` is configured if generated links should use a custom public origin.
+- Optional custom-domain routing is configured in Cloudflare or Wrangler so the Worker answers on that origin.
 - Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`.
 - R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads.
 - `/admin` bootstrap is completed from the deployed origin after first deploy.
+
+Custom-domain setup is still manual:
+
+- Add the domain to Cloudflare and make sure DNS is proxied through Cloudflare.
+- Attach the Worker to the route or custom domain for the Glyph origin.
+- Set `PUBLIC_BASE_URL` to the same `https://` origin so generated links match the public domain.
+- Update R2 CORS if direct-to-R2 or multipart uploads are used.
+- Register or re-register the admin passkey on the custom-domain origin because passkeys are origin-bound.
 
 The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler commands remain available for manual operations.
 
@@ -314,7 +341,8 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper does not create Cloudflare resources yet; D1, R2, Wrangler auth, secrets, and CORS are still manual setup.
 - Self-update is read-only groundwork only; it cannot run updates, deploy, apply migrations, restart Workers, or schedule checks yet.
-- No folders, public file browsing, billing, executable self-updates, or custom-domain automation.
+- Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
+- No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.

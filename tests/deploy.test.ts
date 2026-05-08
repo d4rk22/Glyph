@@ -6,6 +6,7 @@ import {
   DEFAULT_DRY_RUN_OUTDIR,
   nodeMajorVersion,
   parseArgs,
+  summarizeDeploymentTarget,
   validateWranglerConfig
 } from "../scripts/deploy.mjs";
 
@@ -79,6 +80,57 @@ test("wrangler config validation checks required Glyph bindings", () => {
   assert.match(missingBindings.errors.join("\n"), /D1 binding named DB/);
   assert.match(missingBindings.errors.join("\n"), /R2 binding named FILES/);
   assert.match(missingBindings.errors.join("\n"), /vars.APP_ENV/);
+});
+
+test("wrangler config validation checks custom-domain readiness", () => {
+  const customDomainConfig = JSON.stringify({
+    name: "glyph",
+    main: "src/index.ts",
+    vars: { APP_ENV: "production", PUBLIC_BASE_URL: "https://files.example.com" },
+    routes: [{ pattern: "files.example.com/*", custom_domain: true }],
+    d1_databases: [
+      {
+        binding: "DB",
+        database_name: "glyph",
+        database_id: "real-database-id",
+        migrations_dir: "migrations"
+      }
+    ],
+    r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+  });
+  const valid = validateWranglerConfig(customDomainConfig, { requireDeployReady: true });
+  assert.deepEqual(valid.errors, []);
+  assert.deepEqual(valid.warnings, []);
+
+  const pathBase = validateWranglerConfig(customDomainConfig.replace("https://files.example.com", "https://files.example.com/glyph"));
+  assert.match(pathBase.errors.join("\n"), /origin only/);
+
+  const insecureBase = validateWranglerConfig(customDomainConfig.replace("https://files.example.com", "http://files.example.com"));
+  assert.match(insecureBase.errors.join("\n"), /must use https/);
+
+  const mismatchedRoute = validateWranglerConfig(customDomainConfig.replace("files.example.com/*", "share.example.com/*"));
+  assert.match(mismatchedRoute.warnings.join("\n"), /does not match configured Wrangler route/);
+
+  const missingBase = validateWranglerConfig(customDomainConfig.replace('"PUBLIC_BASE_URL":"https://files.example.com"', '"OTHER":"value"'));
+  assert.match(missingBase.warnings.join("\n"), /PUBLIC_BASE_URL is not set/);
+});
+
+test("deployment target summary reports public base URL and route hosts", () => {
+  const summary = summarizeDeploymentTarget(
+    JSON.stringify({
+      name: "glyph",
+      vars: { PUBLIC_BASE_URL: "https://files.example.com" },
+      routes: ["files.example.com/*"]
+    })
+  );
+
+  assert.deepEqual(summary, [
+    "Worker name: glyph",
+    "Public base URL: https://files.example.com",
+    "Wrangler route hosts: files.example.com"
+  ]);
+
+  assert.deepEqual(summarizeDeploymentTarget("{ nope"), ["Deployment target: wrangler.jsonc could not be parsed."]);
 });
 
 test("node version parser supports v-prefixed versions", () => {
