@@ -125,6 +125,13 @@ Phase 18 simple custom-domain deployment support is in place:
 - Wrangler route/custom-domain mismatches are surfaced as warnings so manual Cloudflare setup can be corrected before rollout.
 - Custom-domain support remains conservative; Glyph does not create DNS records, certificates, zones, routes, or custom domains through the Cloudflare API yet.
 
+Phase 19 guided Cloudflare setup is in place:
+
+- `pnpm run deploy:glyph -- --setup` prints a safe setup plan without changing Cloudflare resources.
+- `pnpm run deploy:glyph -- --setup --yes` runs only the explicit D1 database and R2 bucket create commands.
+- Setup output explains the required manual follow-up: copy the D1 `database_id`, configure secrets, configure R2 CORS, and run a deploy readiness check.
+- Setup remains conservative; it does not write secrets, edit DNS, create custom domains, configure CORS automatically, or update source-controlled Wrangler config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -142,14 +149,24 @@ The committed `pnpm-lock.yaml` is the source of truth for dependency resolution.
 
 ## Cloudflare Resources
 
-Create the D1 database and R2 bucket:
+Preview the guided Cloudflare setup plan:
 
 ```sh
-pnpm wrangler d1 create glyph
-pnpm wrangler r2 bucket create glyph-files
+pnpm run deploy:glyph -- --setup
 ```
 
-Copy the D1 `database_id` returned by Wrangler into `wrangler.jsonc`, replacing the placeholder `00000000-0000-0000-0000-000000000000`.
+When you are ready to create the basic resources, run:
+
+```sh
+pnpm run deploy:glyph -- --setup --yes
+```
+
+That command runs:
+
+- `pnpm wrangler d1 create glyph`
+- `pnpm wrangler r2 bucket create glyph-files`
+
+Use `--database <name>` or `--bucket <name>` with `--setup` if your instance should use different names. If the resources already exist, skip `--setup --yes` and use the plan as a checklist. Copy the D1 `database_id` returned by Wrangler into `wrangler.jsonc`, replacing the placeholder `00000000-0000-0000-0000-000000000000`.
 
 The Worker expects these bindings:
 
@@ -296,6 +313,20 @@ The `--yes` command performs these steps in order:
 
 Use `--skip-install` if dependencies are already installed and you want to avoid the install step. Use `--database <name-or-binding>` if the remote D1 database binding/name is not `glyph`.
 
+For a guided setup checklist before the first deploy, run:
+
+```sh
+pnpm run deploy:glyph -- --setup
+```
+
+The setup plan is read-only by default. To create the basic Cloudflare resources from the helper, run:
+
+```sh
+pnpm run deploy:glyph -- --setup --yes
+```
+
+The setup `--yes` path creates the D1 database and R2 bucket with Wrangler. It does not edit `wrangler.jsonc`, store secrets, configure R2 CORS, create DNS records, attach custom domains, or deploy the Worker. After setup, copy the returned D1 `database_id`, configure any optional direct-upload secrets/CORS manually, then run `pnpm run deploy:glyph -- --check`.
+
 The deploy helper validates that `wrangler.jsonc` contains:
 
 - Worker entrypoint `src/index.ts`.
@@ -310,6 +341,7 @@ The deploy helper also reports:
 - Worker name.
 - Public base URL, or that Glyph will use the request-origin fallback.
 - Wrangler route hosts discovered from `route`, `routes`, or `custom_domains` config.
+- Guided setup actions and manual follow-up steps when run with `--setup`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
@@ -339,7 +371,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
-- The deploy helper does not create Cloudflare resources yet; D1, R2, Wrangler auth, secrets, and CORS are still manual setup.
+- The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Self-update is read-only groundwork only; it cannot run updates, deploy, apply migrations, restart Workers, or schedule checks yet.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.

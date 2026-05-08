@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildSetupPlan,
   buildDeploySteps,
+  DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
   nodeMajorVersion,
   parseArgs,
@@ -29,8 +31,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.deepEqual(parseArgs([]), {
     yes: false,
     check: false,
+    setup: false,
     skipInstall: false,
     database: "glyph",
+    bucket: DEFAULT_BUCKET_NAME,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
     help: false
   });
@@ -38,14 +42,29 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.deepEqual(parseArgs(["--yes", "--skip-install", "--database", "prod-db", "--outdir=/tmp/out"]), {
     yes: true,
     check: false,
+    setup: false,
     skipInstall: true,
     database: "prod-db",
+    bucket: DEFAULT_BUCKET_NAME,
     outdir: "/tmp/out",
     help: false
   });
 
+  assert.deepEqual(parseArgs(["--setup", "--bucket", "prod-files"]), {
+    yes: false,
+    check: false,
+    setup: true,
+    skipInstall: false,
+    database: "glyph",
+    bucket: "prod-files",
+    outdir: DEFAULT_DRY_RUN_OUTDIR,
+    help: false
+  });
+
   assert.throws(() => parseArgs(["--check", "--yes"]), /Use either --check or --yes/);
+  assert.throws(() => parseArgs(["--setup", "--check"]), /Use --setup by itself/);
   assert.throws(() => parseArgs(["--database"]), /requires a value/);
+  assert.throws(() => parseArgs(["--bucket="]), /R2 bucket name cannot be empty/);
 });
 
 test("deploy steps check by default and only mutate remotely with --yes", () => {
@@ -64,6 +83,25 @@ test("deploy steps check by default and only mutate remotely with --yes", () => 
   assert.deepEqual(deploySteps.at(-2)?.command, ["pnpm", "wrangler", "deploy", "--dry-run", "--outdir", DEFAULT_DRY_RUN_OUTDIR]);
   assert.deepEqual(deploySteps.at(-1)?.command, ["pnpm", "wrangler", "deploy"]);
   assert.deepEqual(deploySteps[2].command, ["pnpm", "wrangler", "d1", "migrations", "apply", "prod", "--remote"]);
+});
+
+test("setup plan is non-mutating by default and scopes create commands to --setup --yes", () => {
+  const plan = buildSetupPlan(
+    parseArgs(["--setup", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]),
+    validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000")
+  );
+
+  assert.deepEqual(
+    plan.filter((item) => item.mutates).map((item) => item.command),
+    [
+      ["pnpm", "wrangler", "d1", "create", "glyph-prod"],
+      ["pnpm", "wrangler", "r2", "bucket", "create", "glyph-prod-files"]
+    ]
+  );
+  assert.match(plan.map((item) => item.detail).join("\n"), /copy the returned database_id/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /Do not commit secrets/);
+  assert.deepEqual(plan.at(-1)?.command, ["pnpm", "run", "deploy:glyph", "--", "--check", "--database", "glyph-prod"]);
+  assert.equal(plan.at(-1)?.mutates, false);
 });
 
 test("wrangler config validation checks required Glyph bindings", () => {
