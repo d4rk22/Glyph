@@ -73,6 +73,9 @@ interface FakeEnvOptions {
   r2CleanupStats?: unknown;
   r2DeleteFailures?: string[];
   oldestActiveUploads?: unknown[];
+  pendingDirectUploadByToken?: unknown | null;
+  directUploadCredentials?: boolean;
+  headObject?: { size: number } | null;
   storageUsage?: unknown;
   uploads?: unknown[];
   uploadById?: unknown | null;
@@ -93,6 +96,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   r2DeleteCompletedIds: string[];
   r2DeleteFailedUpdates: unknown[][];
   r2DeleteRequestedIds: string[];
+  directStoredIds: string[];
+  directFailedUpdates: unknown[][];
+  insertedUploadBindings: unknown[][];
+  uploadedObjectKeys: string[];
   settingsUpdates: unknown[][];
 } {
   const deletedObjectKeys: string[] = [];
@@ -102,6 +109,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   const r2DeleteCompletedIds: string[] = [];
   const r2DeleteFailedUpdates: unknown[][] = [];
   const r2DeleteRequestedIds: string[] = [];
+  const directStoredIds: string[] = [];
+  const directFailedUpdates: unknown[][] = [];
+  const insertedUploadBindings: unknown[][] = [];
+  const uploadedObjectKeys: string[] = [];
   const settingsUpdates: unknown[][] = [];
   const settingsRows = [...(options.appSettings ?? [])] as Array<{ key: string; value: string; updated_at: string }>;
   const adminCount = options.adminCount ?? 1;
@@ -127,6 +138,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
 
           if (sql.includes("FROM admin_users WHERE id = ?")) {
             return authenticated ? adminUserRow : null;
+          }
+
+          if (sql.includes("direct_upload_token_hash")) {
+            return options.pendingDirectUploadByToken ?? null;
           }
 
           if (sql.includes("FROM uploads WHERE id = ? AND deleted_at IS NULL")) {
@@ -184,6 +199,11 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
           throw new Error(`Unhandled all query: ${sql}`);
         },
         async run() {
+          if (sql.includes("INSERT INTO uploads")) {
+            insertedUploadBindings.push(bindings);
+            return { meta: { changes: 1 } };
+          }
+
           if (sql.includes("SET r2_delete_requested_at = ?")) {
             r2DeleteRequestedIds.push(String(bindings[1]));
             return { meta: { changes: 1 } };
@@ -201,6 +221,16 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
 
           if (sql.includes("UPDATE uploads SET deleted_at = ?")) {
             markedDeletedIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET storage_state = 'stored'")) {
+            directStoredIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET storage_state = 'failed'")) {
+            directFailedUpdates.push(bindings);
             return { meta: { changes: 1 } };
           }
 
@@ -236,11 +266,17 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   return {
     DB: db as unknown as D1Database,
     FILES: {
+      async put(key: string) {
+        uploadedObjectKeys.push(key);
+      },
       async get() {
         return {
           body: new Blob(["hello"]).stream(),
           httpMetadata: { contentType: "text/plain" }
         };
+      },
+      async head() {
+        return options.headObject ?? null;
       },
       async delete(key: string) {
         deletedObjectKeys.push(key);
@@ -250,6 +286,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
       }
     } as unknown as R2Bucket,
     APP_ENV: "test",
+    R2_ACCOUNT_ID: options.directUploadCredentials ? "account-id" : undefined,
+    R2_ACCESS_KEY_ID: options.directUploadCredentials ? "access-key-id" : undefined,
+    R2_SECRET_ACCESS_KEY: options.directUploadCredentials ? "secret-access-key" : undefined,
+    R2_BUCKET_NAME: options.directUploadCredentials ? "glyph-files" : undefined,
     deletedObjectKeys,
     expirationUpdates,
     markedExpiredIds,
@@ -257,6 +297,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     r2DeleteCompletedIds,
     r2DeleteFailedUpdates,
     r2DeleteRequestedIds,
+    directStoredIds,
+    directFailedUpdates,
+    insertedUploadBindings,
+    uploadedObjectKeys,
     settingsUpdates
   } as Env & {
     deletedObjectKeys: string[];
@@ -266,6 +310,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     r2DeleteCompletedIds: string[];
     r2DeleteFailedUpdates: unknown[][];
     r2DeleteRequestedIds: string[];
+    directStoredIds: string[];
+    directFailedUpdates: unknown[][];
+    insertedUploadBindings: unknown[][];
+    uploadedObjectKeys: string[];
     settingsUpdates: unknown[][];
   };
 }
@@ -297,6 +345,8 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   );
   assert.equal(adminNoticeMessage("storage-cap-cleared"), "Storage cap cleared.");
   assert.equal(adminNoticeMessage("invalid-storage-cap"), "Storage cap must be a non-negative whole number of bytes.");
+  assert.equal(adminNoticeMessage("upload-mode-updated"), "Upload mode updated.");
+  assert.equal(adminNoticeMessage("invalid-upload-mode"), "Upload mode must be worker-mediated or direct-to-R2.");
   assert.equal(adminNoticeMessage("r2-cleanup-complete"), "R2 cleanup retry finished.");
   assert.equal(
     adminNoticeMessage("r2-cleanup-partial"),
@@ -345,6 +395,9 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /aria-label="Storage cap"/);
   assert.match(body, /Current No cap/);
   assert.match(body, /name="storageCapBytes"/);
+  assert.match(body, /aria-label="Upload mode"/);
+  assert.match(body, /Worker-mediated/);
+  assert.match(body, /name="uploadMode"/);
   assert.match(body, /aria-label="R2 cleanup"/);
   assert.match(body, /Pending 1/);
   assert.match(body, /action="\/admin\/maintenance\/r2-cleanup"/);
@@ -440,6 +493,208 @@ test("active and future-expiring short links download normally", async () => {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Content-Disposition"), `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`);
   assert.deepEqual(env.markedExpiredIds, []);
+});
+
+test("pending and failed direct uploads are not downloadable", async () => {
+  const pending = createFakeEnv({
+    activeUploadById: {
+      ...activeUploadRow,
+      upload_mode: "direct",
+      storage_state: "pending"
+    }
+  });
+  const pendingResponse = await worker.fetch(new Request("https://glyph.example/active123"), pending, createExecutionContext());
+
+  const failed = createFakeEnv({
+    activeUploadById: {
+      ...activeUploadRow,
+      upload_mode: "direct",
+      storage_state: "failed"
+    }
+  });
+  const failedResponse = await worker.fetch(new Request("https://glyph.example/active123"), failed, createExecutionContext());
+
+  assert.equal(pendingResponse.status, 404);
+  assert.equal(failedResponse.status, 404);
+});
+
+test("direct upload initiate requires direct mode and configured R2 credentials", async () => {
+  const disabled = createFakeEnv();
+  const disabledResponse = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      body: JSON.stringify({ filename: "file.txt", contentType: "text/plain", sizeBytes: 12 })
+    }),
+    disabled,
+    createExecutionContext()
+  );
+
+  const missingCredentials = createFakeEnv({
+    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const missingResponse = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      body: JSON.stringify({ filename: "file.txt", contentType: "text/plain", sizeBytes: 12 })
+    }),
+    missingCredentials,
+    createExecutionContext()
+  );
+
+  assert.equal(disabledResponse.status, 409);
+  assert.equal(missingResponse.status, 409);
+});
+
+test("direct upload initiate creates pending metadata and returns a presigned R2 URL", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: "file.txt", contentType: "text/plain", sizeBytes: 12 })
+    }),
+    env,
+    createExecutionContext()
+  );
+  const body = (await response.json()) as { id: string; token: string; uploadUrl: string; finalizeUrl: string };
+
+  assert.equal(response.status, 200);
+  assert.equal(body.finalizeUrl, "/uploads/direct/finalize");
+  assert.match(body.uploadUrl, /^https:\/\/account-id\.r2\.cloudflarestorage\.com\/glyph-files\/uploads\//);
+  assert.match(body.uploadUrl, /X-Amz-Algorithm=AWS4-HMAC-SHA256/);
+  assert.equal(env.insertedUploadBindings.length, 1);
+  assert.equal(env.insertedUploadBindings[0][7], "direct");
+  assert.equal(env.insertedUploadBindings[0][8], "pending");
+  assert.equal(typeof env.insertedUploadBindings[0][9], "string");
+  assert.equal(typeof body.id, "string");
+  assert.equal(typeof body.token, "string");
+});
+
+test("public upload page enables direct upload only when mode and credentials are configured", async () => {
+  const workerMode = await worker.fetch(new Request("https://glyph.example/"), createFakeEnv(), createExecutionContext());
+  const workerBody = await workerMode.text();
+  const directMode = await worker.fetch(
+    new Request("https://glyph.example/"),
+    createFakeEnv({
+      directUploadCredentials: true,
+      appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+    }),
+    createExecutionContext()
+  );
+  const directBody = await directMode.text();
+
+  assert.doesNotMatch(workerBody, /data-direct-upload="true"/);
+  assert.match(directBody, /data-direct-upload="true"/);
+});
+
+test("worker-mediated upload path remains available as fallback", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const form = new FormData();
+  form.set("file", new File(["hello"], "fallback.txt", { type: "text/plain" }));
+
+  const response = await worker.fetch(new Request("https://glyph.example/", { method: "POST", body: form }), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 201);
+  assert.match(body, /Upload complete/);
+  assert.equal(env.insertedUploadBindings[0][7], "worker");
+  assert.equal(env.insertedUploadBindings[0][8], "stored");
+  assert.equal(env.uploadedObjectKeys.length, 1);
+});
+
+test("direct upload finalization marks pending metadata stored after R2 object appears", async () => {
+  const env = createFakeEnv({
+    pendingDirectUploadByToken: {
+      ...activeUploadRow,
+      id: "direct123",
+      object_key: "uploads/direct123/file.txt",
+      original_filename: "file.txt",
+      content_type: "text/plain",
+      size_bytes: 12,
+      upload_mode: "direct",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z"
+    },
+    headObject: { size: 12 }
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "direct123", token: "direct-token" })
+    }),
+    env,
+    createExecutionContext()
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 201);
+  assert.match(body, /Upload complete/);
+  assert.match(body, /https:\/\/glyph\.example\/direct123/);
+  assert.deepEqual(env.directStoredIds, ["direct123"]);
+});
+
+test("direct upload finalization leaves missing R2 objects pending", async () => {
+  const env = createFakeEnv({
+    pendingDirectUploadByToken: {
+      ...activeUploadRow,
+      id: "direct123",
+      upload_mode: "direct",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z"
+    },
+    headObject: null
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/finalize", {
+      method: "POST",
+      body: JSON.stringify({ id: "direct123", token: "direct-token" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(env.directStoredIds, []);
+  assert.deepEqual(env.directFailedUpdates, []);
+});
+
+test("direct upload finalization marks size mismatches failed and cleans R2", async () => {
+  const env = createFakeEnv({
+    pendingDirectUploadByToken: {
+      ...activeUploadRow,
+      id: "direct123",
+      object_key: "uploads/direct123/file.txt",
+      size_bytes: 12,
+      upload_mode: "direct",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z"
+    },
+    headObject: { size: 99 }
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/finalize", {
+      method: "POST",
+      body: JSON.stringify({ id: "direct123", token: "direct-token" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(env.directFailedUpdates[0], ["Uploaded object size did not match metadata.", "direct123"]);
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/direct123/file.txt"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, ["direct123"]);
 });
 
 test("past expiration and explicit expired state return not found", async () => {
@@ -716,6 +971,51 @@ test("admin storage cap can be cleared without enforcement", async () => {
   assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["storage_cap_bytes", ""]);
   assert.deepEqual(env.markedExpiredIds, []);
   assert.deepEqual(env.deletedObjectKeys, []);
+});
+
+test("admin upload mode update validates origin and persists direct mode", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const blocked = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: new URLSearchParams({ uploadMode: "direct" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(blocked.status, 403);
+  assert.deepEqual(env.settingsUpdates, []);
+
+  const saved = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "direct" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(saved.status, 303);
+  assert.equal(saved.headers.get("Location"), "/admin?notice=upload-mode-updated");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["upload_mode", "direct"]);
+});
+
+test("admin upload mode update rejects unknown modes", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "multipart" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=invalid-upload-mode");
+  assert.deepEqual(env.settingsUpdates, []);
 });
 
 test("admin R2 cleanup validates origin before touching candidates", async () => {

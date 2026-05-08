@@ -4,11 +4,14 @@ import test from "node:test";
 import {
   createUploadMetadata,
   getAppSettings,
+  getPendingDirectUploadByToken,
   getR2DeletionCleanupStats,
   getUploadStorageUsage,
   listOldestActiveUploads,
   listUploadsPendingR2Deletion,
   listUploadsDueForExpiration,
+  markDirectUploadFailed,
+  markDirectUploadStored,
   markUploadExpired,
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
@@ -85,6 +88,54 @@ test("createUploadMetadata stores v2 expiration and upload mode fields", async (
   assert.equal(db.bindings[0][6], expiresAt.toISOString());
   assert.equal(db.bindings[0][7], "direct");
   assert.equal(db.bindings[0][8], "pending");
+});
+
+test("direct upload helpers store pending token metadata and finalize state", async () => {
+  const db = createFakeDb([
+    {
+      first: {
+        id: "direct1",
+        object_key: "uploads/direct1/file.txt",
+        original_filename: "file.txt",
+        content_type: "text/plain",
+        size_bytes: 12,
+        created_at: "2026-05-08T11:00:00.000Z",
+        deleted_at: null,
+        expires_at: null,
+        expired_at: null,
+        upload_mode: "direct",
+        storage_state: "pending",
+        direct_upload_token_hash: "hashed-token",
+        direct_upload_token_expires_at: "2026-05-08T12:15:00.000Z",
+        direct_upload_finalized_at: null,
+        direct_upload_error: null
+      }
+    }
+  ]);
+  const expiresAt = new Date("2026-05-08T12:15:00.000Z");
+
+  const metadata = await createUploadMetadata(db, {
+    originalFilename: "file.txt",
+    contentType: "text/plain",
+    sizeBytes: 12,
+    uploadMode: "direct",
+    storageState: "pending",
+    directUploadTokenHash: "hashed-token",
+    directUploadTokenExpiresAt: expiresAt
+  });
+  const pending = await getPendingDirectUploadByToken(db, "direct1", "hashed-token", new Date("2026-05-08T12:00:00.000Z"));
+  assert.equal(await markDirectUploadStored(db, "direct1", new Date("2026-05-08T12:01:00.000Z")), true);
+  assert.equal(await markDirectUploadFailed(db, "direct2", "bad size"), true);
+
+  assert.equal(metadata.uploadMode, "direct");
+  assert.equal(metadata.storageState, "pending");
+  assert.equal(metadata.directUploadTokenExpiresAt, expiresAt.toISOString());
+  assert.equal(db.bindings[0][9], "hashed-token");
+  assert.equal(db.bindings[0][10], expiresAt.toISOString());
+  assert.equal(pending?.id, "direct1");
+  assert.match(db.queries[1], /storage_state = 'pending'/);
+  assert.deepEqual(db.bindings[2], ["2026-05-08T12:01:00.000Z", "direct1"]);
+  assert.deepEqual(db.bindings[3], ["bad size", "direct2"]);
 });
 
 test("expiration helpers update and list expiration metadata", async () => {

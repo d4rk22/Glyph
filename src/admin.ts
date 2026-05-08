@@ -20,6 +20,10 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "Storage cap cleared.";
     case "invalid-storage-cap":
       return "Storage cap must be a non-negative whole number of bytes.";
+    case "upload-mode-updated":
+      return "Upload mode updated.";
+    case "invalid-upload-mode":
+      return "Upload mode must be worker-mediated or direct-to-R2.";
     case "r2-cleanup-complete":
       return "R2 cleanup retry finished.";
     case "r2-cleanup-partial":

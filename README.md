@@ -90,6 +90,14 @@ Phase 13 R2 deletion retry and cleanup is in place:
 - `/admin` shows R2 cleanup counts and provides a protected same-origin retry action for expired/deleted uploads whose R2 cleanup is not complete.
 - Cleanup remains request-driven; scheduled Workers, queues, and cron triggers are still deferred.
 
+Phase 14 direct-to-R2 single-part uploads are in place:
+
+- Worker-mediated uploads remain the default and fallback upload path.
+- Admins can switch upload mode between Worker-mediated and direct-to-R2 from `/admin`.
+- Direct uploads create pending D1 metadata, issue a short-lived presigned R2 PUT URL, and finalize through the Worker before the short link becomes active.
+- Pending or failed direct uploads are not downloadable from public short links.
+- Multipart uploads, progress indicators, and estimated time remaining remain deferred.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -122,10 +130,16 @@ The Worker expects these bindings:
 - `FILES`: R2 bucket named `glyph-files`.
 - `APP_ENV`: environment label used by `/health`.
 - `PUBLIC_BASE_URL`: optional environment variable for generated short links. If unset, Glyph uses the request origin.
+- `R2_ACCOUNT_ID`: optional Cloudflare account ID for direct-to-R2 presigned uploads.
+- `R2_ACCESS_KEY_ID`: optional R2 S3-compatible access key ID for direct-to-R2 presigned uploads.
+- `R2_SECRET_ACCESS_KEY`: optional R2 S3-compatible secret access key for direct-to-R2 presigned uploads. Store this as a Wrangler secret.
+- `R2_BUCKET_NAME`: optional R2 bucket name for presigned URLs. Defaults to `glyph-files`.
+
+Direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Without those values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct.
 
 ## Migrations
 
-Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, and R2 deletion cleanup state.
+Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, R2 deletion cleanup state, and direct upload finalization state.
 
 Apply migrations locally:
 
@@ -166,6 +180,7 @@ The protected admin panel lists the 100 most recent uploads, including active an
 
 - Usage totals for active, expired, deleted, and total uploads.
 - Current storage cap, active usage, and remaining capacity.
+- Current upload mode and direct-upload credential availability.
 - R2 cleanup pending, failed, and completed counts.
 - Original filename.
 - Short URL with an in-browser copy button.
@@ -183,6 +198,8 @@ Admins can also set or clear a storage cap in bytes. When active stored bytes ex
 The R2 cleanup panel can retry object deletion for expired or deleted uploads whose cleanup has not completed. The retry action is protected by the admin session and same-origin checks. Cleanup state never controls public link availability; D1 deletion and expiration metadata do.
 
 Once R2 cleanup is marked complete for an expired upload, its expiration cannot be cleared from the admin UI because the file bytes have already been removed.
+
+When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-lived presigned R2 PUT URL. The Worker still creates pending metadata first and finalizes the upload after the object appears in R2 with the expected size. The public short link is unavailable until finalization marks the metadata stored. The normal Worker-mediated `POST /` path remains available as a fallback.
 
 ## Verification
 
@@ -206,6 +223,7 @@ Final MVP smoke checks should include:
 - `POST /admin/uploads/delete` marks metadata deleted and requests R2 object removal.
 - `GET /{deleted-id}` returns the polished not-found page.
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
+- `POST /admin/settings/upload-mode` switches between Worker-mediated and direct-to-R2 upload mode for an authenticated same-origin admin request.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 
 ## Dependency Policy
@@ -239,8 +257,8 @@ Recommended deployment checklist:
 ## Known MVP Limitations
 
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
-- Uploads are Worker-mediated for the MVP. Direct-to-R2 and multipart uploads are intentionally deferred.
-- No folders, public file browsing, billing, direct-to-R2 uploads, multipart uploads, upload progress, deploy automation, self-updates, or custom-domain automation.
+- Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
+- No folders, public file browsing, billing, multipart uploads, upload progress, deploy automation, self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.

@@ -40,13 +40,18 @@ import {
   getActiveWebAuthnChallenge,
   getAdminUserById,
   getAppSettings,
+  getPendingDirectUploadByToken,
   getR2DeletionCleanupStats,
   getUploadMetadata,
   getUploadStorageUsage,
   getWebAuthnCredentialByCredentialId,
+  generateSessionToken,
+  hashSessionToken,
   listOldestActiveUploads,
   listUploadsPendingR2Deletion,
   listUploadMetadata,
+  markDirectUploadFailed,
+  markDirectUploadStored,
   markUploadExpired,
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
@@ -67,13 +72,15 @@ import { formatBytes } from "./format.ts";
 import { buildPublicUrl, contentDisposition, getShortIdFromPath } from "./http.ts";
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; connect-src 'self' https://*.r2.cloudflarestorage.com; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff"
 } as const;
 
 const UPLOAD_FIELD_NAME = "file";
 const ADMIN_USERNAME = "admin";
+const DIRECT_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
+const DIRECT_UPLOAD_PRESIGN_TTL_SECONDS = 15 * 60;
 
 interface UploadedFile extends Blob {
   name: string;
@@ -88,11 +95,20 @@ export default {
     }
 
     if (url.pathname === "/" && request.method === "GET") {
-      return html(renderShell("Glyph", uploadPage()));
+      const settings = await getAppSettings(env.DB);
+      return html(renderShell("Glyph", uploadPage(undefined, directUploadEnabled(settings, env))));
     }
 
     if (url.pathname === "/" && request.method === "POST") {
       return handleUpload(request, env);
+    }
+
+    if (url.pathname === "/uploads/direct/initiate" && request.method === "POST") {
+      return handleDirectUploadInitiate(request, env);
+    }
+
+    if (url.pathname === "/uploads/direct/finalize" && request.method === "POST") {
+      return handleDirectUploadFinalize(request, env);
     }
 
     if (url.pathname === "/admin.js" && request.method === "GET") {
@@ -117,6 +133,10 @@ export default {
 
     if (url.pathname === "/admin/settings/storage-cap" && request.method === "POST") {
       return handleAdminStorageCap(request, env);
+    }
+
+    if (url.pathname === "/admin/settings/upload-mode" && request.method === "POST") {
+      return handleAdminUploadMode(request, env);
     }
 
     if (url.pathname === "/admin/maintenance/r2-cleanup" && request.method === "POST") {
@@ -155,7 +175,8 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
   try {
     file = await readUploadFile(request);
   } catch (error) {
-    return html(renderShell("Upload Error", uploadPage(errorMessage(error))), 400);
+    const settings = await getAppSettings(env.DB);
+    return html(renderShell("Upload Error", uploadPage(errorMessage(error), directUploadEnabled(settings, env))), 400);
   }
 
   const contentType = file.type || "application/octet-stream";
@@ -178,7 +199,8 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     await deleteUploadMetadata(env.DB, metadata.id);
     console.error("R2 upload failed", error);
-    return html(renderShell("Upload Error", uploadPage("The file could not be stored. Try again.")), 500);
+    const settings = await getAppSettings(env.DB);
+    return html(renderShell("Upload Error", uploadPage("The file could not be stored. Try again.", directUploadEnabled(settings, env))), 500);
   }
 
   await enforceStorageCap(env);
@@ -187,10 +209,90 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
   return html(renderShell("Upload Ready", uploadSuccessPage(metadata, buildPublicUrl(origin, env.PUBLIC_BASE_URL, metadata.id))), 201);
 }
 
+async function handleDirectUploadInitiate(request: Request, env: Env): Promise<Response> {
+  const settings = await getAppSettings(env.DB);
+  if (!directUploadEnabled(settings, env)) {
+    return json({ error: "Direct uploads are not enabled." }, 409);
+  }
+
+  const body = await readJsonObject(request);
+  const originalFilename = stringFromBody(body, "filename") || "file";
+  const contentType = stringFromBody(body, "contentType") || "application/octet-stream";
+  const sizeBytes = numberFromBody(body, "sizeBytes");
+
+  if (sizeBytes === null || sizeBytes <= 0) {
+    return json({ error: "Choose a non-empty file." }, 400);
+  }
+
+  const token = generateSessionToken();
+  const tokenHash = await hashSessionToken(token);
+  const tokenExpiresAt = new Date(Date.now() + DIRECT_UPLOAD_TOKEN_TTL_SECONDS * 1000);
+  const metadata = await createUploadMetadata(env.DB, {
+    originalFilename,
+    contentType,
+    sizeBytes,
+    uploadMode: "direct",
+    storageState: "pending",
+    directUploadTokenHash: tokenHash,
+    directUploadTokenExpiresAt: tokenExpiresAt
+  });
+
+  const uploadUrl = await createR2PresignedPutUrl(env, metadata.objectKey, DIRECT_UPLOAD_PRESIGN_TTL_SECONDS);
+
+  return json({
+    id: metadata.id,
+    token,
+    uploadUrl,
+    finalizeUrl: "/uploads/direct/finalize"
+  });
+}
+
+async function handleDirectUploadFinalize(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const id = stringFromBody(body, "id");
+  const token = stringFromBody(body, "token");
+
+  if (!id || !token) {
+    return json({ error: "Direct upload finalization is missing its upload token." }, 400);
+  }
+
+  const tokenHash = await hashSessionToken(token);
+  const metadata = await getPendingDirectUploadByToken(env.DB, id, tokenHash);
+  if (!metadata) {
+    return json({ error: "Direct upload has expired or is no longer pending." }, 400);
+  }
+
+  const object = await env.FILES.head(metadata.objectKey);
+  if (!object) {
+    return json({ error: "The direct upload has not reached R2 yet." }, 409);
+  }
+
+  if (object.size !== metadata.sizeBytes) {
+    await markDirectUploadFailed(env.DB, metadata.id, "Uploaded object size did not match metadata.");
+    await deleteR2ObjectForUpload(env, metadata);
+    return json({ error: "Uploaded object size did not match metadata." }, 400);
+  }
+
+  await markDirectUploadStored(env.DB, metadata.id);
+  await enforceStorageCap(env);
+
+  const origin = new URL(request.url).origin;
+  const stored = {
+    ...metadata,
+    storageState: "stored" as const,
+    directUploadFinalizedAt: new Date().toISOString()
+  };
+  return html(renderShell("Upload Ready", uploadSuccessPage(stored, buildPublicUrl(origin, env.PUBLIC_BASE_URL, metadata.id))), 201);
+}
+
 async function handleDownload(request: Request, env: Env, id: string): Promise<Response> {
   const metadata = await getActiveUploadMetadata(env.DB, id);
 
   if (!metadata) {
+    return html(renderShell("Not Found", notFoundPage()), 404);
+  }
+
+  if (metadata.storageState !== "stored") {
     return html(renderShell("Not Found", notFoundPage()), 404);
   }
 
@@ -238,7 +340,17 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
     return html(
       renderShell(
         "Glyph Admin",
-        adminDashboardPage(auth.user, uploads, usage, settings, cleanup, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
+        adminDashboardPage(
+          auth.user,
+          uploads,
+          usage,
+          settings,
+          cleanup,
+          directUploadConfigured(env),
+          url.origin,
+          env.PUBLIC_BASE_URL,
+          url.searchParams.get("notice")
+        ),
         { wide: true }
       )
     );
@@ -333,6 +445,26 @@ async function handleAdminStorageCap(request: Request, env: Env): Promise<Respon
   await enforceStorageCap(env);
 
   return redirect(`/admin?notice=${storageCapBytes === null ? "storage-cap-cleared" : "storage-cap-updated"}`);
+}
+
+async function handleAdminUploadMode(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The upload mode request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const uploadMode = parseUploadModeFormValue(formString(formData, "uploadMode"));
+  if (uploadMode instanceof Error) {
+    return redirect("/admin?notice=invalid-upload-mode");
+  }
+
+  await updateAppSettings(env.DB, { uploadMode });
+  return redirect("/admin?notice=upload-mode-updated");
 }
 
 async function handleAdminR2Cleanup(request: Request, env: Env): Promise<Response> {
@@ -742,6 +874,7 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 
     input[type="file"],
     input[type="number"],
+    select,
     input[readonly] {
       width: 100%;
       min-height: 44px;
@@ -1128,21 +1261,24 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 </html>`;
 }
 
-function uploadPage(error?: string): string {
+function uploadPage(error?: string, useDirectUpload = false): string {
   const errorMarkup = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
+  const directAttributes = useDirectUpload ? ' id="direct-upload-form" data-direct-upload="true"' : "";
+  const script = useDirectUpload ? `<script type="module" src="/admin.js"></script>` : "";
 
   return `<p class="eyebrow">Private file drop</p>
 <h1>Glyph</h1>
 <p class="lede">Upload a file and get a short, unlisted download link backed by Cloudflare R2.</p>
 ${errorMarkup}
-<form method="post" enctype="multipart/form-data">
+<form${directAttributes} method="post" enctype="multipart/form-data">
   <label for="file">File</label>
   <input id="file" name="${UPLOAD_FIELD_NAME}" type="file" required>
   <div class="actions">
     <button type="submit">Upload</button>
     <a class="button secondary" href="/admin">Admin</a>
   </div>
-</form>`;
+</form>
+${script}`;
 }
 
 function uploadSuccessPage(metadata: UploadMetadata, shortUrl: string): string {
@@ -1214,6 +1350,7 @@ function adminDashboardPage(
   usage: StorageUsage,
   settings: AppSettings,
   cleanup: R2DeletionCleanupStats,
+  directUploadAvailable: boolean,
   origin: string,
   configuredBaseUrl: string | undefined,
   notice: string | null
@@ -1244,6 +1381,7 @@ ${noticeMarkup(notice)}
 </div>
 ${usageDashboard(usage)}
 ${storageCapPanel(settings, usage)}
+${uploadModePanel(settings, directUploadAvailable)}
 ${r2CleanupPanel(cleanup)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
@@ -1371,6 +1509,27 @@ function storageCapPanel(settings: AppSettings, usage: StorageUsage): string {
   </form>
   <form method="post" action="/admin/settings/storage-cap">
     <button class="secondary" type="submit">Clear cap</button>
+  </form>
+</section>`;
+}
+
+function uploadModePanel(settings: AppSettings, directUploadAvailable: boolean): string {
+  const directStatus = directUploadAvailable ? "Direct credentials configured" : "Direct credentials missing";
+  return `<section class="settings-panel" aria-label="Upload mode">
+  <h2>Upload mode</h2>
+  <div class="settings-detail">
+    <span>Current ${settings.uploadMode === "direct" ? "Direct-to-R2" : "Worker-mediated"}</span>
+    <span>${escapeHtml(directStatus)}</span>
+  </div>
+  <form class="settings-form" method="post" action="/admin/settings/upload-mode">
+    <div>
+      <label for="upload-mode">Mode</label>
+      <select id="upload-mode" name="uploadMode">
+        <option value="worker"${settings.uploadMode === "worker" ? " selected" : ""}>Worker-mediated</option>
+        <option value="direct"${settings.uploadMode === "direct" ? " selected" : ""}>Direct-to-R2</option>
+      </select>
+    </div>
+    <button type="submit">Save mode</button>
   </form>
 </section>`;
 }
@@ -1505,6 +1664,26 @@ function parseStorageCapFormValue(value: string | null): number | null | Error {
   return parsed;
 }
 
+function parseUploadModeFormValue(value: string | null): "worker" | "direct" | Error {
+  if (value === "worker" || value === "direct") {
+    return value;
+  }
+
+  return new Error("Invalid upload mode.");
+}
+
+function directUploadEnabled(settings: AppSettings, env: Env): boolean {
+  return settings.uploadMode === "direct" && directUploadConfigured(env);
+}
+
+function directUploadConfigured(env: Env): boolean {
+  return Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && directUploadBucketName(env));
+}
+
+function directUploadBucketName(env: Env): string {
+  return env.R2_BUCKET_NAME || "glyph-files";
+}
+
 async function enforceStorageCap(env: Env): Promise<{ expiredCount: number; expiredBytes: number }> {
   const settings = await getAppSettings(env.DB);
   if (settings.storageCapBytes === null) {
@@ -1589,6 +1768,102 @@ function r2DeleteErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : "R2 delete failed.";
 }
 
+async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSeconds: number): Promise<string> {
+  const accountId = env.R2_ACCOUNT_ID;
+  const accessKeyId = env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
+  if (!accountId || !accessKeyId || !secretAccessKey) {
+    throw new Error("R2 direct upload credentials are not configured.");
+  }
+
+  const bucketName = directUploadBucketName(env);
+  const now = new Date();
+  const dateStamp = sigV4DateStamp(now);
+  const amzDate = sigV4AmzDate(now);
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+  const canonicalUri = `/${encodePathSegment(bucketName)}/${objectKey.split("/").map(encodePathSegment).join("/")}`;
+  const query = new Map<string, string>([
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${accessKeyId}/${credentialScope}`],
+    ["X-Amz-Date", amzDate],
+    ["X-Amz-Expires", String(expiresSeconds)],
+    ["X-Amz-SignedHeaders", "host"]
+  ]);
+  const canonicalQuery = canonicalQueryString(query);
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    canonicalQuery,
+    `host:${host}\n`,
+    "host",
+    "UNSIGNED-PAYLOAD"
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest)
+  ].join("\n");
+  const signingKey = await sigV4SigningKey(secretAccessKey, dateStamp);
+  const signature = await hmacHex(signingKey, stringToSign);
+  query.set("X-Amz-Signature", signature);
+
+  return `https://${host}${canonicalUri}?${canonicalQueryString(query)}`;
+}
+
+function sigV4DateStamp(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function sigV4AmzDate(date: Date): string {
+  return `${sigV4DateStamp(date)}T${date.toISOString().slice(11, 19).replace(/:/g, "")}Z`;
+}
+
+async function sigV4SigningKey(secretAccessKey: string, dateStamp: string): Promise<ArrayBuffer> {
+  const dateKey = await hmacBytes(utf8(`AWS4${secretAccessKey}`), dateStamp);
+  const regionKey = await hmacBytes(dateKey, "auto");
+  const serviceKey = await hmacBytes(regionKey, "s3");
+  return hmacBytes(serviceKey, "aws4_request");
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", utf8(value));
+  return hex(new Uint8Array(digest));
+}
+
+async function hmacBytes(key: BufferSource, value: string): Promise<ArrayBuffer> {
+  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return crypto.subtle.sign("HMAC", cryptoKey, utf8(value));
+}
+
+async function hmacHex(key: BufferSource, value: string): Promise<string> {
+  return hex(new Uint8Array(await hmacBytes(key, value)));
+}
+
+function canonicalQueryString(query: Map<string, string>): string {
+  return [...query.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${encodeRfc3986(key)}=${encodeRfc3986(value)}`)
+    .join("&");
+}
+
+function encodePathSegment(value: string): string {
+  return encodeRfc3986(value);
+}
+
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function utf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function hex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function datetimeLocalValue(value: string | null): string {
   if (!value) {
     return "";
@@ -1633,11 +1908,18 @@ function stringFromBody(body: Record<string, unknown>, key: string): string | nu
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function numberFromBody(body: Record<string, unknown>, key: string): number | null {
+  const value = body[key];
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function adminClientScript(): string {
   return `
 const statusEl = document.getElementById("admin-status");
 const registerForm = document.getElementById("register-form");
 const loginForm = document.getElementById("login-form");
+const directUploadForm = document.getElementById("direct-upload-form");
 
 function setStatus(message) {
   if (!statusEl) return;
@@ -1758,6 +2040,85 @@ loginForm?.addEventListener("submit", async (event) => {
     window.location.assign(result.redirect || "/admin");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Passkey login failed.");
+  }
+});
+
+function setUploadError(message) {
+  if (!directUploadForm) return;
+  let error = document.getElementById("upload-status");
+  if (!error) {
+    error = document.createElement("p");
+    error.id = "upload-status";
+    error.className = "error";
+    directUploadForm.before(error);
+  }
+  error.textContent = message;
+}
+
+directUploadForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setUploadError("");
+  const file = directUploadForm.querySelector("input[type=file]")?.files?.[0];
+  if (!file) {
+    setUploadError("Choose a file to upload.");
+    return;
+  }
+
+  const submitButton = directUploadForm.querySelector("button[type=submit]");
+  const originalLabel = submitButton?.textContent || "Upload";
+  if (submitButton) {
+    submitButton.textContent = "Uploading";
+    submitButton.disabled = true;
+  }
+
+  try {
+    const initResponse = await fetch("/uploads/direct/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name || "file",
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      }),
+    });
+    const initData = await initResponse.json();
+    if (!initResponse.ok) {
+      throw new Error(initData.error || "Direct upload could not start.");
+    }
+
+    const uploadResponse = await fetch(initData.uploadUrl, {
+      method: "PUT",
+      body: file,
+    });
+    if (!uploadResponse.ok) {
+      throw new Error("Direct upload to R2 failed.");
+    }
+
+    const finalizeResponse = await fetch(initData.finalizeUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/html" },
+      body: JSON.stringify({ id: initData.id, token: initData.token }),
+    });
+    const finalized = await finalizeResponse.text();
+    if (!finalizeResponse.ok) {
+      try {
+        const data = JSON.parse(finalized);
+        throw new Error(data.error || "Direct upload could not finish.");
+      } catch (error) {
+        if (error instanceof SyntaxError) throw new Error("Direct upload could not finish.");
+        throw error;
+      }
+    }
+
+    document.open();
+    document.write(finalized);
+    document.close();
+  } catch (error) {
+    setUploadError(error instanceof Error ? error.message : "Direct upload failed.");
+    if (submitButton) {
+      submitButton.textContent = originalLabel;
+      submitButton.disabled = false;
+    }
   }
 });
 

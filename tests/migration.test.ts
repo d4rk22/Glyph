@@ -5,18 +5,34 @@ import test from "node:test";
 const migration = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
 const v2Migration = readFileSync(new URL("../migrations/0003_v2_foundation.sql", import.meta.url), "utf8");
 const r2CleanupMigration = readFileSync(new URL("../migrations/0004_r2_deletion_cleanup.sql", import.meta.url), "utf8");
+const directUploadMigration = readFileSync(new URL("../migrations/0005_direct_uploads.sql", import.meta.url), "utf8");
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
     migration,
     readFileSync(new URL("../migrations/0002_webauthn_challenges.sql", import.meta.url), "utf8"),
     v2Migration,
-    r2CleanupMigration
+    r2CleanupMigration,
+    directUploadMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
     assert.match(allMigrations, new RegExp(`CREATE TABLE ${table} \\(`));
   }
+});
+
+test("direct upload migration tracks pending upload finalization state", () => {
+  for (const column of [
+    "direct_upload_token_hash",
+    "direct_upload_token_expires_at",
+    "direct_upload_finalized_at",
+    "direct_upload_error"
+  ]) {
+    assert.match(directUploadMigration, new RegExp(`ADD COLUMN ${column}\\b`));
+  }
+
+  assert.match(directUploadMigration, /idx_uploads_direct_upload_token_hash/);
+  assert.match(directUploadMigration, /idx_uploads_direct_upload_token_expires_at/);
 });
 
 test("R2 cleanup migration tracks object deletion retry state", () => {

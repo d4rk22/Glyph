@@ -5,7 +5,7 @@ const DEFAULT_MAX_ID_ATTEMPTS = 8;
 const SESSION_TOKEN_BYTES = 32;
 
 export type UploadMode = "worker" | "direct" | "multipart";
-export type UploadStorageState = "pending" | "stored" | "deleted" | "expired";
+export type UploadStorageState = "pending" | "stored" | "deleted" | "expired" | "failed";
 export type AppSettingKey = "storage_cap_bytes" | "default_upload_ttl_seconds" | "upload_mode";
 
 export interface UploadMetadata {
@@ -24,6 +24,9 @@ export interface UploadMetadata {
   r2DeleteCompletedAt: string | null;
   r2DeleteFailedAt: string | null;
   r2DeleteError: string | null;
+  directUploadTokenExpiresAt: string | null;
+  directUploadFinalizedAt: string | null;
+  directUploadError: string | null;
 }
 
 export interface CreateUploadMetadataInput {
@@ -34,6 +37,9 @@ export interface CreateUploadMetadataInput {
   expiresAt?: Date | string | null;
   uploadMode?: UploadMode;
   storageState?: UploadStorageState;
+  directUploadTokenHash?: string | null;
+  directUploadTokenExpiresAt?: Date | string | null;
+  directUploadError?: string | null;
 }
 
 export interface CreateUploadMetadataOptions {
@@ -58,6 +64,10 @@ interface UploadRow {
   r2_delete_completed_at?: string | null;
   r2_delete_failed_at?: string | null;
   r2_delete_error?: string | null;
+  direct_upload_token_hash?: string | null;
+  direct_upload_token_expires_at?: string | null;
+  direct_upload_finalized_at?: string | null;
+  direct_upload_error?: string | null;
 }
 
 interface AppSettingRow {
@@ -228,6 +238,9 @@ export async function createUploadMetadata(
   const expiresAt = optionalIso(input.expiresAt);
   const uploadMode = input.uploadMode ?? "worker";
   const storageState = input.storageState ?? "stored";
+  const directUploadTokenExpiresAt = optionalIso(input.directUploadTokenExpiresAt);
+  const directUploadTokenHash = input.directUploadTokenHash ?? null;
+  const directUploadError = input.directUploadError ?? null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const id = generateShortId(idLength);
@@ -245,10 +258,26 @@ export async function createUploadMetadata(
             created_at,
             expires_at,
             upload_mode,
-            storage_state
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            storage_state,
+            direct_upload_token_hash,
+            direct_upload_token_expires_at,
+            direct_upload_error
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(id, objectKey, input.originalFilename, input.contentType, input.sizeBytes, createdAt, expiresAt, uploadMode, storageState)
+        .bind(
+          id,
+          objectKey,
+          input.originalFilename,
+          input.contentType,
+          input.sizeBytes,
+          createdAt,
+          expiresAt,
+          uploadMode,
+          storageState,
+          directUploadTokenHash,
+          directUploadTokenExpiresAt,
+          directUploadError
+        )
         .run();
 
       return {
@@ -266,7 +295,10 @@ export async function createUploadMetadata(
         r2DeleteRequestedAt: null,
         r2DeleteCompletedAt: null,
         r2DeleteFailedAt: null,
-        r2DeleteError: null
+        r2DeleteError: null,
+        directUploadTokenExpiresAt,
+        directUploadFinalizedAt: null,
+        directUploadError
       };
     } catch (error) {
       if (
@@ -292,6 +324,29 @@ export async function getActiveUploadMetadata(db: D1Database, id: string): Promi
   const row = await db
     .prepare("SELECT * FROM uploads WHERE id = ? AND deleted_at IS NULL")
     .bind(id)
+    .first<UploadRow>();
+
+  return row ? mapUpload(row) : null;
+}
+
+export async function getPendingDirectUploadByToken(
+  db: D1Database,
+  id: string,
+  tokenHash: string,
+  now = new Date()
+): Promise<UploadMetadata | null> {
+  const row = await db
+    .prepare(
+      `SELECT *
+        FROM uploads
+        WHERE id = ?
+          AND direct_upload_token_hash = ?
+          AND upload_mode = 'direct'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL
+          AND direct_upload_token_expires_at > ?`
+    )
+    .bind(id, tokenHash, now.toISOString())
     .first<UploadRow>();
 
   return row ? mapUpload(row) : null;
@@ -355,6 +410,45 @@ export async function markUploadExpired(db: D1Database, id: string, now = new Da
           AND deleted_at IS NULL`
     )
     .bind(now.toISOString(), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markDirectUploadStored(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET storage_state = 'stored',
+          direct_upload_token_hash = NULL,
+          direct_upload_token_expires_at = NULL,
+          direct_upload_finalized_at = ?,
+          direct_upload_error = NULL
+        WHERE id = ?
+          AND upload_mode = 'direct'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL`
+    )
+    .bind(now.toISOString(), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markDirectUploadFailed(db: D1Database, id: string, error: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET storage_state = 'failed',
+          direct_upload_token_hash = NULL,
+          direct_upload_token_expires_at = NULL,
+          direct_upload_error = ?
+        WHERE id = ?
+          AND upload_mode = 'direct'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL`
+    )
+    .bind(error.slice(0, 500), id)
     .run();
 
   return result.meta.changes > 0;
@@ -947,7 +1041,10 @@ function mapUpload(row: UploadRow): UploadMetadata {
     r2DeleteRequestedAt: row.r2_delete_requested_at ?? null,
     r2DeleteCompletedAt: row.r2_delete_completed_at ?? null,
     r2DeleteFailedAt: row.r2_delete_failed_at ?? null,
-    r2DeleteError: row.r2_delete_error ?? null
+    r2DeleteError: row.r2_delete_error ?? null,
+    directUploadTokenExpiresAt: row.direct_upload_token_expires_at ?? null,
+    directUploadFinalizedAt: row.direct_upload_finalized_at ?? null,
+    directUploadError: row.direct_upload_error ?? null
   };
 }
 
@@ -1047,8 +1144,8 @@ function assertValidUploadMode(value: string): asserts value is UploadMode {
 }
 
 function assertValidStorageState(value: string): asserts value is UploadStorageState {
-  if (value !== "pending" && value !== "stored" && value !== "deleted" && value !== "expired") {
-    throw new Error("Upload storage state must be pending, stored, deleted, or expired.");
+  if (value !== "pending" && value !== "stored" && value !== "deleted" && value !== "expired" && value !== "failed") {
+    throw new Error("Upload storage state must be pending, stored, deleted, expired, or failed.");
   }
 }
 
