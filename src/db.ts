@@ -308,7 +308,16 @@ export async function updateUploadExpiration(
   expiresAt: Date | string | null
 ): Promise<boolean> {
   const result = await db
-    .prepare("UPDATE uploads SET expires_at = ? WHERE id = ?")
+    .prepare(
+      `UPDATE uploads
+        SET expires_at = ?,
+          expired_at = NULL,
+          storage_state = CASE
+            WHEN deleted_at IS NULL THEN 'stored'
+            ELSE storage_state
+          END
+        WHERE id = ?`
+    )
     .bind(optionalIso(expiresAt), id)
     .run();
 

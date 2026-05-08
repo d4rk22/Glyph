@@ -64,6 +64,12 @@ Phase 9 v2 foundation is in place:
 - D1 schema groundwork exists for upload expiration, upload modes, storage state, and app settings.
 - Typed D1 helpers cover app settings, expiration metadata, uploads due for expiration, and storage usage aggregates.
 
+Phase 10 manual expiring links are in place:
+
+- Admins can set, update, clear, and view per-upload expiration timestamps from `/admin`.
+- Public short links return the polished not-found page when `expires_at` is in the past or `expired_at` is set.
+- Clearing expiration also clears the expired marker so an upload can become active again if it has not been deleted.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -141,10 +147,13 @@ The protected admin panel lists the 100 most recent uploads, including active an
 - Original filename.
 - Short URL with an in-browser copy button.
 - Size and content type.
+- Expiration state, expiration timestamp, and expired timestamp when present.
 - Created timestamp and deleted timestamp, when present.
 - Short ID and R2 object key.
 
 Deleting an upload asks R2 to remove the stored object, then marks the D1 metadata row with `deleted_at`. Deleted short links return the same polished not-found response as missing links. If the R2 delete request fails, Glyph still marks the metadata deleted so the public link is unavailable.
+
+Admins can set or clear a manual expiration for active uploads. Expiration timestamps are stored as UTC. Expired short links return the not-found response, but the metadata remains visible in the admin panel. Automatic storage-cap expiration is intentionally deferred to a later v2 phase.
 
 ## Verification
 

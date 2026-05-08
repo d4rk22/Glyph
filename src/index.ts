@@ -42,9 +42,11 @@ import {
   getUploadMetadata,
   getWebAuthnCredentialByCredentialId,
   listUploadMetadata,
+  markUploadExpired,
   listWebAuthnCredentials,
   markUploadDeleted,
   touchAdminUserLogin,
+  updateUploadExpiration,
   updateWebAuthnCredentialUse,
   type AdminUser,
   type UploadMetadata
@@ -95,6 +97,10 @@ export default {
 
     if (url.pathname === "/admin/uploads/delete" && request.method === "POST") {
       return handleAdminUploadDelete(request, env);
+    }
+
+    if (url.pathname === "/admin/uploads/expiration" && request.method === "POST") {
+      return handleAdminUploadExpiration(request, env);
     }
 
     if (url.pathname === "/admin/passkeys/register/options" && request.method === "POST") {
@@ -163,6 +169,14 @@ async function handleDownload(request: Request, env: Env, id: string): Promise<R
   const metadata = await getActiveUploadMetadata(env.DB, id);
 
   if (!metadata) {
+    return html(renderShell("Not Found", notFoundPage()), 404);
+  }
+
+  if (isUploadExpired(metadata)) {
+    if (metadata.expiredAt === null) {
+      await markUploadExpired(env.DB, metadata.id);
+    }
+
     return html(renderShell("Not Found", notFoundPage()), 404);
   }
 
@@ -242,6 +256,37 @@ async function handleAdminUploadDelete(request: Request, env: Env): Promise<Resp
 
   await markUploadDeleted(env.DB, id);
   return redirect("/admin?notice=deleted");
+}
+
+async function handleAdminUploadExpiration(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The expiration request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const id = formString(formData, "id");
+
+  if (!id) {
+    return redirect("/admin?notice=missing-id");
+  }
+
+  const metadata = await getUploadMetadata(env.DB, id);
+  if (!metadata) {
+    return redirect("/admin?notice=missing-upload");
+  }
+
+  const expiresAt = parseExpirationFormValue(formString(formData, "expiresAt"));
+  if (expiresAt instanceof Error) {
+    return redirect("/admin?notice=invalid-expiration");
+  }
+
+  await updateUploadExpiration(env.DB, id, expiresAt);
+  return redirect(`/admin?notice=${expiresAt === null ? "expiration-cleared" : "expiration-updated"}`);
 }
 
 async function handleAdminLogout(request: Request, env: Env): Promise<Response> {
@@ -812,6 +857,33 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
       border: 0;
     }
 
+    .expiration-form {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .expiration-form label {
+      width: 100%;
+      margin-bottom: 0;
+      font-size: 0.78rem;
+    }
+
+    .expiration-form input {
+      min-height: 44px;
+      max-width: 220px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+    }
+
     .danger {
       border-color: var(--danger-border);
       background: var(--danger-bg);
@@ -1108,14 +1180,18 @@ ${uploads.map((upload) => uploadCard(upload, buildPublicUrl(origin, configuredBa
 
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
   const isDeleted = upload.deletedAt !== null;
-  const status = isDeleted ? "Deleted" : "Active";
+  const isExpired = !isDeleted && isUploadExpired(upload);
+  const status = isDeleted ? "Deleted" : isExpired ? "Expired" : "Active";
   const deletedMeta = isDeleted ? `<span>Deleted ${escapeHtml(upload.deletedAt || "")}</span>` : "";
+  const expirationMeta = upload.expiresAt ? `<span>Expires ${escapeHtml(upload.expiresAt)}</span>` : "<span>No expiration</span>";
+  const expiredMeta = upload.expiredAt ? `<span>Expired ${escapeHtml(upload.expiredAt)}</span>` : "";
   const copyButton = `<button class="secondary" type="button" data-copy-url="${escapeAttribute(shortUrl)}">Copy URL</button>`;
   const actions = isDeleted
     ? `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
     ${copyButton}`
     : `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
     ${copyButton}
+    ${expirationForm(upload)}
     <form method="post" action="/admin/uploads/delete">
       <input type="hidden" name="id" value="${escapeAttribute(upload.id)}">
       <button class="danger" type="submit">Delete</button>
@@ -1127,10 +1203,12 @@ function uploadCard(upload: UploadMetadata, shortUrl: string): string {
     <p class="upload-url">${escapeHtml(shortUrl)}</p>
   </div>
   <div class="upload-meta">
-    <span class="status${isDeleted ? " deleted" : ""}">${status}</span>
+    <span class="status${isDeleted || isExpired ? " deleted" : ""}">${status}</span>
     <span>${formatBytes(upload.sizeBytes)}</span>
     <span>${escapeHtml(upload.contentType)}</span>
     <span>Created ${escapeHtml(upload.createdAt)}</span>
+    ${expirationMeta}
+    ${expiredMeta}
     ${deletedMeta}
     <span>ID ${escapeHtml(upload.id)}</span>
     <span>Object ${escapeHtml(upload.objectKey)}</span>
@@ -1139,6 +1217,19 @@ function uploadCard(upload: UploadMetadata, shortUrl: string): string {
     ${actions}
   </div>
 </article>`;
+}
+
+function expirationForm(upload: UploadMetadata): string {
+  return `<form class="expiration-form" method="post" action="/admin/uploads/expiration">
+      <input type="hidden" name="id" value="${escapeAttribute(upload.id)}">
+      <label for="expires-${escapeAttribute(upload.id)}">Expires (UTC)</label>
+      <input id="expires-${escapeAttribute(upload.id)}" name="expiresAt" type="datetime-local" value="${escapeAttribute(datetimeLocalValue(upload.expiresAt))}">
+      <button class="secondary" type="submit">Save</button>
+    </form>
+    <form method="post" action="/admin/uploads/expiration">
+      <input type="hidden" name="id" value="${escapeAttribute(upload.id)}">
+      <button class="secondary" type="submit">Clear expiration</button>
+    </form>`;
 }
 
 function noticeMarkup(notice: string | null): string {
@@ -1158,6 +1249,46 @@ function adminActionErrorPage(message: string): string {
 function formString(formData: FormData, key: string): string | null {
   const value = formData.get(key);
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function parseExpirationFormValue(value: string | null): string | null | Error {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Error("Invalid expiration.");
+  }
+
+  return parsed.toISOString();
+}
+
+function datetimeLocalValue(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return parsed.toISOString().slice(0, 16);
+}
+
+function isUploadExpired(upload: UploadMetadata, now = new Date()): boolean {
+  if (upload.expiredAt !== null) {
+    return true;
+  }
+
+  if (upload.expiresAt === null) {
+    return false;
+  }
+
+  const expiresAt = Date.parse(upload.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= now.getTime();
 }
 
 function isSameOriginRequest(request: Request): boolean {

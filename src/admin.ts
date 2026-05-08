@@ -6,6 +6,12 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "That upload no longer exists.";
     case "missing-id":
       return "No upload was selected.";
+    case "expiration-updated":
+      return "Upload expiration updated.";
+    case "expiration-cleared":
+      return "Upload expiration cleared.";
+    case "invalid-expiration":
+      return "That expiration date could not be read.";
     default:
       return null;
   }
@@ -14,4 +20,3 @@ export function adminNoticeMessage(notice: string | null): string | null {
 export function isSameOriginAdminRequest(requestUrl: string, origin: string | null): boolean {
   return !origin || origin === new URL(requestUrl).origin;
 }
-

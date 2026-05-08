@@ -29,7 +29,11 @@ const activeUploadRow = {
   content_type: "application/pdf",
   size_bytes: 1536,
   created_at: "2026-05-08T02:00:00.000Z",
-  deleted_at: null
+  deleted_at: null,
+  expires_at: null,
+  expired_at: null,
+  upload_mode: "worker",
+  storage_state: "stored"
 };
 
 const deletedUploadRow = {
@@ -39,12 +43,31 @@ const deletedUploadRow = {
   content_type: "application/zip",
   size_bytes: 4096,
   created_at: "2026-05-08T01:30:00.000Z",
-  deleted_at: "2026-05-08T03:00:00.000Z"
+  deleted_at: "2026-05-08T03:00:00.000Z",
+  expires_at: null,
+  expired_at: null,
+  upload_mode: "worker",
+  storage_state: "deleted"
+};
+
+const expiredUploadRow = {
+  id: "expired123",
+  object_key: "uploads/expired123/old.txt",
+  original_filename: "old.txt",
+  content_type: "text/plain",
+  size_bytes: 12,
+  created_at: "2026-05-08T01:00:00.000Z",
+  deleted_at: null,
+  expires_at: "2020-01-01T00:00:00.000Z",
+  expired_at: null,
+  upload_mode: "worker",
+  storage_state: "stored"
 };
 
 interface FakeEnvOptions {
   adminCount?: number;
   authenticated?: boolean;
+  activeUploadById?: unknown | null;
   uploads?: unknown[];
   uploadById?: unknown | null;
 }
@@ -58,9 +81,13 @@ function createExecutionContext(): ExecutionContext {
 
 function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   deletedObjectKeys: string[];
+  expirationUpdates: unknown[][];
+  markedExpiredIds: string[];
   markedDeletedIds: string[];
 } {
   const deletedObjectKeys: string[] = [];
+  const expirationUpdates: unknown[][] = [];
+  const markedExpiredIds: string[] = [];
   const markedDeletedIds: string[] = [];
   const adminCount = options.adminCount ?? 1;
   const authenticated = options.authenticated ?? false;
@@ -88,7 +115,7 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
           }
 
           if (sql.includes("FROM uploads WHERE id = ? AND deleted_at IS NULL")) {
-            return null;
+            return options.activeUploadById ?? null;
           }
 
           if (sql.includes("FROM uploads WHERE id = ?")) {
@@ -110,6 +137,16 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
             return { meta: { changes: 1 } };
           }
 
+          if (sql.includes("SET expires_at = ?")) {
+            expirationUpdates.push(bindings);
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET expired_at = ?")) {
+            markedExpiredIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
           throw new Error(`Unhandled run query: ${sql}`);
         }
       };
@@ -119,14 +156,22 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   return {
     DB: db as unknown as D1Database,
     FILES: {
+      async get() {
+        return {
+          body: new Blob(["hello"]).stream(),
+          httpMetadata: { contentType: "text/plain" }
+        };
+      },
       async delete(key: string) {
         deletedObjectKeys.push(key);
       }
     } as unknown as R2Bucket,
     APP_ENV: "test",
     deletedObjectKeys,
+    expirationUpdates,
+    markedExpiredIds,
     markedDeletedIds
-  } as Env & { deletedObjectKeys: string[]; markedDeletedIds: string[] };
+  } as Env & { deletedObjectKeys: string[]; expirationUpdates: unknown[][]; markedExpiredIds: string[]; markedDeletedIds: string[] };
 }
 
 function adminRequest(path: string, init: RequestInit = {}): Request {
@@ -143,6 +188,9 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("deleted"), "Upload deleted. R2 object deletion was requested and the metadata is marked deleted.");
   assert.equal(adminNoticeMessage("missing-upload"), "That upload no longer exists.");
   assert.equal(adminNoticeMessage("missing-id"), "No upload was selected.");
+  assert.equal(adminNoticeMessage("expiration-updated"), "Upload expiration updated.");
+  assert.equal(adminNoticeMessage("expiration-cleared"), "Upload expiration cleared.");
+  assert.equal(adminNoticeMessage("invalid-expiration"), "That expiration date could not be read.");
   assert.equal(adminNoticeMessage("unknown"), null);
 });
 
@@ -182,8 +230,61 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /status deleted">Deleted/);
   assert.match(body, /data-copy-url="https:\/\/glyph\.example\/active123"/);
   assert.match(body, /Object uploads\/active123\/report\.pdf/);
+  assert.match(body, /No expiration/);
+  assert.match(body, /name="expiresAt"/);
   assert.match(body, /name="id" value="active123"/);
   assert.doesNotMatch(body, /name="id" value="deleted123"/);
+});
+
+test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploads: [expiredUploadRow]
+  });
+
+  const response = await worker.fetch(adminRequest("/admin"), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /status deleted">Expired/);
+  assert.match(body, /Expires 2020-01-01T00:00:00.000Z/);
+  assert.match(body, /value="2020-01-01T00:00"/);
+});
+
+test("active and future-expiring short links download normally", async () => {
+  const env = createFakeEnv({
+    activeUploadById: {
+      ...activeUploadRow,
+      expires_at: "2099-01-01T00:00:00.000Z"
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://glyph.example/active123", { method: "HEAD" }), env, createExecutionContext());
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Content-Disposition"), `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`);
+  assert.deepEqual(env.markedExpiredIds, []);
+});
+
+test("past expiration and explicit expired state return not found", async () => {
+  const pastEnv = createFakeEnv({ activeUploadById: expiredUploadRow });
+  const pastResponse = await worker.fetch(new Request("https://glyph.example/expired123"), pastEnv, createExecutionContext());
+  const pastBody = await pastResponse.text();
+
+  assert.equal(pastResponse.status, 404);
+  assert.match(pastBody, /Unavailable link/);
+  assert.deepEqual(pastEnv.markedExpiredIds, ["expired123"]);
+
+  const explicitEnv = createFakeEnv({
+    activeUploadById: {
+      ...expiredUploadRow,
+      expired_at: "2026-05-08T03:00:00.000Z"
+    }
+  });
+  const explicitResponse = await worker.fetch(new Request("https://glyph.example/expired123"), explicitEnv, createExecutionContext());
+
+  assert.equal(explicitResponse.status, 404);
+  assert.deepEqual(explicitEnv.markedExpiredIds, []);
 });
 
 test("admin delete rejects cross-origin form posts before touching R2 or upload metadata", async () => {
@@ -224,6 +325,71 @@ test("admin delete redirects with missing upload notices", async () => {
   );
   assert.equal(missingUpload.status, 303);
   assert.equal(missingUpload.headers.get("Location"), "/admin?notice=missing-upload");
+});
+
+test("admin expiration update validates origin and missing uploads", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploadById: activeUploadRow
+  });
+  const blocked = await worker.fetch(
+    adminRequest("/admin/uploads/expiration", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: new URLSearchParams({ id: "active123", expiresAt: "2099-01-01T00:00" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(blocked.status, 403);
+  assert.deepEqual(env.expirationUpdates, []);
+
+  const missing = await worker.fetch(
+    adminRequest("/admin/uploads/expiration", {
+      method: "POST",
+      body: new URLSearchParams({ id: "missing123", expiresAt: "2099-01-01T00:00" })
+    }),
+    createFakeEnv({ authenticated: true }),
+    createExecutionContext()
+  );
+
+  assert.equal(missing.status, 303);
+  assert.equal(missing.headers.get("Location"), "/admin?notice=missing-upload");
+});
+
+test("admin expiration update sets and clears upload expiration", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploadById: activeUploadRow
+  });
+
+  const setResponse = await worker.fetch(
+    adminRequest("/admin/uploads/expiration", {
+      method: "POST",
+      body: new URLSearchParams({ id: "active123", expiresAt: "2099-01-01T00:00" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(setResponse.status, 303);
+  assert.equal(setResponse.headers.get("Location"), "/admin?notice=expiration-updated");
+  assert.equal(env.expirationUpdates[0][1], "active123");
+  assert.match(String(env.expirationUpdates[0][0]), /^2099-01-01T/);
+
+  const clearResponse = await worker.fetch(
+    adminRequest("/admin/uploads/expiration", {
+      method: "POST",
+      body: new URLSearchParams({ id: "active123" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(clearResponse.status, 303);
+  assert.equal(clearResponse.headers.get("Location"), "/admin?notice=expiration-cleared");
+  assert.deepEqual(env.expirationUpdates[1], [null, "active123"]);
 });
 
 test("admin delete removes the R2 object and marks metadata deleted", async () => {
