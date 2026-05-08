@@ -4,6 +4,10 @@ import type { WebAuthnChallengePurpose } from "./auth.ts";
 const DEFAULT_MAX_ID_ATTEMPTS = 8;
 const SESSION_TOKEN_BYTES = 32;
 
+export type UploadMode = "worker" | "direct" | "multipart";
+export type UploadStorageState = "pending" | "stored" | "deleted" | "expired";
+export type AppSettingKey = "storage_cap_bytes" | "default_upload_ttl_seconds" | "upload_mode";
+
 export interface UploadMetadata {
   id: string;
   objectKey: string;
@@ -12,6 +16,10 @@ export interface UploadMetadata {
   sizeBytes: number;
   createdAt: string;
   deletedAt: string | null;
+  expiresAt: string | null;
+  expiredAt: string | null;
+  uploadMode: UploadMode;
+  storageState: UploadStorageState;
 }
 
 export interface CreateUploadMetadataInput {
@@ -19,6 +27,9 @@ export interface CreateUploadMetadataInput {
   contentType: string;
   sizeBytes: number;
   objectKey?: string;
+  expiresAt?: Date | string | null;
+  uploadMode?: UploadMode;
+  storageState?: UploadStorageState;
 }
 
 export interface CreateUploadMetadataOptions {
@@ -35,6 +46,37 @@ interface UploadRow {
   size_bytes: number;
   created_at: string;
   deleted_at: string | null;
+  expires_at?: string | null;
+  expired_at?: string | null;
+  upload_mode?: string | null;
+  storage_state?: string | null;
+}
+
+interface AppSettingRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
+export interface AppSetting {
+  key: AppSettingKey;
+  value: string;
+  updatedAt: string;
+}
+
+export interface AppSettings {
+  storageCapBytes: number | null;
+  defaultUploadTtlSeconds: number | null;
+  uploadMode: UploadMode;
+}
+
+export interface StorageUsage {
+  activeBytes: number;
+  activeCount: number;
+  expiredBytes: number;
+  expiredCount: number;
+  deletedBytes: number;
+  deletedCount: number;
 }
 
 export interface AdminUser {
@@ -167,6 +209,9 @@ export async function createUploadMetadata(
   const idLength = options.idLength ?? DEFAULT_SHORT_ID_LENGTH;
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ID_ATTEMPTS;
   const createdAt = iso(options.now);
+  const expiresAt = optionalIso(input.expiresAt);
+  const uploadMode = input.uploadMode ?? "worker";
+  const storageState = input.storageState ?? "stored";
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const id = generateShortId(idLength);
@@ -181,10 +226,13 @@ export async function createUploadMetadata(
             original_filename,
             content_type,
             size_bytes,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?)`
+            created_at,
+            expires_at,
+            upload_mode,
+            storage_state
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(id, objectKey, input.originalFilename, input.contentType, input.sizeBytes, createdAt)
+        .bind(id, objectKey, input.originalFilename, input.contentType, input.sizeBytes, createdAt, expiresAt, uploadMode, storageState)
         .run();
 
       return {
@@ -194,7 +242,11 @@ export async function createUploadMetadata(
         contentType: input.contentType,
         sizeBytes: input.sizeBytes,
         createdAt,
-        deletedAt: null
+        deletedAt: null,
+        expiresAt,
+        expiredAt: null,
+        uploadMode,
+        storageState
       };
     } catch (error) {
       if (
@@ -243,16 +295,154 @@ export async function listUploadMetadata(
 
 export async function markUploadDeleted(db: D1Database, id: string, now = new Date()): Promise<boolean> {
   const result = await db
-    .prepare("UPDATE uploads SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+    .prepare("UPDATE uploads SET deleted_at = ?, storage_state = 'deleted' WHERE id = ? AND deleted_at IS NULL")
     .bind(now.toISOString(), id)
     .run();
 
   return result.meta.changes > 0;
 }
 
+export async function updateUploadExpiration(
+  db: D1Database,
+  id: string,
+  expiresAt: Date | string | null
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE uploads SET expires_at = ? WHERE id = ?")
+    .bind(optionalIso(expiresAt), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markUploadExpired(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET expired_at = ?, storage_state = 'expired'
+        WHERE id = ?
+          AND expired_at IS NULL
+          AND deleted_at IS NULL`
+    )
+    .bind(now.toISOString(), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function listUploadsDueForExpiration(db: D1Database, now = new Date(), limit = 50): Promise<UploadMetadata[]> {
+  const rows = await db
+    .prepare(
+      `SELECT *
+        FROM uploads
+        WHERE deleted_at IS NULL
+          AND expired_at IS NULL
+          AND expires_at IS NOT NULL
+          AND expires_at <= ?
+        ORDER BY expires_at ASC
+        LIMIT ?`
+    )
+    .bind(now.toISOString(), clampLimit(limit))
+    .all<UploadRow>();
+
+  return rows.results.map(mapUpload);
+}
+
+export async function getUploadStorageUsage(db: D1Database): Promise<StorageUsage> {
+  const row = await db
+    .prepare(
+      `SELECT
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL THEN size_bytes ELSE 0 END), 0) AS active_bytes,
+        COALESCE(SUM(CASE WHEN deleted_at IS NULL AND expired_at IS NULL THEN 1 ELSE 0 END), 0) AS active_count,
+        COALESCE(SUM(CASE WHEN expired_at IS NOT NULL AND deleted_at IS NULL THEN size_bytes ELSE 0 END), 0) AS expired_bytes,
+        COALESCE(SUM(CASE WHEN expired_at IS NOT NULL AND deleted_at IS NULL THEN 1 ELSE 0 END), 0) AS expired_count,
+        COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN size_bytes ELSE 0 END), 0) AS deleted_bytes,
+        COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS deleted_count
+        FROM uploads`
+    )
+    .first<{
+      active_bytes: number;
+      active_count: number;
+      expired_bytes: number;
+      expired_count: number;
+      deleted_bytes: number;
+      deleted_count: number;
+    }>();
+
+  return {
+    activeBytes: row?.active_bytes ?? 0,
+    activeCount: row?.active_count ?? 0,
+    expiredBytes: row?.expired_bytes ?? 0,
+    expiredCount: row?.expired_count ?? 0,
+    deletedBytes: row?.deleted_bytes ?? 0,
+    deletedCount: row?.deleted_count ?? 0
+  };
+}
+
 export async function deleteUploadMetadata(db: D1Database, id: string): Promise<boolean> {
   const result = await db.prepare("DELETE FROM uploads WHERE id = ?").bind(id).run();
   return result.meta.changes > 0;
+}
+
+export async function getAppSetting(db: D1Database, key: AppSettingKey): Promise<AppSetting | null> {
+  const row = await db.prepare("SELECT * FROM app_settings WHERE key = ?").bind(key).first<AppSettingRow>();
+  return row ? mapAppSetting(row) : null;
+}
+
+export async function setAppSetting(db: D1Database, key: AppSettingKey, value: string, now = new Date()): Promise<AppSetting> {
+  validateAppSetting(key, value);
+
+  const updatedAt = now.toISOString();
+  await db
+    .prepare(
+      `INSERT INTO app_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    )
+    .bind(key, value, updatedAt)
+    .run();
+
+  return { key, value, updatedAt };
+}
+
+export async function getAppSettings(db: D1Database): Promise<AppSettings> {
+  const rows = await db.prepare("SELECT * FROM app_settings").all<AppSettingRow>();
+  const values = new Map(rows.results.map((row) => [row.key, row.value]));
+
+  return {
+    storageCapBytes: parseNullableIntegerSetting(values.get("storage_cap_bytes")),
+    defaultUploadTtlSeconds: parseNullableIntegerSetting(values.get("default_upload_ttl_seconds")),
+    uploadMode: parseUploadMode(values.get("upload_mode"))
+  };
+}
+
+export async function updateAppSettings(
+  db: D1Database,
+  settings: Partial<{
+    storageCapBytes: number | null;
+    defaultUploadTtlSeconds: number | null;
+    uploadMode: UploadMode;
+  }>,
+  now = new Date()
+): Promise<AppSettings> {
+  if ("storageCapBytes" in settings) {
+    await setAppSetting(db, "storage_cap_bytes", stringifyNullableIntegerSetting(settings.storageCapBytes), now);
+  }
+
+  if ("defaultUploadTtlSeconds" in settings) {
+    await setAppSetting(
+      db,
+      "default_upload_ttl_seconds",
+      stringifyNullableIntegerSetting(settings.defaultUploadTtlSeconds),
+      now
+    );
+  }
+
+  if (settings.uploadMode !== undefined) {
+    await setAppSetting(db, "upload_mode", settings.uploadMode, now);
+  }
+
+  return getAppSettings(db);
 }
 
 export async function createAdminUser(db: D1Database, input: CreateAdminUserInput): Promise<AdminUser> {
@@ -575,6 +765,9 @@ function assertValidUploadInput(input: CreateUploadMetadataInput): void {
   if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0) {
     throw new Error("Upload size must be a non-negative safe integer.");
   }
+
+  assertValidUploadMode(input.uploadMode ?? "worker");
+  assertValidStorageState(input.storageState ?? "stored");
 }
 
 function mapUpload(row: UploadRow): UploadMetadata {
@@ -585,7 +778,19 @@ function mapUpload(row: UploadRow): UploadMetadata {
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     createdAt: row.created_at,
-    deletedAt: row.deleted_at
+    deletedAt: row.deleted_at,
+    expiresAt: row.expires_at ?? null,
+    expiredAt: row.expired_at ?? null,
+    uploadMode: parseUploadMode(row.upload_mode),
+    storageState: parseStorageState(row.storage_state)
+  };
+}
+
+function mapAppSetting(row: AppSettingRow): AppSetting {
+  return {
+    key: parseAppSettingKey(row.key),
+    value: row.value,
+    updatedAt: row.updated_at
   };
 }
 
@@ -660,6 +865,93 @@ function clampLimit(limit: number): number {
 
 function iso(date = new Date()): string {
   return date.toISOString();
+}
+
+function optionalIso(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function assertValidUploadMode(value: string): asserts value is UploadMode {
+  if (value !== "worker" && value !== "direct" && value !== "multipart") {
+    throw new Error("Upload mode must be worker, direct, or multipart.");
+  }
+}
+
+function assertValidStorageState(value: string): asserts value is UploadStorageState {
+  if (value !== "pending" && value !== "stored" && value !== "deleted" && value !== "expired") {
+    throw new Error("Upload storage state must be pending, stored, deleted, or expired.");
+  }
+}
+
+function parseUploadMode(value: string | null | undefined): UploadMode {
+  if (!value) {
+    return "worker";
+  }
+
+  assertValidUploadMode(value);
+  return value;
+}
+
+function parseStorageState(value: string | null | undefined): UploadStorageState {
+  if (!value) {
+    return "stored";
+  }
+
+  assertValidStorageState(value);
+  return value;
+}
+
+function parseAppSettingKey(value: string): AppSettingKey {
+  if (value !== "storage_cap_bytes" && value !== "default_upload_ttl_seconds" && value !== "upload_mode") {
+    throw new Error(`Unknown app setting: ${value}`);
+  }
+
+  return value;
+}
+
+function validateAppSetting(key: AppSettingKey, value: string): void {
+  if (key === "upload_mode") {
+    assertValidUploadMode(value);
+    return;
+  }
+
+  if (value === "") {
+    return;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${key} must be empty or a non-negative safe integer.`);
+  }
+}
+
+function parseNullableIntegerSetting(value: string | undefined): number | null {
+  if (value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("App setting must be empty or a non-negative safe integer.");
+  }
+
+  return parsed;
+}
+
+function stringifyNullableIntegerSetting(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("App setting must be null or a non-negative safe integer.");
+  }
+
+  return String(value);
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {

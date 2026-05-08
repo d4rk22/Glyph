@@ -58,6 +58,12 @@ Phase 8 final MVP verification is complete:
 - Local smoke checks cover the upload page, anonymous upload, short-link download, missing/deleted not-found pages, admin login surface, admin file listing, and admin deletion.
 - Remaining MVP risks and limitations are documented below.
 
+Phase 9 v2 foundation is in place:
+
+- `GOAL.md` now preserves the completed MVP goal and adds the post-MVP v2 roadmap.
+- D1 schema groundwork exists for upload expiration, upload modes, storage state, and app settings.
+- Typed D1 helpers cover app settings, expiration metadata, uploads due for expiration, and storage usage aggregates.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -93,7 +99,7 @@ The Worker expects these bindings:
 
 ## Migrations
 
-Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, and WebAuthn challenges.
+Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, and storage accounting.
 
 Apply migrations locally:
 
