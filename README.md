@@ -105,6 +105,12 @@ Phase 15 multipart direct-to-R2 uploads are in place:
 - The browser upload flow shows client-side progress and estimated time remaining for direct upload modes. Multipart progress is based on completed parts and file size.
 - Worker-mediated uploads and direct single-part uploads remain available as fallback paths.
 
+Phase 16 one-command deploy workflow is in place:
+
+- `pnpm run deploy:glyph -- --check` validates project prerequisites, runs typecheck/tests, checks remote D1 migrations, and performs a Wrangler dry-run.
+- `pnpm run deploy:glyph -- --yes` runs the same checks, applies remote D1 migrations, performs a Wrangler dry-run, and deploys the Worker.
+- The first version assumes the Cloudflare account, Wrangler auth, D1 database, R2 bucket, bindings, secrets, and bucket CORS are already configured.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -247,28 +253,56 @@ Runtime dependency justification:
 
 ## Deployment
 
-After replacing the D1 placeholder ID and applying remote migrations, deploy the Worker:
+After replacing the D1 placeholder ID and confirming Wrangler is authenticated, run a safe deployment check:
 
 ```sh
-pnpm run deploy
+pnpm run deploy:glyph -- --check
 ```
 
-Recommended deployment checklist:
+When the check is clean and you are ready to mutate remote Cloudflare resources, run:
 
-- `pnpm install` succeeds from `pnpm-lock.yaml`.
-- `pnpm run typecheck` passes.
-- `pnpm test` passes.
-- `pnpm run db:migrate:remote` has been applied to the configured D1 database.
-- `wrangler.jsonc` points at the intended D1 database and R2 bucket.
+```sh
+pnpm run deploy:glyph -- --yes
+```
+
+The `--yes` command performs these steps in order:
+
+- `pnpm install --frozen-lockfile`
+- `pnpm run typecheck`
+- `pnpm test`
+- `pnpm wrangler d1 migrations apply glyph --remote`
+- `pnpm wrangler deploy --dry-run --outdir /tmp/glyph-deploy-dry-run`
+- `pnpm wrangler deploy`
+
+Use `--skip-install` if dependencies are already installed and you want to avoid the install step. Use `--database <name-or-binding>` if the remote D1 database binding/name is not `glyph`.
+
+The deploy helper validates that `wrangler.jsonc` contains:
+
+- Worker entrypoint `src/index.ts`.
+- D1 binding `DB` with `migrations_dir` set to `migrations`.
+- R2 binding `FILES`.
+- `APP_ENV`.
+- A non-placeholder D1 `database_id` when running with `--yes`.
+
+Before deploying, make sure these Cloudflare pieces already exist:
+
+- Wrangler is logged in for the intended Cloudflare account.
+- The D1 database exists and its real `database_id` is in `wrangler.jsonc`.
+- The R2 bucket exists and is bound as `FILES`.
 - Optional `PUBLIC_BASE_URL` is configured if generated links should use a custom public origin.
-- `/admin` bootstrap is completed from the deployed origin.
+- Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`.
+- R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads.
+- `/admin` bootstrap is completed from the deployed origin after first deploy.
+
+The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler commands remain available for manual operations.
 
 ## Known MVP Limitations
 
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
-- No folders, public file browsing, billing, deploy automation, self-updates, or custom-domain automation.
+- The deploy helper does not create Cloudflare resources yet; D1, R2, Wrangler auth, secrets, and CORS are still manual setup.
+- No folders, public file browsing, billing, self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.
