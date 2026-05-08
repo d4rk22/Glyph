@@ -6,6 +6,7 @@ const migration = readFileSync(new URL("../migrations/0001_initial.sql", import.
 const v2Migration = readFileSync(new URL("../migrations/0003_v2_foundation.sql", import.meta.url), "utf8");
 const r2CleanupMigration = readFileSync(new URL("../migrations/0004_r2_deletion_cleanup.sql", import.meta.url), "utf8");
 const directUploadMigration = readFileSync(new URL("../migrations/0005_direct_uploads.sql", import.meta.url), "utf8");
+const multipartUploadMigration = readFileSync(new URL("../migrations/0006_multipart_uploads.sql", import.meta.url), "utf8");
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
@@ -13,7 +14,8 @@ test("migrations include the core metadata and auth tables", () => {
     readFileSync(new URL("../migrations/0002_webauthn_challenges.sql", import.meta.url), "utf8"),
     v2Migration,
     r2CleanupMigration,
-    directUploadMigration
+    directUploadMigration,
+    multipartUploadMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
@@ -33,6 +35,21 @@ test("direct upload migration tracks pending upload finalization state", () => {
 
   assert.match(directUploadMigration, /idx_uploads_direct_upload_token_hash/);
   assert.match(directUploadMigration, /idx_uploads_direct_upload_token_expires_at/);
+});
+
+test("multipart upload migration tracks multipart state", () => {
+  for (const column of [
+    "multipart_upload_id",
+    "multipart_part_size",
+    "multipart_part_count",
+    "multipart_completed_parts",
+    "multipart_aborted_at"
+  ]) {
+    assert.match(multipartUploadMigration, new RegExp(`ADD COLUMN ${column}\\b`));
+  }
+
+  assert.match(multipartUploadMigration, /idx_uploads_multipart_upload_id/);
+  assert.match(multipartUploadMigration, /idx_uploads_multipart_aborted_at/);
 });
 
 test("R2 cleanup migration tracks object deletion retry state", () => {

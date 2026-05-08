@@ -96,7 +96,14 @@ Phase 14 direct-to-R2 single-part uploads are in place:
 - Admins can switch upload mode between Worker-mediated and direct-to-R2 from `/admin`.
 - Direct uploads create pending D1 metadata, issue a short-lived presigned R2 PUT URL, and finalize through the Worker before the short link becomes active.
 - Pending or failed direct uploads are not downloadable from public short links.
-- Multipart uploads, progress indicators, and estimated time remaining remain deferred.
+
+Phase 15 multipart direct-to-R2 uploads are in place:
+
+- Admins can switch upload mode between Worker-mediated, direct-to-R2, and multipart direct-to-R2 from `/admin`.
+- Multipart uploads create pending D1 metadata, initiate R2 multipart upload state through the Worker, authorize each part with short-lived presigned URLs, and finalize through the Worker before the short link becomes active.
+- Pending, failed, incomplete, or aborted multipart uploads are not downloadable from public short links.
+- The browser upload flow shows client-side progress and estimated time remaining for direct upload modes. Multipart progress is based on completed parts and file size.
+- Worker-mediated uploads and direct single-part uploads remain available as fallback paths.
 
 ## Prerequisites
 
@@ -135,11 +142,11 @@ The Worker expects these bindings:
 - `R2_SECRET_ACCESS_KEY`: optional R2 S3-compatible secret access key for direct-to-R2 presigned uploads. Store this as a Wrangler secret.
 - `R2_BUCKET_NAME`: optional R2 bucket name for presigned URLs. Defaults to `glyph-files`.
 
-Direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Without those values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct.
+Direct-to-R2 and multipart direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Multipart mode also requires CORS to expose the `ETag` response header so the browser can report completed part ETags back to the Worker for finalization. Without the credential values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct or multipart.
 
 ## Migrations
 
-Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, R2 deletion cleanup state, and direct upload finalization state.
+Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, R2 deletion cleanup state, direct upload finalization state, and multipart upload state.
 
 Apply migrations locally:
 
@@ -199,7 +206,9 @@ The R2 cleanup panel can retry object deletion for expired or deleted uploads wh
 
 Once R2 cleanup is marked complete for an expired upload, its expiration cannot be cleared from the admin UI because the file bytes have already been removed.
 
-When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-lived presigned R2 PUT URL. The Worker still creates pending metadata first and finalizes the upload after the object appears in R2 with the expected size. The public short link is unavailable until finalization marks the metadata stored. The normal Worker-mediated `POST /` path remains available as a fallback.
+When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-lived presigned R2 PUT URL. The Worker still creates pending metadata first and finalizes the upload after the object appears in R2 with the expected size. The public short link is unavailable until finalization marks the metadata stored.
+
+When multipart direct-to-R2 mode is enabled and configured, files at or above the conservative multipart threshold use R2 multipart upload. The Worker creates pending metadata, initiates the R2 multipart upload, signs individual part uploads, completes the multipart upload after all expected parts are reported, verifies the final object size where practical, and only then marks the short link stored. Smaller files in multipart mode continue through the direct single-part path. Failed or aborted multipart uploads are marked unavailable in D1. The normal Worker-mediated `POST /` path remains available as a fallback.
 
 ## Verification
 
@@ -223,7 +232,7 @@ Final MVP smoke checks should include:
 - `POST /admin/uploads/delete` marks metadata deleted and requests R2 object removal.
 - `GET /{deleted-id}` returns the polished not-found page.
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
-- `POST /admin/settings/upload-mode` switches between Worker-mediated and direct-to-R2 upload mode for an authenticated same-origin admin request.
+- `POST /admin/settings/upload-mode` switches between Worker-mediated, direct-to-R2, and multipart direct-to-R2 upload mode for an authenticated same-origin admin request.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 
 ## Dependency Policy
@@ -257,8 +266,9 @@ Recommended deployment checklist:
 ## Known MVP Limitations
 
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
-- Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
-- No folders, public file browsing, billing, multipart uploads, upload progress, deploy automation, self-updates, or custom-domain automation.
+- Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
+- Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
+- No folders, public file browsing, billing, deploy automation, self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.

@@ -27,6 +27,11 @@ export interface UploadMetadata {
   directUploadTokenExpiresAt: string | null;
   directUploadFinalizedAt: string | null;
   directUploadError: string | null;
+  multipartUploadId: string | null;
+  multipartPartSize: number | null;
+  multipartPartCount: number | null;
+  multipartCompletedParts: string | null;
+  multipartAbortedAt: string | null;
 }
 
 export interface CreateUploadMetadataInput {
@@ -40,6 +45,10 @@ export interface CreateUploadMetadataInput {
   directUploadTokenHash?: string | null;
   directUploadTokenExpiresAt?: Date | string | null;
   directUploadError?: string | null;
+  multipartUploadId?: string | null;
+  multipartPartSize?: number | null;
+  multipartPartCount?: number | null;
+  multipartCompletedParts?: string | null;
 }
 
 export interface CreateUploadMetadataOptions {
@@ -68,6 +77,11 @@ interface UploadRow {
   direct_upload_token_expires_at?: string | null;
   direct_upload_finalized_at?: string | null;
   direct_upload_error?: string | null;
+  multipart_upload_id?: string | null;
+  multipart_part_size?: number | null;
+  multipart_part_count?: number | null;
+  multipart_completed_parts?: string | null;
+  multipart_aborted_at?: string | null;
 }
 
 interface AppSettingRow {
@@ -241,6 +255,10 @@ export async function createUploadMetadata(
   const directUploadTokenExpiresAt = optionalIso(input.directUploadTokenExpiresAt);
   const directUploadTokenHash = input.directUploadTokenHash ?? null;
   const directUploadError = input.directUploadError ?? null;
+  const multipartUploadId = input.multipartUploadId ?? null;
+  const multipartPartSize = input.multipartPartSize ?? null;
+  const multipartPartCount = input.multipartPartCount ?? null;
+  const multipartCompletedParts = input.multipartCompletedParts ?? null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const id = generateShortId(idLength);
@@ -261,8 +279,12 @@ export async function createUploadMetadata(
             storage_state,
             direct_upload_token_hash,
             direct_upload_token_expires_at,
-            direct_upload_error
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            direct_upload_error,
+            multipart_upload_id,
+            multipart_part_size,
+            multipart_part_count,
+            multipart_completed_parts
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           id,
@@ -276,7 +298,11 @@ export async function createUploadMetadata(
           storageState,
           directUploadTokenHash,
           directUploadTokenExpiresAt,
-          directUploadError
+          directUploadError,
+          multipartUploadId,
+          multipartPartSize,
+          multipartPartCount,
+          multipartCompletedParts
         )
         .run();
 
@@ -298,7 +324,12 @@ export async function createUploadMetadata(
         r2DeleteError: null,
         directUploadTokenExpiresAt,
         directUploadFinalizedAt: null,
-        directUploadError
+        directUploadError,
+        multipartUploadId,
+        multipartPartSize,
+        multipartPartCount,
+        multipartCompletedParts,
+        multipartAbortedAt: null
       };
     } catch (error) {
       if (
@@ -350,6 +381,56 @@ export async function getPendingDirectUploadByToken(
     .first<UploadRow>();
 
   return row ? mapUpload(row) : null;
+}
+
+export async function getPendingMultipartUploadByToken(
+  db: D1Database,
+  id: string,
+  tokenHash: string,
+  now = new Date()
+): Promise<UploadMetadata | null> {
+  const row = await db
+    .prepare(
+      `SELECT *
+        FROM uploads
+        WHERE id = ?
+          AND direct_upload_token_hash = ?
+          AND upload_mode = 'multipart'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL
+          AND direct_upload_token_expires_at > ?
+          AND multipart_upload_id IS NOT NULL
+          AND multipart_aborted_at IS NULL`
+    )
+    .bind(id, tokenHash, now.toISOString())
+    .first<UploadRow>();
+
+  return row ? mapUpload(row) : null;
+}
+
+export async function setMultipartUploadId(
+  db: D1Database,
+  id: string,
+  multipartUploadId: string,
+  partSize: number,
+  partCount: number
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET multipart_upload_id = ?,
+          multipart_part_size = ?,
+          multipart_part_count = ?
+        WHERE id = ?
+          AND upload_mode = 'multipart'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL
+          AND multipart_aborted_at IS NULL`
+    )
+    .bind(multipartUploadId, partSize, partCount, id)
+    .run();
+
+  return result.meta.changes > 0;
 }
 
 export async function listUploadMetadata(
@@ -435,6 +516,33 @@ export async function markDirectUploadStored(db: D1Database, id: string, now = n
   return result.meta.changes > 0;
 }
 
+export async function markMultipartUploadStored(
+  db: D1Database,
+  id: string,
+  completedParts: string,
+  now = new Date()
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET storage_state = 'stored',
+          direct_upload_token_hash = NULL,
+          direct_upload_token_expires_at = NULL,
+          direct_upload_finalized_at = ?,
+          direct_upload_error = NULL,
+          multipart_completed_parts = ?
+        WHERE id = ?
+          AND upload_mode = 'multipart'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL
+          AND multipart_aborted_at IS NULL`
+    )
+    .bind(now.toISOString(), completedParts, id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
 export async function markDirectUploadFailed(db: D1Database, id: string, error: string, now = new Date()): Promise<boolean> {
   const result = await db
     .prepare(
@@ -449,6 +557,45 @@ export async function markDirectUploadFailed(db: D1Database, id: string, error: 
           AND deleted_at IS NULL`
     )
     .bind(error.slice(0, 500), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markMultipartUploadFailed(db: D1Database, id: string, error: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET storage_state = 'failed',
+          direct_upload_token_hash = NULL,
+          direct_upload_token_expires_at = NULL,
+          direct_upload_error = ?
+        WHERE id = ?
+          AND upload_mode = 'multipart'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL`
+    )
+    .bind(error.slice(0, 500), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markMultipartUploadAborted(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET storage_state = 'failed',
+          direct_upload_token_hash = NULL,
+          direct_upload_token_expires_at = NULL,
+          direct_upload_error = 'Multipart upload aborted.',
+          multipart_aborted_at = ?
+        WHERE id = ?
+          AND upload_mode = 'multipart'
+          AND storage_state = 'pending'
+          AND deleted_at IS NULL`
+    )
+    .bind(now.toISOString(), id)
     .run();
 
   return result.meta.changes > 0;
@@ -1044,7 +1191,12 @@ function mapUpload(row: UploadRow): UploadMetadata {
     r2DeleteError: row.r2_delete_error ?? null,
     directUploadTokenExpiresAt: row.direct_upload_token_expires_at ?? null,
     directUploadFinalizedAt: row.direct_upload_finalized_at ?? null,
-    directUploadError: row.direct_upload_error ?? null
+    directUploadError: row.direct_upload_error ?? null,
+    multipartUploadId: row.multipart_upload_id ?? null,
+    multipartPartSize: row.multipart_part_size ?? null,
+    multipartPartCount: row.multipart_part_count ?? null,
+    multipartCompletedParts: row.multipart_completed_parts ?? null,
+    multipartAbortedAt: row.multipart_aborted_at ?? null
   };
 }
 

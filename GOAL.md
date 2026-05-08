@@ -149,7 +149,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 12. Add storage cap and oldest-file auto expiration.
 13. Add R2 deletion retry and cleanup for expired/deleted uploads.
 14. Add direct-to-R2 uploads.
-15. Add multipart uploads, upload progress, and estimated time remaining.
+15. Add multipart uploads, upload progress, and estimated time remaining. Completed.
 16. Add one-command deploy script.
 17. Add self-update system with manual updates and opt-in automatic updates.
 18. Add custom-domain automation.

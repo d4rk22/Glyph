@@ -41,6 +41,7 @@ import {
   getAdminUserById,
   getAppSettings,
   getPendingDirectUploadByToken,
+  getPendingMultipartUploadByToken,
   getR2DeletionCleanupStats,
   getUploadMetadata,
   getUploadStorageUsage,
@@ -52,10 +53,14 @@ import {
   listUploadMetadata,
   markDirectUploadFailed,
   markDirectUploadStored,
+  markMultipartUploadAborted,
+  markMultipartUploadFailed,
+  markMultipartUploadStored,
   markUploadExpired,
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
   markUploadR2DeleteRequested,
+  setMultipartUploadId,
   listWebAuthnCredentials,
   markUploadDeleted,
   touchAdminUserLogin,
@@ -81,9 +86,16 @@ const UPLOAD_FIELD_NAME = "file";
 const ADMIN_USERNAME = "admin";
 const DIRECT_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 const DIRECT_UPLOAD_PRESIGN_TTL_SECONDS = 15 * 60;
+const MULTIPART_UPLOAD_PART_SIZE_BYTES = 8 * 1024 * 1024;
+const MULTIPART_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
 interface UploadedFile extends Blob {
   name: string;
+}
+
+interface CompletedMultipartPart {
+  partNumber: number;
+  etag: string;
 }
 
 export default {
@@ -96,7 +108,7 @@ export default {
 
     if (url.pathname === "/" && request.method === "GET") {
       const settings = await getAppSettings(env.DB);
-      return html(renderShell("Glyph", uploadPage(undefined, directUploadEnabled(settings, env))));
+      return html(renderShell("Glyph", uploadPage(undefined, directUploadEnabled(settings, env), settings.uploadMode)));
     }
 
     if (url.pathname === "/" && request.method === "POST") {
@@ -109,6 +121,22 @@ export default {
 
     if (url.pathname === "/uploads/direct/finalize" && request.method === "POST") {
       return handleDirectUploadFinalize(request, env);
+    }
+
+    if (url.pathname === "/uploads/multipart/initiate" && request.method === "POST") {
+      return handleMultipartUploadInitiate(request, env);
+    }
+
+    if (url.pathname === "/uploads/multipart/part" && request.method === "POST") {
+      return handleMultipartUploadPart(request, env);
+    }
+
+    if (url.pathname === "/uploads/multipart/finalize" && request.method === "POST") {
+      return handleMultipartUploadFinalize(request, env);
+    }
+
+    if (url.pathname === "/uploads/multipart/abort" && request.method === "POST") {
+      return handleMultipartUploadAbort(request, env);
     }
 
     if (url.pathname === "/admin.js" && request.method === "GET") {
@@ -176,7 +204,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
     file = await readUploadFile(request);
   } catch (error) {
     const settings = await getAppSettings(env.DB);
-    return html(renderShell("Upload Error", uploadPage(errorMessage(error), directUploadEnabled(settings, env))), 400);
+    return html(renderShell("Upload Error", uploadPage(errorMessage(error), directUploadEnabled(settings, env), settings.uploadMode)), 400);
   }
 
   const contentType = file.type || "application/octet-stream";
@@ -200,7 +228,10 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
     await deleteUploadMetadata(env.DB, metadata.id);
     console.error("R2 upload failed", error);
     const settings = await getAppSettings(env.DB);
-    return html(renderShell("Upload Error", uploadPage("The file could not be stored. Try again.", directUploadEnabled(settings, env))), 500);
+    return html(
+      renderShell("Upload Error", uploadPage("The file could not be stored. Try again.", directUploadEnabled(settings, env), settings.uploadMode)),
+      500
+    );
   }
 
   await enforceStorageCap(env);
@@ -222,6 +253,10 @@ async function handleDirectUploadInitiate(request: Request, env: Env): Promise<R
 
   if (sizeBytes === null || sizeBytes <= 0) {
     return json({ error: "Choose a non-empty file." }, 400);
+  }
+
+  if (settings.uploadMode === "multipart" && sizeBytes >= MULTIPART_UPLOAD_THRESHOLD_BYTES) {
+    return json({ error: "Use multipart upload for files at or above the multipart threshold." }, 409);
   }
 
   const token = generateSessionToken();
@@ -283,6 +318,163 @@ async function handleDirectUploadFinalize(request: Request, env: Env): Promise<R
     directUploadFinalizedAt: new Date().toISOString()
   };
   return html(renderShell("Upload Ready", uploadSuccessPage(stored, buildPublicUrl(origin, env.PUBLIC_BASE_URL, metadata.id))), 201);
+}
+
+async function handleMultipartUploadInitiate(request: Request, env: Env): Promise<Response> {
+  const settings = await getAppSettings(env.DB);
+  if (!multipartUploadEnabled(settings, env)) {
+    return json({ error: "Multipart uploads are not enabled." }, 409);
+  }
+
+  const body = await readJsonObject(request);
+  const originalFilename = stringFromBody(body, "filename") || "file";
+  const contentType = stringFromBody(body, "contentType") || "application/octet-stream";
+  const sizeBytes = numberFromBody(body, "sizeBytes");
+
+  if (sizeBytes === null || sizeBytes <= 0) {
+    return json({ error: "Choose a non-empty file." }, 400);
+  }
+
+  const partSize = MULTIPART_UPLOAD_PART_SIZE_BYTES;
+  const partCount = Math.ceil(sizeBytes / partSize);
+  if (!Number.isSafeInteger(partCount) || partCount < 1) {
+    return json({ error: "That file is too large for this multipart upload path." }, 400);
+  }
+
+  const token = generateSessionToken();
+  const tokenHash = await hashSessionToken(token);
+  const tokenExpiresAt = new Date(Date.now() + DIRECT_UPLOAD_TOKEN_TTL_SECONDS * 1000);
+  const metadata = await createUploadMetadata(env.DB, {
+    originalFilename,
+    contentType,
+    sizeBytes,
+    uploadMode: "multipart",
+    storageState: "pending",
+    directUploadTokenHash: tokenHash,
+    directUploadTokenExpiresAt: tokenExpiresAt,
+    multipartPartSize: partSize,
+    multipartPartCount: partCount
+  });
+
+  try {
+    const multipartUploadId = await createR2MultipartUpload(env, metadata.objectKey, contentType);
+    await setMultipartUploadId(env.DB, metadata.id, multipartUploadId, partSize, partCount);
+
+    return json({
+      id: metadata.id,
+      token,
+      partSize,
+      partCount,
+      authorizePartUrl: "/uploads/multipart/part",
+      finalizeUrl: "/uploads/multipart/finalize",
+      abortUrl: "/uploads/multipart/abort"
+    });
+  } catch (error) {
+    console.error("R2 multipart initiation failed", error);
+    await markMultipartUploadFailed(env.DB, metadata.id, errorMessage(error));
+    return json({ error: "Multipart upload could not start." }, 500);
+  }
+}
+
+async function handleMultipartUploadPart(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const id = stringFromBody(body, "id");
+  const token = stringFromBody(body, "token");
+  const partNumber = numberFromBody(body, "partNumber");
+
+  if (!id || !token || partNumber === null) {
+    return json({ error: "Multipart part authorization is missing required fields." }, 400);
+  }
+
+  const metadata = await getPendingMultipartUploadByToken(env.DB, id, await hashSessionToken(token));
+  if (!metadata || !metadata.multipartUploadId || !metadata.multipartPartCount) {
+    return json({ error: "Multipart upload has expired or is no longer pending." }, 400);
+  }
+
+  if (partNumber < 1 || partNumber > metadata.multipartPartCount) {
+    return json({ error: "Multipart part number is outside the expected range." }, 400);
+  }
+
+  const uploadUrl = await createR2PresignedPartUrl(
+    env,
+    metadata.objectKey,
+    metadata.multipartUploadId,
+    partNumber,
+    DIRECT_UPLOAD_PRESIGN_TTL_SECONDS
+  );
+
+  return json({ partNumber, uploadUrl });
+}
+
+async function handleMultipartUploadFinalize(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const id = stringFromBody(body, "id");
+  const token = stringFromBody(body, "token");
+  const parts = multipartPartsFromBody(body);
+
+  if (!id || !token || parts.length === 0) {
+    return json({ error: "Multipart upload finalization is missing required fields." }, 400);
+  }
+
+  const metadata = await getPendingMultipartUploadByToken(env.DB, id, await hashSessionToken(token));
+  if (!metadata || !metadata.multipartUploadId || !metadata.multipartPartCount) {
+    return json({ error: "Multipart upload has expired or is no longer pending." }, 400);
+  }
+
+  const validatedParts = validateCompletedMultipartParts(parts, metadata.multipartPartCount);
+  if (validatedParts instanceof Error) {
+    return json({ error: validatedParts.message }, 400);
+  }
+
+  try {
+    await completeR2MultipartUpload(env, metadata.objectKey, metadata.multipartUploadId, validatedParts);
+    const object = await env.FILES.head(metadata.objectKey);
+    if (!object || object.size !== metadata.sizeBytes) {
+      await markMultipartUploadFailed(env.DB, metadata.id, "Multipart uploaded object size did not match metadata.");
+      await deleteR2ObjectForUpload(env, metadata);
+      return json({ error: "Multipart uploaded object size did not match metadata." }, 400);
+    }
+
+    await markMultipartUploadStored(env.DB, metadata.id, JSON.stringify(validatedParts));
+    await enforceStorageCap(env);
+
+    const origin = new URL(request.url).origin;
+    const stored = {
+      ...metadata,
+      storageState: "stored" as const,
+      directUploadFinalizedAt: new Date().toISOString(),
+      multipartCompletedParts: JSON.stringify(validatedParts)
+    };
+    return html(renderShell("Upload Ready", uploadSuccessPage(stored, buildPublicUrl(origin, env.PUBLIC_BASE_URL, metadata.id))), 201);
+  } catch (error) {
+    console.error("R2 multipart finalization failed", error);
+    await markMultipartUploadFailed(env.DB, metadata.id, errorMessage(error));
+    return json({ error: "Multipart upload could not finish." }, 500);
+  }
+}
+
+async function handleMultipartUploadAbort(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const id = stringFromBody(body, "id");
+  const token = stringFromBody(body, "token");
+
+  if (!id || !token) {
+    return json({ error: "Multipart abort is missing its upload token." }, 400);
+  }
+
+  const metadata = await getPendingMultipartUploadByToken(env.DB, id, await hashSessionToken(token));
+  if (!metadata || !metadata.multipartUploadId) {
+    return json({ error: "Multipart upload has expired or is no longer pending." }, 400);
+  }
+
+  try {
+    await abortR2MultipartUpload(env, metadata.objectKey, metadata.multipartUploadId);
+  } catch (error) {
+    console.error("R2 multipart abort failed", error);
+  }
+
+  await markMultipartUploadAborted(env.DB, metadata.id);
+  return json({ ok: true });
 }
 
 async function handleDownload(request: Request, env: Env, id: string): Promise<Response> {
@@ -1261,9 +1453,11 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 </html>`;
 }
 
-function uploadPage(error?: string, useDirectUpload = false): string {
+function uploadPage(error?: string, useDirectUpload = false, uploadMode: AppSettings["uploadMode"] = "worker"): string {
   const errorMarkup = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
-  const directAttributes = useDirectUpload ? ' id="direct-upload-form" data-direct-upload="true"' : "";
+  const directAttributes = useDirectUpload
+    ? ` id="direct-upload-form" data-direct-upload="true" data-upload-mode="${escapeAttribute(uploadMode)}" data-multipart-threshold-bytes="${MULTIPART_UPLOAD_THRESHOLD_BYTES}" data-multipart-part-size-bytes="${MULTIPART_UPLOAD_PART_SIZE_BYTES}"`
+    : "";
   const script = useDirectUpload ? `<script type="module" src="/admin.js"></script>` : "";
 
   return `<p class="eyebrow">Private file drop</p>
@@ -1273,6 +1467,7 @@ ${errorMarkup}
 <form${directAttributes} method="post" enctype="multipart/form-data">
   <label for="file">File</label>
   <input id="file" name="${UPLOAD_FIELD_NAME}" type="file" required>
+  <p class="notice" id="upload-status" hidden></p>
   <div class="actions">
     <button type="submit">Upload</button>
     <a class="button secondary" href="/admin">Admin</a>
@@ -1515,10 +1710,16 @@ function storageCapPanel(settings: AppSettings, usage: StorageUsage): string {
 
 function uploadModePanel(settings: AppSettings, directUploadAvailable: boolean): string {
   const directStatus = directUploadAvailable ? "Direct credentials configured" : "Direct credentials missing";
+  const currentLabel =
+    settings.uploadMode === "multipart"
+      ? "Multipart direct-to-R2"
+      : settings.uploadMode === "direct"
+        ? "Direct-to-R2"
+        : "Worker-mediated";
   return `<section class="settings-panel" aria-label="Upload mode">
   <h2>Upload mode</h2>
   <div class="settings-detail">
-    <span>Current ${settings.uploadMode === "direct" ? "Direct-to-R2" : "Worker-mediated"}</span>
+    <span>Current ${currentLabel}</span>
     <span>${escapeHtml(directStatus)}</span>
   </div>
   <form class="settings-form" method="post" action="/admin/settings/upload-mode">
@@ -1527,6 +1728,7 @@ function uploadModePanel(settings: AppSettings, directUploadAvailable: boolean):
       <select id="upload-mode" name="uploadMode">
         <option value="worker"${settings.uploadMode === "worker" ? " selected" : ""}>Worker-mediated</option>
         <option value="direct"${settings.uploadMode === "direct" ? " selected" : ""}>Direct-to-R2</option>
+        <option value="multipart"${settings.uploadMode === "multipart" ? " selected" : ""}>Multipart direct-to-R2</option>
       </select>
     </div>
     <button type="submit">Save mode</button>
@@ -1664,8 +1866,8 @@ function parseStorageCapFormValue(value: string | null): number | null | Error {
   return parsed;
 }
 
-function parseUploadModeFormValue(value: string | null): "worker" | "direct" | Error {
-  if (value === "worker" || value === "direct") {
+function parseUploadModeFormValue(value: string | null): "worker" | "direct" | "multipart" | Error {
+  if (value === "worker" || value === "direct" || value === "multipart") {
     return value;
   }
 
@@ -1673,7 +1875,11 @@ function parseUploadModeFormValue(value: string | null): "worker" | "direct" | E
 }
 
 function directUploadEnabled(settings: AppSettings, env: Env): boolean {
-  return settings.uploadMode === "direct" && directUploadConfigured(env);
+  return (settings.uploadMode === "direct" || settings.uploadMode === "multipart") && directUploadConfigured(env);
+}
+
+function multipartUploadEnabled(settings: AppSettings, env: Env): boolean {
+  return settings.uploadMode === "multipart" && directUploadConfigured(env);
 }
 
 function directUploadConfigured(env: Env): boolean {
@@ -1769,6 +1975,80 @@ function r2DeleteErrorMessage(error: unknown): string {
 }
 
 async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSeconds: number): Promise<string> {
+  return createR2PresignedUrl(env, "PUT", objectKey, new Map(), expiresSeconds);
+}
+
+async function createR2PresignedPartUrl(
+  env: Env,
+  objectKey: string,
+  multipartUploadId: string,
+  partNumber: number,
+  expiresSeconds: number
+): Promise<string> {
+  return createR2PresignedUrl(
+    env,
+    "PUT",
+    objectKey,
+    new Map([
+      ["partNumber", String(partNumber)],
+      ["uploadId", multipartUploadId]
+    ]),
+    expiresSeconds
+  );
+}
+
+async function createR2MultipartUpload(env: Env, objectKey: string, contentType: string): Promise<string> {
+  const response = await r2SignedFetch(env, "POST", objectKey, new Map([["uploads", ""]]), "", {
+    "Content-Type": contentType
+  });
+
+  if (!response.ok) {
+    throw new Error(`R2 create multipart upload failed with ${response.status}.`);
+  }
+
+  const xml = await response.text();
+  const uploadId = parseXmlTag(xml, "UploadId");
+  if (!uploadId) {
+    throw new Error("R2 create multipart upload response did not include an upload ID.");
+  }
+
+  return uploadId;
+}
+
+async function completeR2MultipartUpload(
+  env: Env,
+  objectKey: string,
+  multipartUploadId: string,
+  parts: CompletedMultipartPart[]
+): Promise<void> {
+  const response = await r2SignedFetch(
+    env,
+    "POST",
+    objectKey,
+    new Map([["uploadId", multipartUploadId]]),
+    completeMultipartUploadXml(parts),
+    { "Content-Type": "application/xml" }
+  );
+
+  if (!response.ok) {
+    throw new Error(`R2 complete multipart upload failed with ${response.status}.`);
+  }
+}
+
+async function abortR2MultipartUpload(env: Env, objectKey: string, multipartUploadId: string): Promise<void> {
+  const response = await r2SignedFetch(env, "DELETE", objectKey, new Map([["uploadId", multipartUploadId]]));
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`R2 abort multipart upload failed with ${response.status}.`);
+  }
+}
+
+async function createR2PresignedUrl(
+  env: Env,
+  method: string,
+  objectKey: string,
+  extraQuery: Map<string, string>,
+  expiresSeconds: number
+): Promise<string> {
   const accountId = env.R2_ACCOUNT_ID;
   const accessKeyId = env.R2_ACCESS_KEY_ID;
   const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
@@ -1784,6 +2064,7 @@ async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSecon
   const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
   const canonicalUri = `/${encodePathSegment(bucketName)}/${objectKey.split("/").map(encodePathSegment).join("/")}`;
   const query = new Map<string, string>([
+    ...extraQuery,
     ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
     ["X-Amz-Credential", `${accessKeyId}/${credentialScope}`],
     ["X-Amz-Date", amzDate],
@@ -1792,7 +2073,7 @@ async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSecon
   ]);
   const canonicalQuery = canonicalQueryString(query);
   const canonicalRequest = [
-    "PUT",
+    method,
     canonicalUri,
     canonicalQuery,
     `host:${host}\n`,
@@ -1810,6 +2091,98 @@ async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSecon
   query.set("X-Amz-Signature", signature);
 
   return `https://${host}${canonicalUri}?${canonicalQueryString(query)}`;
+}
+
+async function r2SignedFetch(
+  env: Env,
+  method: string,
+  objectKey: string,
+  query: Map<string, string>,
+  body = "",
+  headers: Record<string, string> = {}
+): Promise<Response> {
+  const accountId = env.R2_ACCOUNT_ID;
+  const accessKeyId = env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
+  if (!accountId || !accessKeyId || !secretAccessKey) {
+    throw new Error("R2 direct upload credentials are not configured.");
+  }
+
+  const bucketName = directUploadBucketName(env);
+  const now = new Date();
+  const dateStamp = sigV4DateStamp(now);
+  const amzDate = sigV4AmzDate(now);
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+  const canonicalUri = `/${encodePathSegment(bucketName)}/${objectKey.split("/").map(encodePathSegment).join("/")}`;
+  const url = `https://${host}${canonicalUri}${query.size > 0 ? `?${canonicalQueryString(query)}` : ""}`;
+  const payloadHash = await sha256Hex(body);
+  const signedHeaders = new Map<string, string>([
+    ["host", host],
+    ["x-amz-content-sha256", payloadHash],
+    ["x-amz-date", amzDate]
+  ]);
+
+  for (const [key, value] of Object.entries(headers)) {
+    signedHeaders.set(key.toLowerCase(), value.trim());
+  }
+
+  const sortedHeaders = [...signedHeaders.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const signedHeaderNames = sortedHeaders.map(([key]) => key).join(";");
+  const canonicalHeaders = sortedHeaders.map(([key, value]) => `${key}:${value}\n`).join("");
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    canonicalQueryString(query),
+    canonicalHeaders,
+    signedHeaderNames,
+    payloadHash
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest)
+  ].join("\n");
+  const signature = await hmacHex(await sigV4SigningKey(secretAccessKey, dateStamp), stringToSign);
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Authorization", `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaderNames}, Signature=${signature}`);
+  requestHeaders.set("x-amz-content-sha256", payloadHash);
+  requestHeaders.set("x-amz-date", amzDate);
+
+  return fetch(url, {
+    method,
+    headers: requestHeaders,
+    body: method === "GET" || method === "HEAD" || body.length === 0 ? undefined : body
+  });
+}
+
+function completeMultipartUploadXml(parts: CompletedMultipartPart[]): string {
+  return `<CompleteMultipartUpload>${parts
+    .map((part) => `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${escapeXml(part.etag)}</ETag></Part>`)
+    .join("")}</CompleteMultipartUpload>`;
+}
+
+function parseXmlTag(xml: string, tagName: string): string | null {
+  const match = new RegExp(`<${tagName}>([^<]+)</${tagName}>`).exec(xml);
+  return match ? match[1] : null;
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&apos;";
+    }
+  });
 }
 
 function sigV4DateStamp(date: Date): string {
@@ -1912,6 +2285,43 @@ function numberFromBody(body: Record<string, unknown>, key: string): number | nu
   const value = body[key];
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function multipartPartsFromBody(body: Record<string, unknown>): CompletedMultipartPart[] {
+  const parts = body.parts;
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+
+  return parts.flatMap((part): CompletedMultipartPart[] => {
+    if (typeof part !== "object" || part === null) {
+      return [];
+    }
+
+    const record = part as Record<string, unknown>;
+    const partNumber = typeof record.partNumber === "number" ? record.partNumber : Number(record.partNumber);
+    const etag = typeof record.etag === "string" ? record.etag.trim() : "";
+    return Number.isSafeInteger(partNumber) && etag.length > 0 ? [{ partNumber, etag }] : [];
+  });
+}
+
+function validateCompletedMultipartParts(
+  parts: CompletedMultipartPart[],
+  expectedPartCount: number
+): CompletedMultipartPart[] | Error {
+  if (parts.length !== expectedPartCount) {
+    return new Error("Multipart upload is missing one or more parts.");
+  }
+
+  const sorted = [...parts].sort((left, right) => left.partNumber - right.partNumber);
+  for (let index = 0; index < sorted.length; index += 1) {
+    const expectedPartNumber = index + 1;
+    if (sorted[index].partNumber !== expectedPartNumber) {
+      return new Error("Multipart upload parts are incomplete.");
+    }
+  }
+
+  return sorted;
 }
 
 function adminClientScript(): string {
@@ -2043,24 +2453,133 @@ loginForm?.addEventListener("submit", async (event) => {
   }
 });
 
-function setUploadError(message) {
+function setUploadStatus(message, kind = "notice") {
   if (!directUploadForm) return;
-  let error = document.getElementById("upload-status");
-  if (!error) {
-    error = document.createElement("p");
-    error.id = "upload-status";
-    error.className = "error";
-    directUploadForm.before(error);
+  let status = document.getElementById("upload-status");
+  if (!status) {
+    status = document.createElement("p");
+    status.id = "upload-status";
+    directUploadForm.prepend(status);
   }
-  error.textContent = message;
+  status.className = kind === "error" ? "error" : "notice";
+  status.textContent = message;
+  status.hidden = !message;
+}
+
+function uploadProgressText(uploadedBytes, totalBytes, startedAt) {
+  if (!totalBytes) return "Uploading";
+  const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100));
+  const elapsedSeconds = Math.max(1, (Date.now() - startedAt) / 1000);
+  const bytesPerSecond = uploadedBytes / elapsedSeconds;
+  const remainingSeconds = bytesPerSecond > 0 ? Math.ceil((totalBytes - uploadedBytes) / bytesPerSecond) : null;
+  return remainingSeconds === null
+    ? "Uploading " + percent + "%"
+    : "Uploading " + percent + "% - about " + formatDuration(remainingSeconds) + " left";
+}
+
+function formatDuration(seconds) {
+  if (seconds <= 1) return "1 second";
+  if (seconds < 60) return seconds + " seconds";
+  const minutes = Math.ceil(seconds / 60);
+  return minutes === 1 ? "1 minute" : minutes + " minutes";
+}
+
+async function uploadSinglePartDirect(file, startedAt) {
+  setUploadStatus(uploadProgressText(0, file.size, startedAt));
+  const initData = await postJSON("/uploads/direct/initiate", {
+    filename: file.name || "file",
+    contentType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+  });
+
+  const uploadResponse = await fetch(initData.uploadUrl, {
+    method: "PUT",
+    body: file,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error("Direct upload to R2 failed.");
+  }
+
+  setUploadStatus(uploadProgressText(file.size, file.size, startedAt));
+  return finalizeUpload(initData.finalizeUrl, { id: initData.id, token: initData.token });
+}
+
+async function uploadMultipartDirect(file, startedAt) {
+  const initData = await postJSON("/uploads/multipart/initiate", {
+    filename: file.name || "file",
+    contentType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+  });
+  const parts = [];
+  let completedBytes = 0;
+
+  try {
+    for (let partNumber = 1; partNumber <= initData.partCount; partNumber += 1) {
+      const start = (partNumber - 1) * initData.partSize;
+      const end = Math.min(start + initData.partSize, file.size);
+      const part = file.slice(start, end);
+      const authorization = await postJSON(initData.authorizePartUrl, {
+        id: initData.id,
+        token: initData.token,
+        partNumber,
+      });
+
+      setUploadStatus(uploadProgressText(completedBytes, file.size, startedAt));
+      const uploadResponse = await fetch(authorization.uploadUrl, {
+        method: "PUT",
+        body: part,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Multipart upload to R2 failed.");
+      }
+
+      const etag = uploadResponse.headers.get("ETag");
+      if (!etag) {
+        throw new Error("R2 did not return a multipart ETag.");
+      }
+
+      completedBytes += part.size;
+      parts.push({ partNumber, etag });
+      setUploadStatus(uploadProgressText(completedBytes, file.size, startedAt));
+    }
+
+    return finalizeUpload(initData.finalizeUrl, { id: initData.id, token: initData.token, parts });
+  } catch (error) {
+    await fetch(initData.abortUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: initData.id, token: initData.token }),
+    }).catch(() => {});
+    throw error;
+  }
+}
+
+async function finalizeUpload(url, body) {
+  const finalizeResponse = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/html" },
+    body: JSON.stringify(body),
+  });
+  const finalized = await finalizeResponse.text();
+  if (!finalizeResponse.ok) {
+    try {
+      const data = JSON.parse(finalized);
+      throw new Error(data.error || "Direct upload could not finish.");
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error("Direct upload could not finish.");
+      throw error;
+    }
+  }
+
+  return finalized;
 }
 
 directUploadForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  setUploadError("");
+  setUploadStatus("");
   const file = directUploadForm.querySelector("input[type=file]")?.files?.[0];
   if (!file) {
-    setUploadError("Choose a file to upload.");
+    setUploadStatus("Choose a file to upload.", "error");
     return;
   }
 
@@ -2072,49 +2591,17 @@ directUploadForm?.addEventListener("submit", async (event) => {
   }
 
   try {
-    const initResponse = await fetch("/uploads/direct/initiate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: file.name || "file",
-        contentType: file.type || "application/octet-stream",
-        sizeBytes: file.size,
-      }),
-    });
-    const initData = await initResponse.json();
-    if (!initResponse.ok) {
-      throw new Error(initData.error || "Direct upload could not start.");
-    }
-
-    const uploadResponse = await fetch(initData.uploadUrl, {
-      method: "PUT",
-      body: file,
-    });
-    if (!uploadResponse.ok) {
-      throw new Error("Direct upload to R2 failed.");
-    }
-
-    const finalizeResponse = await fetch(initData.finalizeUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/html" },
-      body: JSON.stringify({ id: initData.id, token: initData.token }),
-    });
-    const finalized = await finalizeResponse.text();
-    if (!finalizeResponse.ok) {
-      try {
-        const data = JSON.parse(finalized);
-        throw new Error(data.error || "Direct upload could not finish.");
-      } catch (error) {
-        if (error instanceof SyntaxError) throw new Error("Direct upload could not finish.");
-        throw error;
-      }
-    }
-
+    const uploadMode = directUploadForm.dataset.uploadMode || "direct";
+    const threshold = Number(directUploadForm.dataset.multipartThresholdBytes || "0");
+    const startedAt = Date.now();
+    const finalized = uploadMode === "multipart" && threshold > 0 && file.size >= threshold
+      ? await uploadMultipartDirect(file, startedAt)
+      : await uploadSinglePartDirect(file, startedAt);
     document.open();
     document.write(finalized);
     document.close();
   } catch (error) {
-    setUploadError(error instanceof Error ? error.message : "Direct upload failed.");
+    setUploadStatus(error instanceof Error ? error.message : "Direct upload failed.", "error");
     if (submitButton) {
       submitButton.textContent = originalLabel;
       submitButton.disabled = false;

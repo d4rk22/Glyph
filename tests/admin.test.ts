@@ -74,6 +74,7 @@ interface FakeEnvOptions {
   r2DeleteFailures?: string[];
   oldestActiveUploads?: unknown[];
   pendingDirectUploadByToken?: unknown | null;
+  pendingMultipartUploadByToken?: unknown | null;
   directUploadCredentials?: boolean;
   headObject?: { size: number } | null;
   storageUsage?: unknown;
@@ -98,6 +99,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   r2DeleteRequestedIds: string[];
   directStoredIds: string[];
   directFailedUpdates: unknown[][];
+  multipartUploadIdUpdates: unknown[][];
+  multipartStoredUpdates: unknown[][];
+  multipartFailedUpdates: unknown[][];
+  multipartAbortedIds: string[];
   insertedUploadBindings: unknown[][];
   uploadedObjectKeys: string[];
   settingsUpdates: unknown[][];
@@ -111,6 +116,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   const r2DeleteRequestedIds: string[] = [];
   const directStoredIds: string[] = [];
   const directFailedUpdates: unknown[][] = [];
+  const multipartUploadIdUpdates: unknown[][] = [];
+  const multipartStoredUpdates: unknown[][] = [];
+  const multipartFailedUpdates: unknown[][] = [];
+  const multipartAbortedIds: string[] = [];
   const insertedUploadBindings: unknown[][] = [];
   const uploadedObjectKeys: string[] = [];
   const settingsUpdates: unknown[][] = [];
@@ -138,6 +147,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
 
           if (sql.includes("FROM admin_users WHERE id = ?")) {
             return authenticated ? adminUserRow : null;
+          }
+
+          if (sql.includes("direct_upload_token_hash") && sql.includes("upload_mode = 'multipart'")) {
+            return options.pendingMultipartUploadByToken ?? null;
           }
 
           if (sql.includes("direct_upload_token_hash")) {
@@ -204,6 +217,11 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
             return { meta: { changes: 1 } };
           }
 
+          if (sql.includes("SET multipart_upload_id = ?")) {
+            multipartUploadIdUpdates.push(bindings);
+            return { meta: { changes: 1 } };
+          }
+
           if (sql.includes("SET r2_delete_requested_at = ?")) {
             r2DeleteRequestedIds.push(String(bindings[1]));
             return { meta: { changes: 1 } };
@@ -224,8 +242,23 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
             return { meta: { changes: 1 } };
           }
 
+          if (sql.includes("SET storage_state = 'stored'") && sql.includes("upload_mode = 'multipart'")) {
+            multipartStoredUpdates.push(bindings);
+            return { meta: { changes: 1 } };
+          }
+
           if (sql.includes("SET storage_state = 'stored'")) {
             directStoredIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("multipart_aborted_at = ?")) {
+            multipartAbortedIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET storage_state = 'failed'") && sql.includes("upload_mode = 'multipart'")) {
+            multipartFailedUpdates.push(bindings);
             return { meta: { changes: 1 } };
           }
 
@@ -299,6 +332,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     r2DeleteRequestedIds,
     directStoredIds,
     directFailedUpdates,
+    multipartUploadIdUpdates,
+    multipartStoredUpdates,
+    multipartFailedUpdates,
+    multipartAbortedIds,
     insertedUploadBindings,
     uploadedObjectKeys,
     settingsUpdates
@@ -312,6 +349,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     r2DeleteRequestedIds: string[];
     directStoredIds: string[];
     directFailedUpdates: unknown[][];
+    multipartUploadIdUpdates: unknown[][];
+    multipartStoredUpdates: unknown[][];
+    multipartFailedUpdates: unknown[][];
+    multipartAbortedIds: string[];
     insertedUploadBindings: unknown[][];
     uploadedObjectKeys: string[];
     settingsUpdates: unknown[][];
@@ -326,6 +367,16 @@ function adminRequest(path: string, init: RequestInit = {}): Request {
     ...init,
     headers
   });
+}
+
+async function withMockedFetch<T>(handler: typeof fetch, callback: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = handler;
+  try {
+    return await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 test("adminNoticeMessage maps known dashboard notices", () => {
@@ -346,7 +397,7 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("storage-cap-cleared"), "Storage cap cleared.");
   assert.equal(adminNoticeMessage("invalid-storage-cap"), "Storage cap must be a non-negative whole number of bytes.");
   assert.equal(adminNoticeMessage("upload-mode-updated"), "Upload mode updated.");
-  assert.equal(adminNoticeMessage("invalid-upload-mode"), "Upload mode must be worker-mediated or direct-to-R2.");
+  assert.equal(adminNoticeMessage("invalid-upload-mode"), "Upload mode must be worker-mediated, direct-to-R2, or multipart direct-to-R2.");
   assert.equal(adminNoticeMessage("r2-cleanup-complete"), "R2 cleanup retry finished.");
   assert.equal(
     adminNoticeMessage("r2-cleanup-partial"),
@@ -397,6 +448,7 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /name="storageCapBytes"/);
   assert.match(body, /aria-label="Upload mode"/);
   assert.match(body, /Worker-mediated/);
+  assert.match(body, /Multipart direct-to-R2/);
   assert.match(body, /name="uploadMode"/);
   assert.match(body, /aria-label="R2 cleanup"/);
   assert.match(body, /Pending 1/);
@@ -518,6 +570,32 @@ test("pending and failed direct uploads are not downloadable", async () => {
   assert.equal(failedResponse.status, 404);
 });
 
+test("pending and failed multipart uploads are not downloadable", async () => {
+  const pending = createFakeEnv({
+    activeUploadById: {
+      ...activeUploadRow,
+      upload_mode: "multipart",
+      storage_state: "pending",
+      multipart_upload_id: "r2-upload-id"
+    }
+  });
+  const pendingResponse = await worker.fetch(new Request("https://glyph.example/active123"), pending, createExecutionContext());
+
+  const failed = createFakeEnv({
+    activeUploadById: {
+      ...activeUploadRow,
+      upload_mode: "multipart",
+      storage_state: "failed",
+      multipart_upload_id: "r2-upload-id",
+      multipart_aborted_at: "2026-05-08T03:00:00.000Z"
+    }
+  });
+  const failedResponse = await worker.fetch(new Request("https://glyph.example/active123"), failed, createExecutionContext());
+
+  assert.equal(pendingResponse.status, 404);
+  assert.equal(failedResponse.status, 404);
+});
+
 test("direct upload initiate requires direct mode and configured R2 credentials", async () => {
   const disabled = createFakeEnv();
   const disabledResponse = await worker.fetch(
@@ -574,6 +652,37 @@ test("direct upload initiate creates pending metadata and returns a presigned R2
   assert.equal(typeof body.token, "string");
 });
 
+test("multipart mode keeps small direct uploads and rejects threshold-sized direct uploads", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+
+  const small = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: "small.bin", contentType: "application/octet-stream", sizeBytes: 1024 })
+    }),
+    env,
+    createExecutionContext()
+  );
+  const large = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: "large.bin", contentType: "application/octet-stream", sizeBytes: 32 * 1024 * 1024 })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(small.status, 200);
+  assert.equal(large.status, 409);
+  assert.equal(env.insertedUploadBindings.length, 1);
+  assert.equal(env.insertedUploadBindings[0][7], "direct");
+});
+
 test("public upload page enables direct upload only when mode and credentials are configured", async () => {
   const workerMode = await worker.fetch(new Request("https://glyph.example/"), createFakeEnv(), createExecutionContext());
   const workerBody = await workerMode.text();
@@ -586,9 +695,33 @@ test("public upload page enables direct upload only when mode and credentials ar
     createExecutionContext()
   );
   const directBody = await directMode.text();
+  const multipartMode = await worker.fetch(
+    new Request("https://glyph.example/"),
+    createFakeEnv({
+      directUploadCredentials: true,
+      appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+    }),
+    createExecutionContext()
+  );
+  const multipartBody = await multipartMode.text();
 
   assert.doesNotMatch(workerBody, /data-direct-upload="true"/);
   assert.match(directBody, /data-direct-upload="true"/);
+  assert.match(multipartBody, /data-direct-upload="true"/);
+  assert.match(multipartBody, /data-upload-mode="multipart"/);
+  assert.match(multipartBody, /data-multipart-threshold-bytes="\d+"/);
+  assert.match(multipartBody, /data-multipart-part-size-bytes="\d+"/);
+  assert.match(multipartBody, /src="\/admin\.js"/);
+});
+
+test("client upload script includes multipart progress hooks", async () => {
+  const response = await worker.fetch(new Request("https://glyph.example/admin.js"), createFakeEnv(), createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /uploadMultipartDirect/);
+  assert.match(body, /uploadProgressText/);
+  assert.match(body, /formatDuration/);
 });
 
 test("worker-mediated upload path remains available as fallback", async () => {
@@ -695,6 +828,202 @@ test("direct upload finalization marks size mismatches failed and cleans R2", as
   assert.deepEqual(env.directFailedUpdates[0], ["Uploaded object size did not match metadata.", "direct123"]);
   assert.deepEqual(env.deletedObjectKeys, ["uploads/direct123/file.txt"]);
   assert.deepEqual(env.r2DeleteCompletedIds, ["direct123"]);
+});
+
+test("multipart upload initiate creates pending metadata and stores the R2 upload id", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+
+  await withMockedFetch(
+    async () =>
+      new Response("<InitiateMultipartUploadResult><UploadId>r2-upload-id</UploadId></InitiateMultipartUploadResult>", {
+        status: 200
+      }),
+    async () => {
+      const response = await worker.fetch(
+        new Request("https://glyph.example/uploads/multipart/initiate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: "large.bin", contentType: "application/octet-stream", sizeBytes: 40 * 1024 * 1024 })
+        }),
+        env,
+        createExecutionContext()
+      );
+      const body = (await response.json()) as {
+        id: string;
+        token: string;
+        partSize: number;
+        partCount: number;
+        authorizePartUrl: string;
+        finalizeUrl: string;
+        abortUrl: string;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.partSize, 8 * 1024 * 1024);
+      assert.equal(body.partCount, 5);
+      assert.equal(body.authorizePartUrl, "/uploads/multipart/part");
+      assert.equal(body.finalizeUrl, "/uploads/multipart/finalize");
+      assert.equal(body.abortUrl, "/uploads/multipart/abort");
+      assert.equal(env.insertedUploadBindings[0][7], "multipart");
+      assert.equal(env.insertedUploadBindings[0][8], "pending");
+      assert.deepEqual(env.multipartUploadIdUpdates[0].slice(0, 3), ["r2-upload-id", 8 * 1024 * 1024, 5]);
+      assert.equal(typeof body.id, "string");
+      assert.equal(typeof body.token, "string");
+    }
+  );
+});
+
+test("multipart part authorization returns presigned URLs for expected parts", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    pendingMultipartUploadByToken: {
+      ...activeUploadRow,
+      id: "multi123",
+      object_key: "uploads/multi123/large.bin",
+      size_bytes: 40 * 1024 * 1024,
+      upload_mode: "multipart",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z",
+      multipart_upload_id: "r2-upload-id",
+      multipart_part_size: 8 * 1024 * 1024,
+      multipart_part_count: 5
+    }
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/multipart/part", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "multi123", token: "multipart-token", partNumber: 2 })
+    }),
+    env,
+    createExecutionContext()
+  );
+  const body = (await response.json()) as { partNumber: number; uploadUrl: string };
+
+  assert.equal(response.status, 200);
+  assert.equal(body.partNumber, 2);
+  assert.match(body.uploadUrl, /partNumber=2/);
+  assert.match(body.uploadUrl, /uploadId=r2-upload-id/);
+  assert.match(body.uploadUrl, /X-Amz-Signature=/);
+});
+
+test("multipart finalization rejects incomplete parts without storing metadata", async () => {
+  const env = createFakeEnv({
+    pendingMultipartUploadByToken: {
+      ...activeUploadRow,
+      id: "multi123",
+      upload_mode: "multipart",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z",
+      multipart_upload_id: "r2-upload-id",
+      multipart_part_count: 2
+    }
+  });
+
+  const response = await worker.fetch(
+    new Request("https://glyph.example/uploads/multipart/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "multi123", token: "multipart-token", parts: [{ partNumber: 1, etag: '"one"' }] })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(env.multipartStoredUpdates, []);
+});
+
+test("multipart finalization completes R2 upload and marks metadata stored", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    pendingMultipartUploadByToken: {
+      ...activeUploadRow,
+      id: "multi123",
+      object_key: "uploads/multi123/large.bin",
+      original_filename: "large.bin",
+      size_bytes: 16,
+      upload_mode: "multipart",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z",
+      multipart_upload_id: "r2-upload-id",
+      multipart_part_size: 8,
+      multipart_part_count: 2
+    },
+    headObject: { size: 16 }
+  });
+  let completeBody = "";
+
+  await withMockedFetch(
+    async (_input, init) => {
+      completeBody = String(init?.body ?? "");
+      return new Response("<CompleteMultipartUploadResult />", { status: 200 });
+    },
+    async () => {
+      const response = await worker.fetch(
+        new Request("https://glyph.example/uploads/multipart/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "multi123",
+            token: "multipart-token",
+            parts: [
+              { partNumber: 2, etag: '"two"' },
+              { partNumber: 1, etag: '"one"' }
+            ]
+          })
+        }),
+        env,
+        createExecutionContext()
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 201);
+      assert.match(body, /Upload complete/);
+      assert.match(completeBody, /<PartNumber>1<\/PartNumber>/);
+      assert.match(completeBody, /<PartNumber>2<\/PartNumber>/);
+      assert.equal(env.multipartStoredUpdates[0][2], "multi123");
+      assert.match(String(env.multipartStoredUpdates[0][1]), /"partNumber":1/);
+    }
+  );
+});
+
+test("multipart abort marks pending metadata failed and unavailable", async () => {
+  const env = createFakeEnv({
+    directUploadCredentials: true,
+    pendingMultipartUploadByToken: {
+      ...activeUploadRow,
+      id: "multi123",
+      object_key: "uploads/multi123/large.bin",
+      upload_mode: "multipart",
+      storage_state: "pending",
+      direct_upload_token_expires_at: "2099-01-01T00:00:00.000Z",
+      multipart_upload_id: "r2-upload-id",
+      multipart_part_count: 2
+    }
+  });
+
+  await withMockedFetch(
+    async () => new Response(null, { status: 204 }),
+    async () => {
+      const response = await worker.fetch(
+        new Request("https://glyph.example/uploads/multipart/abort", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "multi123", token: "multipart-token" })
+        }),
+        env,
+        createExecutionContext()
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(env.multipartAbortedIds, ["multi123"]);
+    }
+  );
 });
 
 test("past expiration and explicit expired state return not found", async () => {
@@ -973,13 +1302,13 @@ test("admin storage cap can be cleared without enforcement", async () => {
   assert.deepEqual(env.deletedObjectKeys, []);
 });
 
-test("admin upload mode update validates origin and persists direct mode", async () => {
+test("admin upload mode update validates origin and persists multipart mode", async () => {
   const env = createFakeEnv({ authenticated: true });
   const blocked = await worker.fetch(
     adminRequest("/admin/settings/upload-mode", {
       method: "POST",
       headers: { Origin: "https://evil.example" },
-      body: new URLSearchParams({ uploadMode: "direct" })
+      body: new URLSearchParams({ uploadMode: "multipart" })
     }),
     env,
     createExecutionContext()
@@ -991,7 +1320,7 @@ test("admin upload mode update validates origin and persists direct mode", async
   const saved = await worker.fetch(
     adminRequest("/admin/settings/upload-mode", {
       method: "POST",
-      body: new URLSearchParams({ uploadMode: "direct" })
+      body: new URLSearchParams({ uploadMode: "multipart" })
     }),
     env,
     createExecutionContext()
@@ -999,7 +1328,7 @@ test("admin upload mode update validates origin and persists direct mode", async
 
   assert.equal(saved.status, 303);
   assert.equal(saved.headers.get("Location"), "/admin?notice=upload-mode-updated");
-  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["upload_mode", "direct"]);
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["upload_mode", "multipart"]);
 });
 
 test("admin upload mode update rejects unknown modes", async () => {
@@ -1007,7 +1336,7 @@ test("admin upload mode update rejects unknown modes", async () => {
   const response = await worker.fetch(
     adminRequest("/admin/settings/upload-mode", {
       method: "POST",
-      body: new URLSearchParams({ uploadMode: "multipart" })
+      body: new URLSearchParams({ uploadMode: "banana" })
     }),
     env,
     createExecutionContext()
