@@ -20,7 +20,15 @@ Phase 2 metadata helpers are also in place:
 - WebAuthn credential creation, lookup, listing, usage update, and deletion.
 - Admin session creation, token hashing, active lookup, and revocation.
 
-Upload, download, passkey, and admin management flows are intentionally still pending.
+Phase 3 upload/download flow is in place:
+
+- `/` renders an anonymous multipart upload form.
+- `POST /` stores file bytes in R2 and metadata in D1.
+- Successful uploads return a short unlisted URL.
+- `/{id}` streams active uploads back with original filename and content type.
+- Missing, deleted, or unavailable uploads return the polished not-found response.
+
+Passkey and admin management flows are intentionally still pending.
 
 ## Prerequisites
 

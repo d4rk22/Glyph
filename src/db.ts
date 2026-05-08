@@ -161,7 +161,10 @@ export async function createUploadMetadata(
         deletedAt: null
       };
     } catch (error) {
-      if (isUniqueConstraintFor(error, "uploads.id")) {
+      if (
+        input.objectKey === undefined &&
+        (isUniqueConstraintFor(error, "uploads.id") || isUniqueConstraintFor(error, "uploads.object_key"))
+      ) {
         continue;
       }
 
@@ -530,4 +533,3 @@ function base64UrlEncode(bytes: Uint8Array): string {
 
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
-
