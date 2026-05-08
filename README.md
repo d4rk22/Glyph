@@ -82,7 +82,13 @@ Phase 12 simple storage cap enforcement is in place:
 - Storage-cap enforcement runs after successful uploads and after admin cap updates.
 - When active stored bytes exceed the cap, Glyph expires the oldest active uploads first and asks R2 to delete those objects best-effort.
 - Enforcement stays request-driven for now; there are no scheduled Workers, queues, or retry systems.
-- The roadmap now includes a later R2 deletion retry/cleanup phase for expired or deleted uploads whose best-effort object deletion did not complete.
+
+Phase 13 R2 deletion retry and cleanup is in place:
+
+- Upload metadata tracks R2 deletion requested, completed, failed, and error state.
+- Admin deletion and storage-cap auto-expiration record R2 cleanup state around object deletion attempts.
+- `/admin` shows R2 cleanup counts and provides a protected same-origin retry action for expired/deleted uploads whose R2 cleanup is not complete.
+- Cleanup remains request-driven; scheduled Workers, queues, and cron triggers are still deferred.
 
 ## Prerequisites
 
@@ -119,7 +125,7 @@ The Worker expects these bindings:
 
 ## Migrations
 
-Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, and storage accounting.
+Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, and R2 deletion cleanup state.
 
 Apply migrations locally:
 
@@ -160,6 +166,7 @@ The protected admin panel lists the 100 most recent uploads, including active an
 
 - Usage totals for active, expired, deleted, and total uploads.
 - Current storage cap, active usage, and remaining capacity.
+- R2 cleanup pending, failed, and completed counts.
 - Original filename.
 - Short URL with an in-browser copy button.
 - Size and content type.
@@ -167,11 +174,15 @@ The protected admin panel lists the 100 most recent uploads, including active an
 - Created timestamp and deleted timestamp, when present.
 - Short ID and R2 object key.
 
-Deleting an upload asks R2 to remove the stored object, then marks the D1 metadata row with `deleted_at`. Deleted short links return the same polished not-found response as missing links. If the R2 delete request fails, Glyph still marks the metadata deleted so the public link is unavailable.
+Deleting an upload marks the D1 metadata row with `deleted_at`, then asks R2 to remove the stored object and records the cleanup result. Deleted short links return the same polished not-found response as missing links. If the R2 delete request fails, Glyph still keeps the metadata deleted so the public link is unavailable.
 
 Admins can set or clear a manual expiration for active uploads. Expiration timestamps are stored as UTC. Expired short links return the not-found response, but the metadata remains visible in the admin panel.
 
 Admins can also set or clear a storage cap in bytes. When active stored bytes exceed that cap after an upload or cap update, Glyph marks the oldest active uploads expired until active usage is at or below the cap, and requests best-effort R2 object deletion for those expired uploads. This is intentionally simple request-time enforcement; scheduled cleanup, retry queues, and richer policy controls are deferred.
+
+The R2 cleanup panel can retry object deletion for expired or deleted uploads whose cleanup has not completed. The retry action is protected by the admin session and same-origin checks. Cleanup state never controls public link availability; D1 deletion and expiration metadata do.
+
+Once R2 cleanup is marked complete for an expired upload, its expiration cannot be cleared from the admin UI because the file bytes have already been removed.
 
 ## Verification
 
@@ -195,6 +206,7 @@ Final MVP smoke checks should include:
 - `POST /admin/uploads/delete` marks metadata deleted and requests R2 object removal.
 - `GET /{deleted-id}` returns the polished not-found page.
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
+- `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 
 ## Dependency Policy
 
@@ -231,6 +243,5 @@ Recommended deployment checklist:
 - No folders, public file browsing, billing, direct-to-R2 uploads, multipart uploads, upload progress, deploy automation, self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
-- Storage-cap expiration is request-driven and best-effort; it does not use scheduled Workers, background queues, or retry tracking yet.
-- R2 deletion retry/cleanup is planned as a later v2 phase.
+- Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.
 - Passkeys are origin-bound, so local and deployed admin credentials are separate.

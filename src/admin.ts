@@ -12,12 +12,20 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "Upload expiration cleared.";
     case "invalid-expiration":
       return "That expiration date could not be read.";
+    case "expiration-object-cleaned":
+      return "That upload's R2 object has already been cleaned up, so its expiration cannot be changed.";
     case "storage-cap-updated":
       return "Storage cap updated. Oldest active uploads were expired if active storage was over the cap.";
     case "storage-cap-cleared":
       return "Storage cap cleared.";
     case "invalid-storage-cap":
       return "Storage cap must be a non-negative whole number of bytes.";
+    case "r2-cleanup-complete":
+      return "R2 cleanup retry finished.";
+    case "r2-cleanup-partial":
+      return "R2 cleanup retried, but one or more objects still could not be deleted.";
+    case "r2-cleanup-none":
+      return "No expired or deleted uploads currently need R2 cleanup.";
     default:
       return null;
   }

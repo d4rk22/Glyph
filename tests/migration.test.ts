@@ -4,17 +4,33 @@ import test from "node:test";
 
 const migration = readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8");
 const v2Migration = readFileSync(new URL("../migrations/0003_v2_foundation.sql", import.meta.url), "utf8");
+const r2CleanupMigration = readFileSync(new URL("../migrations/0004_r2_deletion_cleanup.sql", import.meta.url), "utf8");
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
     migration,
     readFileSync(new URL("../migrations/0002_webauthn_challenges.sql", import.meta.url), "utf8"),
-    v2Migration
+    v2Migration,
+    r2CleanupMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
     assert.match(allMigrations, new RegExp(`CREATE TABLE ${table} \\(`));
   }
+});
+
+test("R2 cleanup migration tracks object deletion retry state", () => {
+  for (const column of [
+    "r2_delete_requested_at",
+    "r2_delete_completed_at",
+    "r2_delete_failed_at",
+    "r2_delete_error"
+  ]) {
+    assert.match(r2CleanupMigration, new RegExp(`ADD COLUMN ${column}\\b`));
+  }
+
+  assert.match(r2CleanupMigration, /idx_uploads_r2_delete_completed_at/);
+  assert.match(r2CleanupMigration, /idx_uploads_r2_delete_failed_at/);
 });
 
 test("uploads table keeps file bytes out of D1 metadata", () => {

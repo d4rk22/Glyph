@@ -4,10 +4,15 @@ import test from "node:test";
 import {
   createUploadMetadata,
   getAppSettings,
+  getR2DeletionCleanupStats,
   getUploadStorageUsage,
   listOldestActiveUploads,
+  listUploadsPendingR2Deletion,
   listUploadsDueForExpiration,
   markUploadExpired,
+  markUploadR2DeleteCompleted,
+  markUploadR2DeleteFailed,
+  markUploadR2DeleteRequested,
   setAppSetting,
   updateAppSettings,
   updateUploadExpiration
@@ -106,6 +111,7 @@ test("expiration helpers update and list expiration metadata", async () => {
 
   assert.equal(await updateUploadExpiration(db, "upload1", dueAt), true);
   assert.equal(await markUploadExpired(db, "upload1", new Date(dueAt)), true);
+  assert.match(db.queries[0], /r2_delete_completed_at IS NULL/);
 
   const due = await listUploadsDueForExpiration(db, new Date("2026-05-08T13:00:00.000Z"));
 
@@ -144,6 +150,68 @@ test("oldest active upload helper excludes inactive uploads at query time", asyn
   assert.match(db.queries[0], /deleted_at IS NULL/);
   assert.match(db.queries[0], /expired_at IS NULL/);
   assert.match(db.queries[0], /ORDER BY created_at ASC/);
+});
+
+test("R2 cleanup helpers select pending expired or deleted uploads", async () => {
+  const db = createFakeDb([
+    {
+      all: [
+        {
+          id: "deleted1",
+          object_key: "uploads/deleted1/file.txt",
+          original_filename: "file.txt",
+          content_type: "text/plain",
+          size_bytes: 12,
+          created_at: "2026-05-08T09:00:00.000Z",
+          deleted_at: "2026-05-08T10:00:00.000Z",
+          expires_at: null,
+          expired_at: null,
+          upload_mode: "worker",
+          storage_state: "deleted",
+          r2_delete_requested_at: "2026-05-08T10:00:00.000Z",
+          r2_delete_completed_at: null,
+          r2_delete_failed_at: "2026-05-08T10:01:00.000Z",
+          r2_delete_error: "temporary failure"
+        }
+      ]
+    },
+    {
+      first: {
+        pending_count: 2,
+        failed_count: 1,
+        completed_count: 3
+      }
+    }
+  ]);
+
+  const pending = await listUploadsPendingR2Deletion(db, new Date("2026-05-08T12:00:00.000Z"), 10);
+  const stats = await getR2DeletionCleanupStats(db, new Date("2026-05-08T12:00:00.000Z"));
+
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].id, "deleted1");
+  assert.equal(pending[0].r2DeleteFailedAt, "2026-05-08T10:01:00.000Z");
+  assert.equal(pending[0].r2DeleteError, "temporary failure");
+  assert.deepEqual(db.bindings[0], ["2026-05-08T12:00:00.000Z", 10]);
+  assert.match(db.queries[0], /r2_delete_completed_at IS NULL/);
+  assert.match(db.queries[0], /deleted_at IS NOT NULL/);
+  assert.deepEqual(stats, {
+    pendingCount: 2,
+    failedCount: 1,
+    completedCount: 3
+  });
+});
+
+test("R2 deletion state helpers record requested, completed, and failed cleanup", async () => {
+  const db = createFakeDb();
+  const now = new Date("2026-05-08T12:00:00.000Z");
+
+  assert.equal(await markUploadR2DeleteRequested(db, "upload1", now), true);
+  assert.equal(await markUploadR2DeleteCompleted(db, "upload1", now), true);
+  assert.equal(await markUploadR2DeleteFailed(db, "upload2", "object delete failed", now), true);
+
+  assert.deepEqual(db.bindings[0], ["2026-05-08T12:00:00.000Z", "upload1"]);
+  assert.deepEqual(db.bindings[1], ["2026-05-08T12:00:00.000Z", "2026-05-08T12:00:00.000Z", "upload1"]);
+  assert.deepEqual(db.bindings[2], ["2026-05-08T12:00:00.000Z", "2026-05-08T12:00:00.000Z", "object delete failed", "upload2"]);
 });
 
 test("app settings helpers parse defaults and typed values", async () => {

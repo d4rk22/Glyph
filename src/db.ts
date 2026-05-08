@@ -20,6 +20,10 @@ export interface UploadMetadata {
   expiredAt: string | null;
   uploadMode: UploadMode;
   storageState: UploadStorageState;
+  r2DeleteRequestedAt: string | null;
+  r2DeleteCompletedAt: string | null;
+  r2DeleteFailedAt: string | null;
+  r2DeleteError: string | null;
 }
 
 export interface CreateUploadMetadataInput {
@@ -50,6 +54,10 @@ interface UploadRow {
   expired_at?: string | null;
   upload_mode?: string | null;
   storage_state?: string | null;
+  r2_delete_requested_at?: string | null;
+  r2_delete_completed_at?: string | null;
+  r2_delete_failed_at?: string | null;
+  r2_delete_error?: string | null;
 }
 
 interface AppSettingRow {
@@ -79,6 +87,12 @@ export interface StorageUsage {
   deletedCount: number;
   totalBytes: number;
   totalCount: number;
+}
+
+export interface R2DeletionCleanupStats {
+  pendingCount: number;
+  failedCount: number;
+  completedCount: number;
 }
 
 export interface AdminUser {
@@ -248,7 +262,11 @@ export async function createUploadMetadata(
         expiresAt,
         expiredAt: null,
         uploadMode,
-        storageState
+        storageState,
+        r2DeleteRequestedAt: null,
+        r2DeleteCompletedAt: null,
+        r2DeleteFailedAt: null,
+        r2DeleteError: null
       };
     } catch (error) {
       if (
@@ -318,7 +336,8 @@ export async function updateUploadExpiration(
             WHEN deleted_at IS NULL THEN 'stored'
             ELSE storage_state
           END
-        WHERE id = ?`
+        WHERE id = ?
+          AND r2_delete_completed_at IS NULL`
     )
     .bind(optionalIso(expiresAt), id)
     .run();
@@ -374,6 +393,112 @@ export async function listOldestActiveUploads(db: D1Database, now = new Date(), 
     .all<UploadRow>();
 
   return rows.results.map(mapUpload);
+}
+
+export async function listUploadsPendingR2Deletion(db: D1Database, now = new Date(), limit = 50): Promise<UploadMetadata[]> {
+  const rows = await db
+    .prepare(
+      `SELECT *
+        FROM uploads
+        WHERE r2_delete_completed_at IS NULL
+          AND (
+            deleted_at IS NOT NULL
+            OR expired_at IS NOT NULL
+            OR (expires_at IS NOT NULL AND expires_at <= ?)
+          )
+        ORDER BY COALESCE(deleted_at, expired_at, expires_at, created_at) ASC
+        LIMIT ?`
+    )
+    .bind(now.toISOString(), clampLimit(limit))
+    .all<UploadRow>();
+
+  return rows.results.map(mapUpload);
+}
+
+export async function getR2DeletionCleanupStats(db: D1Database, now = new Date()): Promise<R2DeletionCleanupStats> {
+  const nowIso = now.toISOString();
+  const row = await db
+    .prepare(
+      `SELECT
+        COALESCE(SUM(CASE
+          WHEN r2_delete_completed_at IS NULL
+            AND (deleted_at IS NOT NULL OR expired_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= ?))
+          THEN 1 ELSE 0 END), 0) AS pending_count,
+        COALESCE(SUM(CASE
+          WHEN r2_delete_completed_at IS NULL
+            AND r2_delete_failed_at IS NOT NULL
+            AND (deleted_at IS NOT NULL OR expired_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= ?))
+          THEN 1 ELSE 0 END), 0) AS failed_count,
+        COALESCE(SUM(CASE WHEN r2_delete_completed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS completed_count
+        FROM uploads`
+    )
+    .bind(nowIso, nowIso)
+    .first<{
+      pending_count: number;
+      failed_count: number;
+      completed_count: number;
+    }>();
+
+  return {
+    pendingCount: row?.pending_count ?? 0,
+    failedCount: row?.failed_count ?? 0,
+    completedCount: row?.completed_count ?? 0
+  };
+}
+
+export async function markUploadR2DeleteRequested(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET r2_delete_requested_at = ?,
+          r2_delete_failed_at = NULL,
+          r2_delete_error = NULL
+        WHERE id = ?
+          AND r2_delete_completed_at IS NULL`
+    )
+    .bind(now.toISOString(), id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markUploadR2DeleteCompleted(db: D1Database, id: string, now = new Date()): Promise<boolean> {
+  const completedAt = now.toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET r2_delete_requested_at = COALESCE(r2_delete_requested_at, ?),
+          r2_delete_completed_at = ?,
+          r2_delete_failed_at = NULL,
+          r2_delete_error = NULL
+        WHERE id = ?`
+    )
+    .bind(completedAt, completedAt, id)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function markUploadR2DeleteFailed(
+  db: D1Database,
+  id: string,
+  error: string,
+  now = new Date()
+): Promise<boolean> {
+  const failedAt = now.toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE uploads
+        SET r2_delete_requested_at = COALESCE(r2_delete_requested_at, ?),
+          r2_delete_failed_at = ?,
+          r2_delete_error = ?
+        WHERE id = ?
+          AND r2_delete_completed_at IS NULL`
+    )
+    .bind(failedAt, failedAt, error.slice(0, 500), id)
+    .run();
+
+  return result.meta.changes > 0;
 }
 
 export async function getUploadStorageUsage(db: D1Database, now = new Date()): Promise<StorageUsage> {
@@ -818,7 +943,11 @@ function mapUpload(row: UploadRow): UploadMetadata {
     expiresAt: row.expires_at ?? null,
     expiredAt: row.expired_at ?? null,
     uploadMode: parseUploadMode(row.upload_mode),
-    storageState: parseStorageState(row.storage_state)
+    storageState: parseStorageState(row.storage_state),
+    r2DeleteRequestedAt: row.r2_delete_requested_at ?? null,
+    r2DeleteCompletedAt: row.r2_delete_completed_at ?? null,
+    r2DeleteFailedAt: row.r2_delete_failed_at ?? null,
+    r2DeleteError: row.r2_delete_error ?? null
   };
 }
 

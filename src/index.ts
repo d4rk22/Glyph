@@ -40,12 +40,17 @@ import {
   getActiveWebAuthnChallenge,
   getAdminUserById,
   getAppSettings,
+  getR2DeletionCleanupStats,
   getUploadMetadata,
   getUploadStorageUsage,
   getWebAuthnCredentialByCredentialId,
   listOldestActiveUploads,
+  listUploadsPendingR2Deletion,
   listUploadMetadata,
   markUploadExpired,
+  markUploadR2DeleteCompleted,
+  markUploadR2DeleteFailed,
+  markUploadR2DeleteRequested,
   listWebAuthnCredentials,
   markUploadDeleted,
   touchAdminUserLogin,
@@ -54,6 +59,7 @@ import {
   updateWebAuthnCredentialUse,
   type AppSettings,
   type AdminUser,
+  type R2DeletionCleanupStats,
   type StorageUsage,
   type UploadMetadata
 } from "./db.ts";
@@ -111,6 +117,10 @@ export default {
 
     if (url.pathname === "/admin/settings/storage-cap" && request.method === "POST") {
       return handleAdminStorageCap(request, env);
+    }
+
+    if (url.pathname === "/admin/maintenance/r2-cleanup" && request.method === "POST") {
+      return handleAdminR2Cleanup(request, env);
     }
 
     if (url.pathname === "/admin/passkeys/register/options" && request.method === "POST") {
@@ -223,11 +233,12 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
     });
     const usage = await getUploadStorageUsage(env.DB);
     const settings = await getAppSettings(env.DB);
+    const cleanup = await getR2DeletionCleanupStats(env.DB);
 
     return html(
       renderShell(
         "Glyph Admin",
-        adminDashboardPage(auth.user, uploads, usage, settings, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
+        adminDashboardPage(auth.user, uploads, usage, settings, cleanup, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
         { wide: true }
       )
     );
@@ -262,13 +273,8 @@ async function handleAdminUploadDelete(request: Request, env: Env): Promise<Resp
     return redirect("/admin?notice=missing-upload");
   }
 
-  try {
-    await env.FILES.delete(metadata.objectKey);
-  } catch (error) {
-    console.error("R2 delete failed", error);
-  }
-
   await markUploadDeleted(env.DB, id);
+  await deleteR2ObjectForUpload(env, metadata);
   return redirect("/admin?notice=deleted");
 }
 
@@ -292,6 +298,10 @@ async function handleAdminUploadExpiration(request: Request, env: Env): Promise<
   const metadata = await getUploadMetadata(env.DB, id);
   if (!metadata) {
     return redirect("/admin?notice=missing-upload");
+  }
+
+  if (metadata.r2DeleteCompletedAt !== null) {
+    return redirect("/admin?notice=expiration-object-cleaned");
   }
 
   const expiresAt = parseExpirationFormValue(formString(formData, "expiresAt"));
@@ -323,6 +333,24 @@ async function handleAdminStorageCap(request: Request, env: Env): Promise<Respon
   await enforceStorageCap(env);
 
   return redirect(`/admin?notice=${storageCapBytes === null ? "storage-cap-cleared" : "storage-cap-updated"}`);
+}
+
+async function handleAdminR2Cleanup(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The cleanup request could not be verified.")), 403);
+  }
+
+  const result = await retryR2DeletionCleanup(env);
+  if (result.attemptedCount === 0) {
+    return redirect("/admin?notice=r2-cleanup-none");
+  }
+
+  return redirect(`/admin?notice=${result.failedCount === 0 ? "r2-cleanup-complete" : "r2-cleanup-partial"}`);
 }
 
 async function handleAdminLogout(request: Request, env: Env): Promise<Response> {
@@ -1185,6 +1213,7 @@ function adminDashboardPage(
   uploads: UploadMetadata[],
   usage: StorageUsage,
   settings: AppSettings,
+  cleanup: R2DeletionCleanupStats,
   origin: string,
   configuredBaseUrl: string | undefined,
   notice: string | null
@@ -1215,6 +1244,7 @@ ${noticeMarkup(notice)}
 </div>
 ${usageDashboard(usage)}
 ${storageCapPanel(settings, usage)}
+${r2CleanupPanel(cleanup)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
 }
@@ -1345,6 +1375,20 @@ function storageCapPanel(settings: AppSettings, usage: StorageUsage): string {
 </section>`;
 }
 
+function r2CleanupPanel(cleanup: R2DeletionCleanupStats): string {
+  return `<section class="settings-panel" aria-label="R2 cleanup">
+  <h2>R2 cleanup</h2>
+  <div class="settings-detail">
+    <span>Pending ${cleanup.pendingCount}</span>
+    <span>Failed ${cleanup.failedCount}</span>
+    <span>Completed ${cleanup.completedCount}</span>
+  </div>
+  <form method="post" action="/admin/maintenance/r2-cleanup">
+    <button type="submit">Retry cleanup</button>
+  </form>
+</section>`;
+}
+
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
   const isDeleted = upload.deletedAt !== null;
   const isExpired = !isDeleted && isUploadExpired(upload);
@@ -1353,12 +1397,21 @@ function uploadCard(upload: UploadMetadata, shortUrl: string): string {
   const expirationMeta = upload.expiresAt ? `<span>Expires ${escapeHtml(upload.expiresAt)}</span>` : "<span>No expiration</span>";
   const expiredMeta = upload.expiredAt ? `<span>Expired ${escapeHtml(upload.expiredAt)}</span>` : "";
   const copyButton = `<button class="secondary" type="button" data-copy-url="${escapeAttribute(shortUrl)}">Copy URL</button>`;
+  const r2CleanupMeta = upload.r2DeleteCompletedAt
+    ? `<span>R2 cleanup complete ${escapeHtml(upload.r2DeleteCompletedAt)}</span>`
+    : upload.r2DeleteFailedAt
+      ? `<span>R2 cleanup failed ${escapeHtml(upload.r2DeleteFailedAt)}</span>`
+      : upload.r2DeleteRequestedAt
+        ? `<span>R2 cleanup requested ${escapeHtml(upload.r2DeleteRequestedAt)}</span>`
+        : "";
+  const r2CleanupErrorMeta = upload.r2DeleteError ? `<span>R2 cleanup error ${escapeHtml(upload.r2DeleteError)}</span>` : "";
+  const expirationActions = upload.r2DeleteCompletedAt === null ? expirationForm(upload) : "";
   const actions = isDeleted
     ? `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
     ${copyButton}`
     : `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
     ${copyButton}
-    ${expirationForm(upload)}
+    ${expirationActions}
     <form method="post" action="/admin/uploads/delete">
       <input type="hidden" name="id" value="${escapeAttribute(upload.id)}">
       <button class="danger" type="submit">Delete</button>
@@ -1376,6 +1429,8 @@ function uploadCard(upload: UploadMetadata, shortUrl: string): string {
     <span>Created ${escapeHtml(upload.createdAt)}</span>
     ${expirationMeta}
     ${expiredMeta}
+    ${r2CleanupMeta}
+    ${r2CleanupErrorMeta}
     ${deletedMeta}
     <span>ID ${escapeHtml(upload.id)}</span>
     <span>Object ${escapeHtml(upload.objectKey)}</span>
@@ -1484,11 +1539,7 @@ async function enforceStorageCap(env: Env): Promise<{ expiredCount: number; expi
       expiredBytes += upload.sizeBytes;
       activeBytes = Math.max(0, activeBytes - upload.sizeBytes);
 
-      try {
-        await env.FILES.delete(upload.objectKey);
-      } catch (error) {
-        console.error("R2 auto-expire delete failed", error);
-      }
+      await deleteR2ObjectForUpload(env, upload);
     }
 
     if (!changed) {
@@ -1497,6 +1548,45 @@ async function enforceStorageCap(env: Env): Promise<{ expiredCount: number; expi
   }
 
   return { expiredCount, expiredBytes };
+}
+
+async function retryR2DeletionCleanup(env: Env): Promise<{ attemptedCount: number; completedCount: number; failedCount: number }> {
+  const candidates = await listUploadsPendingR2Deletion(env.DB, new Date(), 50);
+  let completedCount = 0;
+  let failedCount = 0;
+
+  for (const upload of candidates) {
+    if (await deleteR2ObjectForUpload(env, upload)) {
+      completedCount += 1;
+    } else {
+      failedCount += 1;
+    }
+  }
+
+  return {
+    attemptedCount: candidates.length,
+    completedCount,
+    failedCount
+  };
+}
+
+async function deleteR2ObjectForUpload(env: Env, upload: UploadMetadata): Promise<boolean> {
+  await markUploadR2DeleteRequested(env.DB, upload.id);
+
+  try {
+    await env.FILES.delete(upload.objectKey);
+    await markUploadR2DeleteCompleted(env.DB, upload.id);
+    return true;
+  } catch (error) {
+    const message = r2DeleteErrorMessage(error);
+    console.error("R2 delete failed", error);
+    await markUploadR2DeleteFailed(env.DB, upload.id, message);
+    return false;
+  }
+}
+
+function r2DeleteErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim().length > 0 ? error.message : "R2 delete failed.";
 }
 
 function datetimeLocalValue(value: string | null): string {

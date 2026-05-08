@@ -69,6 +69,9 @@ interface FakeEnvOptions {
   authenticated?: boolean;
   activeUploadById?: unknown | null;
   appSettings?: unknown[];
+  r2CleanupCandidates?: unknown[];
+  r2CleanupStats?: unknown;
+  r2DeleteFailures?: string[];
   oldestActiveUploads?: unknown[];
   storageUsage?: unknown;
   uploads?: unknown[];
@@ -87,12 +90,18 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
   expirationUpdates: unknown[][];
   markedExpiredIds: string[];
   markedDeletedIds: string[];
+  r2DeleteCompletedIds: string[];
+  r2DeleteFailedUpdates: unknown[][];
+  r2DeleteRequestedIds: string[];
   settingsUpdates: unknown[][];
 } {
   const deletedObjectKeys: string[] = [];
   const expirationUpdates: unknown[][] = [];
   const markedExpiredIds: string[] = [];
   const markedDeletedIds: string[] = [];
+  const r2DeleteCompletedIds: string[] = [];
+  const r2DeleteFailedUpdates: unknown[][] = [];
+  const r2DeleteRequestedIds: string[] = [];
   const settingsUpdates: unknown[][] = [];
   const settingsRows = [...(options.appSettings ?? [])] as Array<{ key: string; value: string; updated_at: string }>;
   const adminCount = options.adminCount ?? 1;
@@ -128,6 +137,16 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
             return options.uploadById ?? null;
           }
 
+          if (sql.includes("r2_delete_completed_at")) {
+            return (
+              options.r2CleanupStats ?? {
+                pending_count: 1,
+                failed_count: 0,
+                completed_count: 0
+              }
+            );
+          }
+
           if (sql.includes("FROM uploads")) {
             return (
               options.storageUsage ?? {
@@ -151,6 +170,10 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
           }
 
           if (sql.includes("FROM uploads")) {
+            if (sql.includes("r2_delete_completed_at IS NULL")) {
+              return { results: options.r2CleanupCandidates ?? [] };
+            }
+
             if (sql.includes("ORDER BY created_at ASC")) {
               return { results: options.oldestActiveUploads ?? [] };
             }
@@ -161,6 +184,21 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
           throw new Error(`Unhandled all query: ${sql}`);
         },
         async run() {
+          if (sql.includes("SET r2_delete_requested_at = ?")) {
+            r2DeleteRequestedIds.push(String(bindings[1]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET r2_delete_requested_at = COALESCE") && sql.includes("r2_delete_completed_at = ?")) {
+            r2DeleteCompletedIds.push(String(bindings[2]));
+            return { meta: { changes: 1 } };
+          }
+
+          if (sql.includes("SET r2_delete_requested_at = COALESCE") && sql.includes("r2_delete_failed_at = ?")) {
+            r2DeleteFailedUpdates.push(bindings);
+            return { meta: { changes: 1 } };
+          }
+
           if (sql.includes("UPDATE uploads SET deleted_at = ?")) {
             markedDeletedIds.push(String(bindings[1]));
             return { meta: { changes: 1 } };
@@ -206,6 +244,9 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
       },
       async delete(key: string) {
         deletedObjectKeys.push(key);
+        if (options.r2DeleteFailures?.includes(key)) {
+          throw new Error("delete failed");
+        }
       }
     } as unknown as R2Bucket,
     APP_ENV: "test",
@@ -213,12 +254,18 @@ function createFakeEnv(options: FakeEnvOptions = {}): Env & {
     expirationUpdates,
     markedExpiredIds,
     markedDeletedIds,
+    r2DeleteCompletedIds,
+    r2DeleteFailedUpdates,
+    r2DeleteRequestedIds,
     settingsUpdates
   } as Env & {
     deletedObjectKeys: string[];
     expirationUpdates: unknown[][];
     markedExpiredIds: string[];
     markedDeletedIds: string[];
+    r2DeleteCompletedIds: string[];
+    r2DeleteFailedUpdates: unknown[][];
+    r2DeleteRequestedIds: string[];
     settingsUpdates: unknown[][];
   };
 }
@@ -241,11 +288,21 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("expiration-cleared"), "Upload expiration cleared.");
   assert.equal(adminNoticeMessage("invalid-expiration"), "That expiration date could not be read.");
   assert.equal(
+    adminNoticeMessage("expiration-object-cleaned"),
+    "That upload's R2 object has already been cleaned up, so its expiration cannot be changed."
+  );
+  assert.equal(
     adminNoticeMessage("storage-cap-updated"),
     "Storage cap updated. Oldest active uploads were expired if active storage was over the cap."
   );
   assert.equal(adminNoticeMessage("storage-cap-cleared"), "Storage cap cleared.");
   assert.equal(adminNoticeMessage("invalid-storage-cap"), "Storage cap must be a non-negative whole number of bytes.");
+  assert.equal(adminNoticeMessage("r2-cleanup-complete"), "R2 cleanup retry finished.");
+  assert.equal(
+    adminNoticeMessage("r2-cleanup-partial"),
+    "R2 cleanup retried, but one or more objects still could not be deleted."
+  );
+  assert.equal(adminNoticeMessage("r2-cleanup-none"), "No expired or deleted uploads currently need R2 cleanup.");
   assert.equal(adminNoticeMessage("unknown"), null);
 });
 
@@ -288,6 +345,9 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /aria-label="Storage cap"/);
   assert.match(body, /Current No cap/);
   assert.match(body, /name="storageCapBytes"/);
+  assert.match(body, /aria-label="R2 cleanup"/);
+  assert.match(body, /Pending 1/);
+  assert.match(body, /action="\/admin\/maintenance\/r2-cleanup"/);
   assert.match(body, /report\.pdf/);
   assert.match(body, /archive\.zip/);
   assert.match(body, /1\.50 KB/);
@@ -343,6 +403,28 @@ test("authenticated admin page displays expired upload state and expiration time
   assert.match(body, /status deleted">Expired/);
   assert.match(body, /Expires 2020-01-01T00:00:00.000Z/);
   assert.match(body, /value="2020-01-01T00:00"/);
+});
+
+test("authenticated admin page displays completed R2 cleanup state without expiration controls", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploads: [
+      {
+        ...expiredUploadRow,
+        expired_at: "2026-05-08T03:00:00.000Z",
+        r2_delete_requested_at: "2026-05-08T03:01:00.000Z",
+        r2_delete_completed_at: "2026-05-08T03:02:00.000Z"
+      }
+    ]
+  });
+
+  const response = await worker.fetch(adminRequest("/admin"), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /R2 cleanup complete 2026-05-08T03:02:00.000Z/);
+  assert.doesNotMatch(body, /name="expiresAt"/);
+  assert.doesNotMatch(body, /Clear expiration/);
 });
 
 test("active and future-expiring short links download normally", async () => {
@@ -486,6 +568,30 @@ test("admin expiration update sets and clears upload expiration", async () => {
   assert.deepEqual(env.expirationUpdates[1], [null, "active123"]);
 });
 
+test("admin expiration update refuses uploads whose R2 object was cleaned", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploadById: {
+      ...expiredUploadRow,
+      expired_at: "2026-05-08T03:00:00.000Z",
+      r2_delete_completed_at: "2026-05-08T03:02:00.000Z"
+    }
+  });
+
+  const response = await worker.fetch(
+    adminRequest("/admin/uploads/expiration", {
+      method: "POST",
+      body: new URLSearchParams({ id: "expired123" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=expiration-object-cleaned");
+  assert.deepEqual(env.expirationUpdates, []);
+});
+
 test("admin storage cap update validates origin before touching settings or uploads", async () => {
   const env = createFakeEnv({ authenticated: true });
   const response = await worker.fetch(
@@ -578,6 +684,8 @@ test("admin storage cap update expires oldest active uploads until usage is unde
   assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["storage_cap_bytes", "150"]);
   assert.deepEqual(env.markedExpiredIds, ["oldest"]);
   assert.deepEqual(env.deletedObjectKeys, ["uploads/oldest/a.txt"]);
+  assert.deepEqual(env.r2DeleteRequestedIds, ["oldest"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, ["oldest"]);
 });
 
 test("admin storage cap can be cleared without enforcement", async () => {
@@ -610,6 +718,108 @@ test("admin storage cap can be cleared without enforcement", async () => {
   assert.deepEqual(env.deletedObjectKeys, []);
 });
 
+test("admin R2 cleanup validates origin before touching candidates", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    r2CleanupCandidates: [deletedUploadRow]
+  });
+  const response = await worker.fetch(
+    adminRequest("/admin/maintenance/r2-cleanup", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" }
+    }),
+    env,
+    createExecutionContext()
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 403);
+  assert.match(body, /Action blocked/);
+  assert.deepEqual(env.deletedObjectKeys, []);
+  assert.deepEqual(env.r2DeleteRequestedIds, []);
+});
+
+test("admin R2 cleanup retries pending deleted and expired object deletes", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    r2CleanupCandidates: [
+      {
+        ...deletedUploadRow,
+        id: "deleted123",
+        object_key: "uploads/deleted123/archive.zip"
+      },
+      {
+        ...expiredUploadRow,
+        id: "expired123",
+        object_key: "uploads/expired123/old.txt",
+        expired_at: "2026-05-08T03:00:00.000Z"
+      }
+    ]
+  });
+
+  const response = await worker.fetch(
+    adminRequest("/admin/maintenance/r2-cleanup", {
+      method: "POST",
+      headers: { Origin: "https://glyph.example" }
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=r2-cleanup-complete");
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/deleted123/archive.zip", "uploads/expired123/old.txt"]);
+  assert.deepEqual(env.r2DeleteRequestedIds, ["deleted123", "expired123"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, ["deleted123", "expired123"]);
+  assert.deepEqual(env.r2DeleteFailedUpdates, []);
+});
+
+test("admin R2 cleanup records failed object deletes and redirects with partial notice", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    r2CleanupCandidates: [deletedUploadRow],
+    r2DeleteFailures: ["uploads/deleted123/archive.zip"]
+  });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let response: Response;
+  try {
+    response = await worker.fetch(
+      adminRequest("/admin/maintenance/r2-cleanup", { method: "POST" }),
+      env,
+      createExecutionContext()
+    );
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=r2-cleanup-partial");
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/deleted123/archive.zip"]);
+  assert.deepEqual(env.r2DeleteRequestedIds, ["deleted123"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, []);
+  assert.equal(env.r2DeleteFailedUpdates[0][2], "delete failed");
+  assert.equal(env.r2DeleteFailedUpdates[0][3], "deleted123");
+});
+
+test("admin R2 cleanup handles no pending candidates", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    r2CleanupCandidates: []
+  });
+
+  const response = await worker.fetch(
+    adminRequest("/admin/maintenance/r2-cleanup", { method: "POST" }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=r2-cleanup-none");
+  assert.deepEqual(env.deletedObjectKeys, []);
+});
+
 test("admin delete removes the R2 object and marks metadata deleted", async () => {
   const env = createFakeEnv({
     authenticated: true,
@@ -626,6 +836,8 @@ test("admin delete removes the R2 object and marks metadata deleted", async () =
   assert.equal(response.headers.get("Location"), "/admin?notice=deleted");
   assert.deepEqual(env.deletedObjectKeys, ["uploads/active123/report.pdf"]);
   assert.deepEqual(env.markedDeletedIds, ["active123"]);
+  assert.deepEqual(env.r2DeleteRequestedIds, ["active123"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, ["active123"]);
 });
 
 test("deleted short links return the polished not-found page", async () => {
