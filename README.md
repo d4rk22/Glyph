@@ -39,9 +39,13 @@ Phase 5 admin authentication is in place:
 - `/admin` bootstraps the first admin passkey when no admin exists.
 - Existing admins sign in with their registered passkey.
 - Admin sessions are stored in D1 and scoped to `/admin` with HTTP-only cookies.
-- The protected admin page remains a placeholder for the file-management phase.
 
-Admin file management flows are intentionally still pending.
+Phase 6 protected admin file management is in place:
+
+- `/admin` lists uploads after passkey login.
+- The admin panel shows filename, short URL, size, content type, creation/deletion state, IDs, and object keys.
+- Admins can open/copy short links and delete uploads.
+- Delete requests ask R2 to remove the object and mark the D1 metadata row deleted.
 
 ## Prerequisites
 
@@ -118,5 +122,4 @@ pnpm run deploy
 
 ## Known MVP Limitations
 
-- Admin listing, metadata viewing, link copying, and deletion are not implemented yet.
 - Direct-to-R2 and multipart uploads are intentionally deferred.

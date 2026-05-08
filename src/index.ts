@@ -9,6 +9,7 @@ import {
   type WebAuthnCredential as SimpleWebAuthnCredential
 } from "@simplewebauthn/server";
 
+import { adminNoticeMessage, isSameOriginAdminRequest } from "./admin";
 import {
   ADMIN_SESSION_COOKIE,
   base64UrlDecode,
@@ -38,8 +39,11 @@ import {
   getActiveUploadMetadata,
   getActiveWebAuthnChallenge,
   getAdminUserById,
+  getUploadMetadata,
   getWebAuthnCredentialByCredentialId,
+  listUploadMetadata,
   listWebAuthnCredentials,
+  markUploadDeleted,
   touchAdminUserLogin,
   updateWebAuthnCredentialUse,
   type AdminUser,
@@ -87,6 +91,10 @@ export default {
 
     if (url.pathname === "/admin/logout" && request.method === "POST") {
       return handleAdminLogout(request, env);
+    }
+
+    if (url.pathname === "/admin/uploads/delete" && request.method === "POST") {
+      return handleAdminUploadDelete(request, env);
     }
 
     if (url.pathname === "/admin/passkeys/register/options" && request.method === "POST") {
@@ -182,7 +190,19 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
   const auth = await getAuthenticatedAdmin(request, env);
 
   if (auth) {
-    return html(renderShell("Glyph Admin", adminDashboardPage(auth.user)));
+    const url = new URL(request.url);
+    const uploads = await listUploadMetadata(env.DB, {
+      includeDeleted: true,
+      limit: 100
+    });
+
+    return html(
+      renderShell(
+        "Glyph Admin",
+        adminDashboardPage(auth.user, uploads, url.origin, env.PUBLIC_BASE_URL, url.searchParams.get("notice")),
+        { wide: true }
+      )
+    );
   }
 
   if ((await countAdminUsers(env.DB)) === 0) {
@@ -190,6 +210,38 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
   }
 
   return html(renderShell("Glyph Admin Login", adminLoginPage()));
+}
+
+async function handleAdminUploadDelete(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The delete request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const id = formString(formData, "id");
+
+  if (!id) {
+    return redirect("/admin?notice=missing-id");
+  }
+
+  const metadata = await getUploadMetadata(env.DB, id);
+  if (!metadata) {
+    return redirect("/admin?notice=missing-upload");
+  }
+
+  try {
+    await env.FILES.delete(metadata.objectKey);
+  } catch (error) {
+    console.error("R2 delete failed", error);
+  }
+
+  await markUploadDeleted(env.DB, id);
+  return redirect("/admin?notice=deleted");
 }
 
 async function handleAdminLogout(request: Request, env: Env): Promise<Response> {
@@ -479,7 +531,9 @@ async function getAuthenticatedAdmin(
   return user ? { user } : null;
 }
 
-function renderShell(title: string, main: string): string {
+function renderShell(title: string, main: string, options: { wide?: boolean } = {}): string {
+  const mainClass = options.wide ? ' class="wide"' : "";
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -526,6 +580,10 @@ function renderShell(title: string, main: string): string {
       border: 1px solid var(--border);
       border-radius: 8px;
       box-shadow: 0 18px 48px rgb(32 35 33 / 0.08);
+    }
+
+    main.wide {
+      width: min(100%, 1080px);
     }
 
     h1 {
@@ -663,6 +721,117 @@ function renderShell(title: string, main: string): string {
       margin-top: 24px;
     }
 
+    .toolbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 28px;
+    }
+
+    .toolbar .actions {
+      margin-top: 0;
+    }
+
+    .notice {
+      margin-top: 20px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-muted);
+      color: var(--text);
+    }
+
+    .upload-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .upload-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.9fr) auto;
+      gap: 16px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .upload-name {
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--text);
+      font-weight: 750;
+    }
+
+    .upload-url {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+      overflow-wrap: anywhere;
+    }
+
+    .upload-meta {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .status {
+      display: inline-flex;
+      width: fit-content;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .status.deleted {
+      border-color: var(--danger-border);
+      background: var(--danger-bg);
+      color: var(--danger-text);
+    }
+
+    .upload-actions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .upload-actions form {
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .danger {
+      border-color: var(--danger-border);
+      background: var(--danger-bg);
+      color: var(--danger-text);
+    }
+
+    .danger:hover {
+      border-color: var(--danger-text);
+      background: var(--danger-text);
+      color: white;
+    }
+
+    .empty {
+      margin-top: 24px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
     .meta-item {
       min-width: 0;
       padding: 12px;
@@ -706,6 +875,14 @@ function renderShell(title: string, main: string): string {
       .meta {
         grid-template-columns: 1fr;
       }
+
+      .upload-card {
+        grid-template-columns: 1fr;
+      }
+
+      .upload-actions {
+        justify-content: stretch;
+      }
     }
 
     @media (prefers-color-scheme: dark) {
@@ -726,7 +903,7 @@ function renderShell(title: string, main: string): string {
   </style>
 </head>
 <body>
-  <main>${main}</main>
+  <main${mainClass}>${main}</main>
 </body>
 </html>`;
 }
@@ -811,27 +988,39 @@ function adminLoginPage(): string {
 <script type="module" src="/admin.js"></script>`;
 }
 
-function adminDashboardPage(user: AdminUser): string {
+function adminDashboardPage(
+  user: AdminUser,
+  uploads: UploadMetadata[],
+  origin: string,
+  configuredBaseUrl: string | undefined,
+  notice: string | null
+): string {
   const name = user.displayName || user.username;
-  return `<p class="eyebrow">Admin</p>
-<h1>Signed in</h1>
-<p class="lede">Welcome, ${escapeHtml(name)}. File listing, metadata, link copying, and deletion come next.</p>
+  return `<div class="toolbar">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Files</h1>
+    <p class="lede">Welcome, ${escapeHtml(name)}. Manage short links and uploaded file metadata.</p>
+  </div>
+  <form method="post" action="/admin/logout">
+    <div class="actions">
+      <button type="submit" class="secondary">Sign out</button>
+    </div>
+  </form>
+</div>
+${noticeMarkup(notice)}
 <div class="meta">
   <div class="meta-item">
     <span class="meta-label">User</span>
     <span class="meta-value">${escapeHtml(user.username)}</span>
   </div>
   <div class="meta-item">
-    <span class="meta-label">Last login</span>
-    <span class="meta-value">${escapeHtml(user.lastLoginAt || "First session")}</span>
+    <span class="meta-label">Uploads</span>
+    <span class="meta-value">${uploads.length}</span>
   </div>
 </div>
-<form method="post" action="/admin/logout">
-  <div class="actions">
-    <button type="submit">Sign out</button>
-    <a class="button secondary" href="/">Home</a>
-  </div>
-</form>`;
+${uploadList(uploads, origin, configuredBaseUrl)}
+<script type="module" src="/admin.js"></script>`;
 }
 
 function notFoundPage(): string {
@@ -903,6 +1092,76 @@ function errorMessage(error: unknown): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value);
+}
+
+function uploadList(uploads: UploadMetadata[], origin: string, configuredBaseUrl: string | undefined): string {
+  if (uploads.length === 0) {
+    return `<div class="empty">
+  <p>No uploads yet.</p>
+</div>`;
+  }
+
+  return `<div class="upload-list">
+${uploads.map((upload) => uploadCard(upload, buildPublicUrl(origin, configuredBaseUrl, upload.id))).join("\n")}
+</div>`;
+}
+
+function uploadCard(upload: UploadMetadata, shortUrl: string): string {
+  const isDeleted = upload.deletedAt !== null;
+  const status = isDeleted ? "Deleted" : "Active";
+  const deletedMeta = isDeleted ? `<span>Deleted ${escapeHtml(upload.deletedAt || "")}</span>` : "";
+  const copyButton = `<button class="secondary" type="button" data-copy-url="${escapeAttribute(shortUrl)}">Copy URL</button>`;
+  const actions = isDeleted
+    ? `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
+    ${copyButton}`
+    : `<a class="button secondary" href="${escapeAttribute(shortUrl)}">Open link</a>
+    ${copyButton}
+    <form method="post" action="/admin/uploads/delete">
+      <input type="hidden" name="id" value="${escapeAttribute(upload.id)}">
+      <button class="danger" type="submit">Delete</button>
+    </form>`;
+
+  return `<article class="upload-card">
+  <div>
+    <p class="upload-name">${escapeHtml(upload.originalFilename)}</p>
+    <p class="upload-url">${escapeHtml(shortUrl)}</p>
+  </div>
+  <div class="upload-meta">
+    <span class="status${isDeleted ? " deleted" : ""}">${status}</span>
+    <span>${formatBytes(upload.sizeBytes)}</span>
+    <span>${escapeHtml(upload.contentType)}</span>
+    <span>Created ${escapeHtml(upload.createdAt)}</span>
+    ${deletedMeta}
+    <span>ID ${escapeHtml(upload.id)}</span>
+    <span>Object ${escapeHtml(upload.objectKey)}</span>
+  </div>
+  <div class="upload-actions">
+    ${actions}
+  </div>
+</article>`;
+}
+
+function noticeMarkup(notice: string | null): string {
+  const message = adminNoticeMessage(notice);
+  return message ? `<p class="notice">${escapeHtml(message)}</p>` : "";
+}
+
+function adminActionErrorPage(message: string): string {
+  return `<p class="eyebrow">Admin</p>
+<h1>Action blocked</h1>
+<p class="error">${escapeHtml(message)}</p>
+<div class="actions">
+  <a class="button secondary" href="/admin">Back</a>
+</div>`;
+}
+
+function formString(formData: FormData, key: string): string | null {
+  const value = formData.get(key);
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isSameOriginRequest(request: Request): boolean {
+  return isSameOriginAdminRequest(request.url, request.headers.get("Origin"));
 }
 
 async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -1045,6 +1304,41 @@ loginForm?.addEventListener("submit", async (event) => {
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Passkey login failed.");
   }
+});
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.append(textArea);
+  textArea.focus();
+  textArea.select();
+  document.execCommand("copy");
+  textArea.remove();
+}
+
+document.querySelectorAll("[data-copy-url]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const value = button.getAttribute("data-copy-url");
+    if (!value) return;
+
+    const originalLabel = button.textContent || "Copy URL";
+    try {
+      await copyText(value);
+      button.textContent = "Copied";
+    } catch {
+      button.textContent = "Copy failed";
+    }
+    window.setTimeout(() => {
+      button.textContent = originalLabel;
+    }, 1800);
+  });
 });
 `;
 }
