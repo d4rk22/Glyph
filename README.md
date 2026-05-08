@@ -82,6 +82,7 @@ Phase 12 simple storage cap enforcement is in place:
 - Storage-cap enforcement runs after successful uploads and after admin cap updates.
 - When active stored bytes exceed the cap, Glyph expires the oldest active uploads first and asks R2 to delete those objects best-effort.
 - Enforcement stays request-driven for now; there are no scheduled Workers, queues, or retry systems.
+- The roadmap now includes a later R2 deletion retry/cleanup phase for expired or deleted uploads whose best-effort object deletion did not complete.
 
 ## Prerequisites
 
@@ -231,4 +232,5 @@ Recommended deployment checklist:
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration is request-driven and best-effort; it does not use scheduled Workers, background queues, or retry tracking yet.
+- R2 deletion retry/cleanup is planned as a later v2 phase.
 - Passkeys are origin-bound, so local and deployed admin credentials are separate.

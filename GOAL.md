@@ -31,6 +31,7 @@ The next product goal is to evolve Glyph from a minimal private file drop into a
 - Upload UI can show progress and estimated time remaining.
 - Deployment can become a one-command setup/deploy workflow.
 - Admins can check for updates and choose manual or opt-in automatic self-updates once the repository is public.
+- Expired/deleted objects can be reconciled with R2 by a simple retryable cleanup path.
 - Custom-domain setup can be automated after the basic deploy workflow is boring and reliable.
 
 ## v2 Requirements
@@ -87,6 +88,7 @@ Admin/passkey storage should continue to support:
 - Direct-to-R2 uploads should keep the Worker as the authorization/finalization control plane.
 - Multipart uploads should support large files, retryable parts, progress, and estimated time remaining.
 - Storage-cap enforcement should prefer expiring the oldest active files and deleting R2 objects best-effort.
+- R2 cleanup should eventually retry failed object deletions for expired/deleted metadata without making public links available again.
 - Custom-domain automation should be layered after one-command deploy, not entangled with normal deployment.
 
 ## Dependency Policy
@@ -131,6 +133,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Multipart uploads support large files with progress, retry behavior, and estimated time remaining.
 - One-command deploy can create or reuse Cloudflare resources, apply migrations, deploy the Worker, and print live/admin URLs.
 - Self-update can check the public GitHub repository for newer releases, show current/deployed version and release notes, run manual updates, and support conservative opt-in automatic updates.
+- R2 cleanup can find expired/deleted uploads whose objects may still exist, retry deletion safely, and report cleanup status without serving those links publicly.
 - Custom-domain automation can attach/manage an optional domain with clear Cloudflare permission docs.
 - Type checking passes.
 - Available tests pass.
@@ -144,8 +147,9 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 10. Add manual expiring links.
 11. Add usage dashboard.
 12. Add storage cap and oldest-file auto expiration.
-13. Add direct-to-R2 uploads.
-14. Add multipart uploads, upload progress, and estimated time remaining.
-15. Add one-command deploy script.
-16. Add self-update system with manual updates and opt-in automatic updates.
-17. Add custom-domain automation.
+13. Add R2 deletion retry and cleanup for expired/deleted uploads.
+14. Add direct-to-R2 uploads.
+15. Add multipart uploads, upload progress, and estimated time remaining.
+16. Add one-command deploy script.
+17. Add self-update system with manual updates and opt-in automatic updates.
+18. Add custom-domain automation.
