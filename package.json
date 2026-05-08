@@ -1,0 +1,29 @@
+{
+  "name": "glyph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private-use Cloudflare-first file sharing app.",
+  "type": "module",
+  "packageManager": "pnpm@11.0.8",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply glyph --local",
+    "db:migrate:remote": "wrangler d1 migrations apply glyph --remote"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "r2",
+    "d1",
+    "file-sharing"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250523.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.15.2"
+  }
+}
