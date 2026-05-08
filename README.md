@@ -111,6 +111,13 @@ Phase 16 one-command deploy workflow is in place:
 - `pnpm run deploy:glyph -- --yes` runs the same checks, applies remote D1 migrations, performs a Wrangler dry-run, and deploys the Worker.
 - The first version assumes the Cloudflare account, Wrangler auth, D1 database, R2 bucket, bindings, secrets, and bucket CORS are already configured.
 
+Phase 17 self-update groundwork is in place:
+
+- `/admin` shows the deployed Glyph version, update source, update channel, and automatic update opt-in state.
+- Admins can save a future public GitHub update source, choose `stable` or `beta`, and opt in to automatic updates as a stored setting.
+- Admins can manually check a configured GitHub release source for newer release metadata.
+- Update checks are read-only; they do not deploy, apply migrations, restart the Worker, or mutate code.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -216,6 +223,8 @@ When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-
 
 When multipart direct-to-R2 mode is enabled and configured, files at or above the conservative multipart threshold use R2 multipart upload. The Worker creates pending metadata, initiates the R2 multipart upload, signs individual part uploads, completes the multipart upload after all expected parts are reported, verifies the final object size where practical, and only then marks the short link stored. Smaller files in multipart mode continue through the direct single-part path. Failed or aborted multipart uploads are marked unavailable in D1. The normal Worker-mediated `POST /` path remains available as a fallback.
 
+The self-update panel is groundwork for a future public repository workflow. It stores update settings in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. The manual check is intentionally read-only in this phase. It does not reuse the deploy helper yet except as the documented future path for applying migrations, running verification, and deploying safely.
+
 ## Verification
 
 ```sh
@@ -239,6 +248,8 @@ Final MVP smoke checks should include:
 - `GET /{deleted-id}` returns the polished not-found page.
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
 - `POST /admin/settings/upload-mode` switches between Worker-mediated, direct-to-R2, and multipart direct-to-R2 upload mode for an authenticated same-origin admin request.
+- `POST /admin/settings/updates` saves read-only self-update settings for an authenticated same-origin admin request.
+- `POST /admin/updates/check` checks configured GitHub release metadata without deploying or mutating code.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 
 ## Dependency Policy
@@ -302,7 +313,8 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper does not create Cloudflare resources yet; D1, R2, Wrangler auth, secrets, and CORS are still manual setup.
-- No folders, public file browsing, billing, self-updates, or custom-domain automation.
+- Self-update is read-only groundwork only; it cannot run updates, deploy, apply migrations, restart Workers, or schedule checks yet.
+- No folders, public file browsing, billing, executable self-updates, or custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
 - Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.

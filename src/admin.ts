@@ -30,6 +30,12 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "R2 cleanup retried, but one or more objects still could not be deleted.";
     case "r2-cleanup-none":
       return "No expired or deleted uploads currently need R2 cleanup.";
+    case "update-settings-saved":
+      return "Update settings saved. Automatic updates remain opt-in and no update was run.";
+    case "invalid-update-settings":
+      return "Update settings must use a valid HTTPS source URL and known channel.";
+    case "update-source-missing":
+      return "Add a public GitHub update source before checking for updates.";
     default:
       return null;
   }

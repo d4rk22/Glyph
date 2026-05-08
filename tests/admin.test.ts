@@ -404,6 +404,9 @@ test("adminNoticeMessage maps known dashboard notices", () => {
     "R2 cleanup retried, but one or more objects still could not be deleted."
   );
   assert.equal(adminNoticeMessage("r2-cleanup-none"), "No expired or deleted uploads currently need R2 cleanup.");
+  assert.equal(adminNoticeMessage("update-settings-saved"), "Update settings saved. Automatic updates remain opt-in and no update was run.");
+  assert.equal(adminNoticeMessage("invalid-update-settings"), "Update settings must use a valid HTTPS source URL and known channel.");
+  assert.equal(adminNoticeMessage("update-source-missing"), "Add a public GitHub update source before checking for updates.");
   assert.equal(adminNoticeMessage("unknown"), null);
 });
 
@@ -453,6 +456,12 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /aria-label="R2 cleanup"/);
   assert.match(body, /Pending 1/);
   assert.match(body, /action="\/admin\/maintenance\/r2-cleanup"/);
+  assert.match(body, /aria-label="Self-update"/);
+  assert.match(body, /Current 0\.1\.0/);
+  assert.match(body, /Source Not configured/);
+  assert.match(body, /Automatic Disabled/);
+  assert.match(body, /action="\/admin\/settings\/updates"/);
+  assert.match(body, /action="\/admin\/updates\/check"/);
   assert.match(body, /report\.pdf/);
   assert.match(body, /archive\.zip/);
   assert.match(body, /1\.50 KB/);
@@ -481,6 +490,28 @@ test("authenticated admin page displays configured storage cap", async () => {
   assert.match(body, /Current 2\.00 KB/);
   assert.match(body, /Remaining 512 B/);
   assert.match(body, /value="2048"/);
+});
+
+test("authenticated admin page displays configured update settings", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+    ],
+    uploads: [activeUploadRow]
+  });
+
+  const response = await worker.fetch(adminRequest("/admin"), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Source https:\/\/github\.com\/example\/glyph/);
+  assert.match(body, /Channel beta/);
+  assert.match(body, /Automatic Enabled/);
+  assert.match(body, /name="autoUpdateEnabled" type="checkbox" value="true" checked/);
+  assert.match(body, /<option value="beta" selected>Beta<\/option>/);
 });
 
 test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
@@ -1345,6 +1376,176 @@ test("admin upload mode update rejects unknown modes", async () => {
   assert.equal(response.status, 303);
   assert.equal(response.headers.get("Location"), "/admin?notice=invalid-upload-mode");
   assert.deepEqual(env.settingsUpdates, []);
+});
+
+test("admin update settings validate origin and persist source channel and opt-in", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const blocked = await worker.fetch(
+    adminRequest("/admin/settings/updates", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: new URLSearchParams({
+        updateSourceUrl: "https://github.com/example/glyph",
+        updateChannel: "beta",
+        autoUpdateEnabled: "true"
+      })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(blocked.status, 403);
+  assert.deepEqual(env.settingsUpdates, []);
+
+  const saved = await worker.fetch(
+    adminRequest("/admin/settings/updates", {
+      method: "POST",
+      body: new URLSearchParams({
+        updateSourceUrl: "https://github.com/example/glyph",
+        updateChannel: "beta",
+        autoUpdateEnabled: "true"
+      })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(saved.status, 303);
+  assert.equal(saved.headers.get("Location"), "/admin?notice=update-settings-saved");
+  assert.deepEqual(
+    env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+    [
+      ["update_source_url", "https://github.com/example/glyph"],
+      ["update_channel", "beta"],
+      ["auto_update_enabled", "true"]
+    ]
+  );
+});
+
+test("admin update settings reject invalid source and channel", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/updates", {
+      method: "POST",
+      body: new URLSearchParams({
+        updateSourceUrl: "http://example.com/glyph",
+        updateChannel: "nightly"
+      })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=invalid-update-settings");
+  assert.deepEqual(env.settingsUpdates, []);
+});
+
+test("admin update check requires auth, same origin, and configured source", async () => {
+  const unauthenticated = await worker.fetch(
+    new Request("https://glyph.example/admin/updates/check", { method: "POST" }),
+    createFakeEnv({ authenticated: false }),
+    createExecutionContext()
+  );
+  assert.equal(unauthenticated.status, 303);
+  assert.equal(unauthenticated.headers.get("Location"), "/admin");
+
+  const env = createFakeEnv({ authenticated: true });
+  const blocked = await worker.fetch(
+    adminRequest("/admin/updates/check", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" }
+    }),
+    env,
+    createExecutionContext()
+  );
+  assert.equal(blocked.status, 403);
+
+  const missingSource = await worker.fetch(
+    adminRequest("/admin/updates/check", { method: "POST" }),
+    env,
+    createExecutionContext()
+  );
+  assert.equal(missingSource.status, 303);
+  assert.equal(missingSource.headers.get("Location"), "/admin?notice=update-source-missing");
+});
+
+test("admin update check fetches release metadata without mutating deploy state", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "stable", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "auto_update_enabled", value: "false", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
+  });
+  const requestedUrls: string[] = [];
+
+  await withMockedFetch(
+    async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          tag_name: "v0.2.0",
+          name: "Glyph 0.2.0",
+          html_url: "https://github.com/example/glyph/releases/tag/v0.2.0",
+          published_at: "2026-05-08T12:00:00.000Z"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const response = await worker.fetch(
+        adminRequest("/admin/updates/check", { method: "POST" }),
+        env,
+        createExecutionContext()
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(requestedUrls, ["https://api.github.com/repos/example/glyph/releases/latest"]);
+      assert.match(body, /A newer release is available: v0\.2\.0/);
+      assert.match(body, /Current<\/span>/);
+      assert.match(body, /0\.1\.0/);
+      assert.match(body, /Latest<\/span>/);
+      assert.match(body, /v0\.2\.0/);
+      assert.match(body, /Open release/);
+      assert.deepEqual(env.settingsUpdates, []);
+    }
+  );
+});
+
+test("admin beta update check reads the newest release list entry", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
+  });
+  const requestedUrls: string[] = [];
+
+  await withMockedFetch(
+    async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify([{ tag_name: "v0.1.0", html_url: "https://github.com/example/glyph/releases/tag/v0.1.0" }]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    },
+    async () => {
+      const response = await worker.fetch(
+        adminRequest("/admin/updates/check", { method: "POST" }),
+        env,
+        createExecutionContext()
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(requestedUrls, ["https://api.github.com/repos/example/glyph/releases?per_page=1"]);
+      assert.match(body, /This deployment is current for beta/);
+    }
+  );
 });
 
 test("admin R2 cleanup validates origin before touching candidates", async () => {

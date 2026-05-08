@@ -71,6 +71,7 @@ import {
   type AdminUser,
   type R2DeletionCleanupStats,
   type StorageUsage,
+  type UpdateChannel,
   type UploadMetadata
 } from "./db.ts";
 import { formatBytes } from "./format.ts";
@@ -88,6 +89,7 @@ const DIRECT_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 const DIRECT_UPLOAD_PRESIGN_TTL_SECONDS = 15 * 60;
 const MULTIPART_UPLOAD_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MULTIPART_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
+const GLYPH_VERSION = "0.1.0";
 
 interface UploadedFile extends Blob {
   name: string;
@@ -96,6 +98,19 @@ interface UploadedFile extends Blob {
 interface CompletedMultipartPart {
   partNumber: number;
   etag: string;
+}
+
+interface UpdateCheckResult {
+  sourceUrl: string;
+  channel: UpdateChannel;
+  checkedAt: string;
+  currentVersion: string;
+  latestVersion: string | null;
+  latestName: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  updateAvailable: boolean;
+  error: string | null;
 }
 
 export default {
@@ -165,6 +180,14 @@ export default {
 
     if (url.pathname === "/admin/settings/upload-mode" && request.method === "POST") {
       return handleAdminUploadMode(request, env);
+    }
+
+    if (url.pathname === "/admin/settings/updates" && request.method === "POST") {
+      return handleAdminUpdateSettings(request, env);
+    }
+
+    if (url.pathname === "/admin/updates/check" && request.method === "POST") {
+      return handleAdminUpdateCheck(request, env);
     }
 
     if (url.pathname === "/admin/maintenance/r2-cleanup" && request.method === "POST") {
@@ -659,6 +682,57 @@ async function handleAdminUploadMode(request: Request, env: Env): Promise<Respon
   return redirect("/admin?notice=upload-mode-updated");
 }
 
+async function handleAdminUpdateSettings(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The update settings request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const updateSourceUrl = parseUpdateSourceFormValue(formString(formData, "updateSourceUrl"));
+  const updateChannel = parseUpdateChannelFormValue(formString(formData, "updateChannel"));
+  const autoUpdateEnabled = formData.get("autoUpdateEnabled") === "true";
+
+  if (updateSourceUrl instanceof Error || updateChannel instanceof Error) {
+    return redirect("/admin?notice=invalid-update-settings");
+  }
+
+  try {
+    await updateAppSettings(env.DB, {
+      updateSourceUrl,
+      updateChannel,
+      autoUpdateEnabled
+    });
+  } catch {
+    return redirect("/admin?notice=invalid-update-settings");
+  }
+
+  return redirect("/admin?notice=update-settings-saved");
+}
+
+async function handleAdminUpdateCheck(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The update check request could not be verified.")), 403);
+  }
+
+  const settings = await getAppSettings(env.DB);
+  if (!settings.updateSourceUrl) {
+    return redirect("/admin?notice=update-source-missing");
+  }
+
+  const result = await checkForUpdates(settings);
+  return html(renderShell("Glyph Update Check", updateCheckPage(settings, result), { wide: true }));
+}
+
 async function handleAdminR2Cleanup(request: Request, env: Env): Promise<Response> {
   const auth = await getAuthenticatedAdmin(request, env);
   if (!auth) {
@@ -1066,6 +1140,7 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 
     input[type="file"],
     input[type="number"],
+    input[type="url"],
     select,
     input[readonly] {
       width: 100%;
@@ -1577,6 +1652,7 @@ ${noticeMarkup(notice)}
 ${usageDashboard(usage)}
 ${storageCapPanel(settings, usage)}
 ${uploadModePanel(settings, directUploadAvailable)}
+${updatesPanel(settings)}
 ${r2CleanupPanel(cleanup)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
@@ -1750,6 +1826,85 @@ function r2CleanupPanel(cleanup: R2DeletionCleanupStats): string {
 </section>`;
 }
 
+function updatesPanel(settings: AppSettings): string {
+  const sourceUrl = settings.updateSourceUrl ?? "";
+  return `<section class="settings-panel" aria-label="Self-update">
+  <h2>Self-update</h2>
+  <div class="settings-detail">
+    <span>Current ${escapeHtml(GLYPH_VERSION)}</span>
+    <span>Source ${settings.updateSourceUrl ? escapeHtml(settings.updateSourceUrl) : "Not configured"}</span>
+    <span>Channel ${escapeHtml(settings.updateChannel)}</span>
+    <span>Automatic ${settings.autoUpdateEnabled ? "Enabled" : "Disabled"}</span>
+  </div>
+  <form class="settings-form" method="post" action="/admin/settings/updates">
+    <div>
+      <label for="update-source-url">Source URL</label>
+      <input id="update-source-url" name="updateSourceUrl" type="url" inputmode="url" placeholder="https://github.com/owner/repo" value="${escapeAttribute(sourceUrl)}">
+      <label for="update-channel">Channel</label>
+      <select id="update-channel" name="updateChannel">
+        <option value="stable"${settings.updateChannel === "stable" ? " selected" : ""}>Stable</option>
+        <option value="beta"${settings.updateChannel === "beta" ? " selected" : ""}>Beta</option>
+      </select>
+      <label>
+        <input name="autoUpdateEnabled" type="checkbox" value="true"${settings.autoUpdateEnabled ? " checked" : ""}>
+        Automatic updates
+      </label>
+    </div>
+    <button type="submit">Save updates</button>
+  </form>
+  <form method="post" action="/admin/updates/check">
+    <button class="secondary" type="submit">Check for updates</button>
+  </form>
+</section>`;
+}
+
+function updateCheckPage(settings: AppSettings, result: UpdateCheckResult): string {
+  const summary = result.error
+    ? result.error
+    : result.latestVersion
+      ? result.updateAvailable
+        ? `A newer release is available: ${result.latestVersion}.`
+        : `This deployment is current for ${settings.updateChannel}.`
+      : "No release version was found.";
+  const releaseLink = result.releaseUrl
+    ? `<a class="button" href="${escapeAttribute(result.releaseUrl)}">Open release</a>`
+    : "";
+
+  return `<p class="eyebrow">Update check</p>
+<h1>Updates</h1>
+<p class="lede">${escapeHtml(summary)}</p>
+<div class="meta">
+  <div class="meta-item">
+    <span class="meta-label">Current</span>
+    <span class="meta-value">${escapeHtml(result.currentVersion)}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Latest</span>
+    <span class="meta-value">${escapeHtml(result.latestVersion ?? "Unavailable")}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Source</span>
+    <span class="meta-value">${escapeHtml(result.sourceUrl)}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Channel</span>
+    <span class="meta-value">${escapeHtml(result.channel)}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Published</span>
+    <span class="meta-value">${escapeHtml(result.publishedAt ?? "Unknown")}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">Checked</span>
+    <span class="meta-value">${escapeHtml(result.checkedAt)}</span>
+  </div>
+</div>
+<div class="actions">
+  ${releaseLink}
+  <a class="button secondary" href="/admin">Back</a>
+</div>`;
+}
+
 function uploadCard(upload: UploadMetadata, shortUrl: string): string {
   const isDeleted = upload.deletedAt !== null;
   const isExpired = !isDeleted && isUploadExpired(upload);
@@ -1874,6 +2029,35 @@ function parseUploadModeFormValue(value: string | null): "worker" | "direct" | "
   return new Error("Invalid upload mode.");
 }
 
+function parseUpdateChannelFormValue(value: string | null): UpdateChannel | Error {
+  if (value === null || value === "stable") {
+    return "stable";
+  }
+
+  if (value === "beta") {
+    return "beta";
+  }
+
+  return new Error("Invalid update channel.");
+}
+
+function parseUpdateSourceFormValue(value: string | null): string | null | Error {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "https:") {
+      return new Error("Invalid update source.");
+    }
+    return url.toString();
+  } catch {
+    return new Error("Invalid update source.");
+  }
+}
+
 function directUploadEnabled(settings: AppSettings, env: Env): boolean {
   return (settings.uploadMode === "direct" || settings.uploadMode === "multipart") && directUploadConfigured(env);
 }
@@ -1972,6 +2156,116 @@ async function deleteR2ObjectForUpload(env: Env, upload: UploadMetadata): Promis
 
 function r2DeleteErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : "R2 delete failed.";
+}
+
+async function checkForUpdates(settings: AppSettings): Promise<UpdateCheckResult> {
+  const sourceUrl = settings.updateSourceUrl || "";
+  const checkedAt = new Date().toISOString();
+  const base = {
+    sourceUrl,
+    channel: settings.updateChannel,
+    checkedAt,
+    currentVersion: GLYPH_VERSION,
+    latestVersion: null,
+    latestName: null,
+    releaseUrl: null,
+    publishedAt: null,
+    updateAvailable: false,
+    error: null
+  };
+
+  const requestUrl = updateReleaseRequestUrl(sourceUrl, settings.updateChannel);
+  if (requestUrl instanceof Error) {
+    return {
+      ...base,
+      error: requestUrl.message
+    };
+  }
+
+  try {
+    const response = await fetch(requestUrl, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Glyph update checker"
+      }
+    });
+
+    if (!response.ok) {
+      return {
+        ...base,
+        error: `Update source returned ${response.status}.`
+      };
+    }
+
+    const parsed: unknown = await response.json();
+    const release = Array.isArray(parsed) ? parsed.find(isReleaseRecord) : isReleaseRecord(parsed) ? parsed : null;
+    if (!release) {
+      return {
+        ...base,
+        error: "Update source did not return release metadata."
+      };
+    }
+
+    const latestVersion = release.tag_name.trim();
+    return {
+      ...base,
+      latestVersion,
+      latestName: release.name || null,
+      releaseUrl: release.html_url || null,
+      publishedAt: release.published_at || null,
+      updateAvailable: normalizeVersion(latestVersion) !== normalizeVersion(GLYPH_VERSION)
+    };
+  } catch (error) {
+    return {
+      ...base,
+      error: error instanceof Error ? error.message : "Update check failed."
+    };
+  }
+}
+
+function updateReleaseRequestUrl(sourceUrl: string, channel: UpdateChannel): string | Error {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return new Error("Update source URL is invalid.");
+  }
+
+  if (url.protocol !== "https:") {
+    return new Error("Update source URL must use HTTPS.");
+  }
+
+  if (url.hostname === "api.github.com") {
+    return url.toString();
+  }
+
+  if (url.hostname !== "github.com") {
+    return new Error("Only GitHub release sources are supported in this phase.");
+  }
+
+  const [owner, repo] = url.pathname.split("/").filter(Boolean);
+  if (!owner || !repo) {
+    return new Error("GitHub update source must include owner and repo.");
+  }
+
+  const encodedOwner = encodeURIComponent(owner);
+  const encodedRepo = encodeURIComponent(repo.replace(/\.git$/u, ""));
+  return channel === "beta"
+    ? `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/releases?per_page=1`
+    : `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/releases/latest`;
+}
+
+function isReleaseRecord(value: unknown): value is {
+  tag_name: string;
+  name?: string | null;
+  html_url?: string | null;
+  published_at?: string | null;
+} {
+  return typeof value === "object" && value !== null && typeof (value as { tag_name?: unknown }).tag_name === "string";
+}
+
+function normalizeVersion(value: string): string {
+  return value.trim().replace(/^v/iu, "");
 }
 
 async function createR2PresignedPutUrl(env: Env, objectKey: string, expiresSeconds: number): Promise<string> {

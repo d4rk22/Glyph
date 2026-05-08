@@ -7,6 +7,7 @@ const v2Migration = readFileSync(new URL("../migrations/0003_v2_foundation.sql",
 const r2CleanupMigration = readFileSync(new URL("../migrations/0004_r2_deletion_cleanup.sql", import.meta.url), "utf8");
 const directUploadMigration = readFileSync(new URL("../migrations/0005_direct_uploads.sql", import.meta.url), "utf8");
 const multipartUploadMigration = readFileSync(new URL("../migrations/0006_multipart_uploads.sql", import.meta.url), "utf8");
+const updateSettingsMigration = readFileSync(new URL("../migrations/0007_update_settings.sql", import.meta.url), "utf8");
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
@@ -15,7 +16,8 @@ test("migrations include the core metadata and auth tables", () => {
     v2Migration,
     r2CleanupMigration,
     directUploadMigration,
-    multipartUploadMigration
+    multipartUploadMigration,
+    updateSettingsMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
@@ -64,6 +66,14 @@ test("R2 cleanup migration tracks object deletion retry state", () => {
 
   assert.match(r2CleanupMigration, /idx_uploads_r2_delete_completed_at/);
   assert.match(r2CleanupMigration, /idx_uploads_r2_delete_failed_at/);
+});
+
+test("update settings migration seeds self-update app settings", () => {
+  for (const key of ["update_source_url", "update_channel", "auto_update_enabled"]) {
+    assert.match(updateSettingsMigration, new RegExp(`'${key}'`));
+  }
+
+  assert.match(updateSettingsMigration, /INSERT OR IGNORE INTO app_settings/);
 });
 
 test("uploads table keeps file bytes out of D1 metadata", () => {

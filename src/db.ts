@@ -6,7 +6,14 @@ const SESSION_TOKEN_BYTES = 32;
 
 export type UploadMode = "worker" | "direct" | "multipart";
 export type UploadStorageState = "pending" | "stored" | "deleted" | "expired" | "failed";
-export type AppSettingKey = "storage_cap_bytes" | "default_upload_ttl_seconds" | "upload_mode";
+export type UpdateChannel = "stable" | "beta";
+export type AppSettingKey =
+  | "storage_cap_bytes"
+  | "default_upload_ttl_seconds"
+  | "upload_mode"
+  | "update_source_url"
+  | "update_channel"
+  | "auto_update_enabled";
 
 export interface UploadMetadata {
   id: string;
@@ -100,6 +107,9 @@ export interface AppSettings {
   storageCapBytes: number | null;
   defaultUploadTtlSeconds: number | null;
   uploadMode: UploadMode;
+  updateSourceUrl: string | null;
+  updateChannel: UpdateChannel;
+  autoUpdateEnabled: boolean;
 }
 
 export interface StorageUsage {
@@ -814,7 +824,10 @@ export async function getAppSettings(db: D1Database): Promise<AppSettings> {
   return {
     storageCapBytes: parseNullableIntegerSetting(values.get("storage_cap_bytes")),
     defaultUploadTtlSeconds: parseNullableIntegerSetting(values.get("default_upload_ttl_seconds")),
-    uploadMode: parseUploadMode(values.get("upload_mode"))
+    uploadMode: parseUploadMode(values.get("upload_mode")),
+    updateSourceUrl: parseNullableStringSetting(values.get("update_source_url")),
+    updateChannel: parseUpdateChannel(values.get("update_channel")),
+    autoUpdateEnabled: parseBooleanSetting(values.get("auto_update_enabled"))
   };
 }
 
@@ -824,6 +837,9 @@ export async function updateAppSettings(
     storageCapBytes: number | null;
     defaultUploadTtlSeconds: number | null;
     uploadMode: UploadMode;
+    updateSourceUrl: string | null;
+    updateChannel: UpdateChannel;
+    autoUpdateEnabled: boolean;
   }>,
   now = new Date()
 ): Promise<AppSettings> {
@@ -842,6 +858,18 @@ export async function updateAppSettings(
 
   if (settings.uploadMode !== undefined) {
     await setAppSetting(db, "upload_mode", settings.uploadMode, now);
+  }
+
+  if ("updateSourceUrl" in settings) {
+    await setAppSetting(db, "update_source_url", settings.updateSourceUrl ?? "", now);
+  }
+
+  if (settings.updateChannel !== undefined) {
+    await setAppSetting(db, "update_channel", settings.updateChannel, now);
+  }
+
+  if (settings.autoUpdateEnabled !== undefined) {
+    await setAppSetting(db, "auto_update_enabled", settings.autoUpdateEnabled ? "true" : "false", now);
   }
 
   return getAppSettings(db);
@@ -1295,6 +1323,12 @@ function assertValidUploadMode(value: string): asserts value is UploadMode {
   }
 }
 
+function assertValidUpdateChannel(value: string): asserts value is UpdateChannel {
+  if (value !== "stable" && value !== "beta") {
+    throw new Error("Update channel must be stable or beta.");
+  }
+}
+
 function assertValidStorageState(value: string): asserts value is UploadStorageState {
   if (value !== "pending" && value !== "stored" && value !== "deleted" && value !== "expired" && value !== "failed") {
     throw new Error("Upload storage state must be pending, stored, deleted, expired, or failed.");
@@ -1310,6 +1344,15 @@ function parseUploadMode(value: string | null | undefined): UploadMode {
   return value;
 }
 
+function parseUpdateChannel(value: string | null | undefined): UpdateChannel {
+  if (!value) {
+    return "stable";
+  }
+
+  assertValidUpdateChannel(value);
+  return value;
+}
+
 function parseStorageState(value: string | null | undefined): UploadStorageState {
   if (!value) {
     return "stored";
@@ -1320,7 +1363,14 @@ function parseStorageState(value: string | null | undefined): UploadStorageState
 }
 
 function parseAppSettingKey(value: string): AppSettingKey {
-  if (value !== "storage_cap_bytes" && value !== "default_upload_ttl_seconds" && value !== "upload_mode") {
+  if (
+    value !== "storage_cap_bytes" &&
+    value !== "default_upload_ttl_seconds" &&
+    value !== "upload_mode" &&
+    value !== "update_source_url" &&
+    value !== "update_channel" &&
+    value !== "auto_update_enabled"
+  ) {
     throw new Error(`Unknown app setting: ${value}`);
   }
 
@@ -1333,6 +1383,34 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     return;
   }
 
+  if (key === "update_channel") {
+    assertValidUpdateChannel(value);
+    return;
+  }
+
+  if (key === "auto_update_enabled") {
+    if (value !== "true" && value !== "false") {
+      throw new Error("auto_update_enabled must be true or false.");
+    }
+    return;
+  }
+
+  if (key === "update_source_url") {
+    if (value === "") {
+      return;
+    }
+
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:") {
+        throw new Error("Update source URL must use HTTPS.");
+      }
+    } catch {
+      throw new Error("Update source URL must be a valid HTTPS URL.");
+    }
+    return;
+  }
+
   if (value === "") {
     return;
   }
@@ -1341,6 +1419,26 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`${key} must be empty or a non-negative safe integer.`);
   }
+}
+
+function parseNullableStringSetting(value: string | undefined): string | null {
+  if (value === undefined || value.trim() === "") {
+    return null;
+  }
+
+  return value.trim();
+}
+
+function parseBooleanSetting(value: string | undefined): boolean {
+  if (value === undefined || value === "") {
+    return false;
+  }
+
+  if (value !== "true" && value !== "false") {
+    throw new Error("App setting must be true or false.");
+  }
+
+  return value === "true";
 }
 
 function parseNullableIntegerSetting(value: string | undefined): number | null {

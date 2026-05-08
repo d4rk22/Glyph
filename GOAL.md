@@ -151,5 +151,5 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 14. Add direct-to-R2 uploads.
 15. Add multipart uploads, upload progress, and estimated time remaining. Completed.
 16. Add one-command deploy script. Completed.
-17. Add self-update system with manual updates and opt-in automatic updates.
+17. Add self-update system with manual updates and opt-in automatic updates. Groundwork completed.
 18. Add custom-domain automation.

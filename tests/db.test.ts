@@ -352,18 +352,33 @@ test("app settings helpers parse defaults and typed values", async () => {
   assert.deepEqual(await getAppSettings(db), {
     storageCapBytes: 10_737_418_240,
     defaultUploadTtlSeconds: 604_800,
-    uploadMode: "multipart"
+    uploadMode: "multipart",
+    updateSourceUrl: null,
+    updateChannel: "stable",
+    autoUpdateEnabled: false
   });
 
   assert.deepEqual(await getAppSettings(db), {
     storageCapBytes: null,
     defaultUploadTtlSeconds: null,
-    uploadMode: "direct"
+    uploadMode: "direct",
+    updateSourceUrl: null,
+    updateChannel: "stable",
+    autoUpdateEnabled: false
   });
 });
 
 test("app settings helpers validate and persist known setting keys", async () => {
-  const db = createFakeDb([{ all: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }] }]);
+  const db = createFakeDb([
+    {
+      all: [
+        { key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+      ]
+    }
+  ]);
 
   const setting = await setAppSetting(db, "storage_cap_bytes", "1024", new Date("2026-05-08T12:00:00.000Z"));
   assert.equal(setting.key, "storage_cap_bytes");
@@ -372,20 +387,67 @@ test("app settings helpers validate and persist known setting keys", async () =>
   const settings = await updateAppSettings(db, {
     storageCapBytes: null,
     defaultUploadTtlSeconds: 3600,
-    uploadMode: "direct"
+    uploadMode: "direct",
+    updateSourceUrl: "https://github.com/example/glyph",
+    updateChannel: "beta",
+    autoUpdateEnabled: true
   });
 
   assert.equal(settings.uploadMode, "direct");
+  assert.equal(settings.updateSourceUrl, "https://github.com/example/glyph");
+  assert.equal(settings.updateChannel, "beta");
+  assert.equal(settings.autoUpdateEnabled, true);
   assert.deepEqual(
     db.bindings.map((binding) => binding.slice(0, 2)),
     [
       ["storage_cap_bytes", "1024"],
       ["storage_cap_bytes", ""],
       ["default_upload_ttl_seconds", "3600"],
-      ["upload_mode", "direct"]
+      ["upload_mode", "direct"],
+      ["update_source_url", "https://github.com/example/glyph"],
+      ["update_channel", "beta"],
+      ["auto_update_enabled", "true"]
     ]
   );
   await assert.rejects(() => setAppSetting(db, "upload_mode", "invalid"));
+  await assert.rejects(() => setAppSetting(db, "update_source_url", "http://example.com/glyph"));
+  await assert.rejects(() => setAppSetting(db, "update_channel", "nightly"));
+  await assert.rejects(() => setAppSetting(db, "auto_update_enabled", "sometimes"));
+});
+
+test("update settings helpers persist source channel and automatic opt-in", async () => {
+  const db = createFakeDb([
+    {
+      all: [
+        { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+      ]
+    }
+  ]);
+
+  const settings = await updateAppSettings(db, {
+    updateSourceUrl: "https://github.com/example/glyph",
+    updateChannel: "beta",
+    autoUpdateEnabled: true
+  });
+
+  assert.deepEqual(settings, {
+    storageCapBytes: null,
+    defaultUploadTtlSeconds: null,
+    uploadMode: "worker",
+    updateSourceUrl: "https://github.com/example/glyph",
+    updateChannel: "beta",
+    autoUpdateEnabled: true
+  });
+  assert.deepEqual(
+    db.bindings.map((binding) => binding.slice(0, 2)),
+    [
+      ["update_source_url", "https://github.com/example/glyph"],
+      ["update_channel", "beta"],
+      ["auto_update_enabled", "true"]
+    ]
+  );
 });
 
 test("storage usage helper maps aggregate counters", async () => {
