@@ -52,6 +52,12 @@ Phase 7 test and documentation hardening is in place:
 - Route-level tests cover protected admin access, upload listing rendering, same-origin delete protection, delete notices, and deleted short-link responses.
 - This README now documents the MVP setup, bindings, migrations, passkey flow, admin file management, deployment, dependency policy, and limitations.
 
+Phase 8 final MVP verification is complete:
+
+- `pnpm install --frozen-lockfile`, typecheck, tests, local D1 migration checks, and Wrangler dry-run have been verified.
+- Local smoke checks cover the upload page, anonymous upload, short-link download, missing/deleted not-found pages, admin login surface, admin file listing, and admin deletion.
+- Remaining MVP risks and limitations are documented below.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -137,12 +143,24 @@ Deleting an upload asks R2 to remove the stored object, then marks the D1 metada
 ## Verification
 
 ```sh
+pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm test
 pnpm wrangler deploy --dry-run --outdir /tmp/glyph-dry-run
 ```
 
 Current focused tests cover helpers plus admin MVP route behavior with fake D1/R2 bindings.
+
+Final MVP smoke checks should include:
+
+- `GET /` renders the anonymous upload page.
+- `POST /` accepts a file and returns a short URL.
+- `HEAD /{id}` or `GET /{id}` returns the uploaded file while active.
+- `GET /missing-id` returns the polished not-found page.
+- `GET /admin` shows passkey setup/login when unauthenticated.
+- Authenticated `/admin` shows upload metadata, copy affordances, and delete actions.
+- `POST /admin/uploads/delete` marks metadata deleted and requests R2 object removal.
+- `GET /{deleted-id}` returns the polished not-found page.
 
 ## Dependency Policy
 
