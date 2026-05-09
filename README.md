@@ -286,6 +286,13 @@ Phase 43 optional scheduled maintenance release is in place:
 - `v0.2.0` publishes optional scheduled storage maintenance, the `0009_scheduled_maintenance.sql` migration, admin enable/disable controls, and D1-backed last-run status through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, scheduled trigger automation, or Cloudflare mutation is part of the release process.
 
+Phase 44 turnkey deploy v1 is in place:
+
+- `pnpm run deploy:glyph -- --turnkey` prints a fresh-checkout deployment plan without changing files or Cloudflare resources.
+- `pnpm run deploy:glyph -- --turnkey --yes` can verify prerequisites, create D1/R2 resources, safely write local Wrangler bindings when a real D1 database ID is available or captured, run checks, apply remote migrations, dry-run, and deploy.
+- Turnkey output reports public/admin URLs when known, direct/multipart credential and CORS follow-up, custom-domain/passkey notes, scheduled trigger follow-up, and partial-setup recovery guidance.
+- Turnkey remains conservative; it does not store secrets, create DNS records, zones, certificates, custom domains, scheduled triggers, GitHub releases, or hidden Cloudflare mutations.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -302,6 +309,22 @@ pnpm install
 The committed `pnpm-lock.yaml` is the source of truth for dependency resolution.
 
 ## Cloudflare Resources
+
+Preview the fresh-checkout turnkey deployment plan:
+
+```sh
+pnpm run deploy:glyph -- --turnkey
+```
+
+The turnkey plan is read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey --yes
+```
+
+Turnkey mode verifies local prerequisites and Wrangler auth, creates or reuses the D1 database and R2 bucket, writes local `wrangler.jsonc` binding values when a real D1 database ID is available, runs deployment checks, applies remote migrations, performs a Wrangler dry-run, and deploys. If you already created resources, pass `--reuse-resources --d1-database-id <real-id>` so the helper can write config and skip resource creation.
+
+Use `--public-base-url https://files.example.com` with turnkey mode when deploying behind a custom domain. The value is written only with `--turnkey --yes`, must be an origin-only `https://` URL, and should match the Worker route/custom-domain origin.
 
 Preview the guided Cloudflare setup plan:
 
@@ -582,6 +605,34 @@ Public issue support is best-effort community support. Glyph does not provide a 
 
 ## Deployment
 
+For the fewest first-deploy steps, start with turnkey mode:
+
+```sh
+pnpm run deploy:glyph -- --turnkey
+```
+
+This prints the full plan and readiness report without changing local files or Cloudflare resources. Confirmed turnkey mode is explicit:
+
+```sh
+pnpm run deploy:glyph -- --turnkey --yes
+```
+
+Confirmed turnkey mode can:
+
+- Verify Node, pnpm, Wrangler, project files, and Wrangler authentication.
+- Create a D1 database and R2 bucket when they are not already configured.
+- Generate or update local `wrangler.jsonc` bindings for `DB`, `FILES`, `APP_ENV`, and optional `PUBLIC_BASE_URL` when a real D1 database ID is available.
+- Run install, typecheck, tests, remote D1 migration application, Wrangler dry-run, and Worker deploy.
+- Print the public/admin URL when `PUBLIC_BASE_URL` is known, plus setup follow-up tasks.
+
+If setup stops after creating resources but before deploy because the D1 database ID was not captured, copy the real ID from Wrangler and re-run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey --yes --reuse-resources --d1-database-id <real-d1-id>
+```
+
+Turnkey mode does not store secrets in source-controlled files. It also does not create DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases. Direct-to-R2 credentials, bucket CORS, custom-domain attachment, scheduled triggers, and first `/admin` passkey bootstrap remain operator-owned follow-up steps.
+
 After replacing the D1 placeholder ID and confirming Wrangler is authenticated, run a safe deployment check:
 
 ```sh
@@ -637,12 +688,13 @@ The deploy helper also reports:
 - A reminder that scheduled checks also require a valid update source and read-only scheduled checks enabled in `/admin`.
 - A reminder that scheduled maintenance also requires the scheduled maintenance setting enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
+- Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
 Optional scheduled work is a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then enable the desired scheduled behavior in `/admin`. Read-only scheduled update checks also require a valid update source. Scheduled maintenance requires its own admin setting and uses the configured storage cap and R2 cleanup state. The deploy helper only reports trigger readiness; it does not create triggers or mutate Cloudflare resources for scheduled work.
 
-Before deploying, make sure these Cloudflare pieces already exist:
+Before deploying without turnkey mode, make sure these Cloudflare pieces already exist:
 
 - Wrangler is logged in for the intended Cloudflare account.
 - The D1 database exists and its real `database_id` is in `wrangler.jsonc`.
@@ -670,7 +722,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
-- The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
+- The turnkey deploy helper can guide a fresh checkout through resource creation, config binding updates, checks, migrations, dry-run, and deploy, but secrets, CORS, DNS, custom-domain attachment, scheduled trigger creation, and `/admin` bootstrap are still operator-owned.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
 - Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1, and the deploy helper only reports cron trigger readiness.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.

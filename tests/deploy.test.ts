@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildTurnkeyFollowUpLines,
+  buildTurnkeyPlan,
+  buildTurnkeyWranglerConfig,
   buildSetupPlan,
   buildDeploySteps,
   DEFAULT_BUCKET_NAME,
@@ -32,9 +35,13 @@ test("deploy argument parser defaults to a safe check mode", () => {
     yes: false,
     check: false,
     setup: false,
+    turnkey: false,
     skipInstall: false,
+    reuseResources: false,
     database: "glyph",
+    databaseId: null,
     bucket: DEFAULT_BUCKET_NAME,
+    publicBaseUrl: null,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
     help: false
   });
@@ -43,9 +50,13 @@ test("deploy argument parser defaults to a safe check mode", () => {
     yes: true,
     check: false,
     setup: false,
+    turnkey: false,
     skipInstall: true,
+    reuseResources: false,
     database: "prod-db",
+    databaseId: null,
     bucket: DEFAULT_BUCKET_NAME,
+    publicBaseUrl: null,
     outdir: "/tmp/out",
     help: false
   });
@@ -54,17 +65,39 @@ test("deploy argument parser defaults to a safe check mode", () => {
     yes: false,
     check: false,
     setup: true,
+    turnkey: false,
     skipInstall: false,
+    reuseResources: false,
     database: "glyph",
+    databaseId: null,
     bucket: "prod-files",
+    publicBaseUrl: null,
+    outdir: DEFAULT_DRY_RUN_OUTDIR,
+    help: false
+  });
+
+  assert.deepEqual(parseArgs(["--turnkey", "--reuse-resources", "--d1-database-id", "real-id", "--public-base-url=https://files.example.com"]), {
+    yes: false,
+    check: false,
+    setup: false,
+    turnkey: true,
+    skipInstall: false,
+    reuseResources: true,
+    database: "glyph",
+    databaseId: "real-id",
+    bucket: DEFAULT_BUCKET_NAME,
+    publicBaseUrl: "https://files.example.com",
     outdir: DEFAULT_DRY_RUN_OUTDIR,
     help: false
   });
 
   assert.throws(() => parseArgs(["--check", "--yes"]), /Use either --check or --yes/);
   assert.throws(() => parseArgs(["--setup", "--check"]), /Use --setup by itself/);
+  assert.throws(() => parseArgs(["--setup", "--turnkey"]), /either --setup or --turnkey/);
   assert.throws(() => parseArgs(["--database"]), /requires a value/);
+  assert.throws(() => parseArgs(["--d1-database-id="]), /D1 database ID cannot be empty/);
   assert.throws(() => parseArgs(["--bucket="]), /R2 bucket name cannot be empty/);
+  assert.throws(() => parseArgs(["--public-base-url", "http://files.example.com"]), /must use https/);
 });
 
 test("deploy steps check by default and only mutate remotely with --yes", () => {
@@ -104,6 +137,70 @@ test("setup plan is non-mutating by default and scopes create commands to --setu
   assert.match(plan.map((item) => item.detail).join("\n"), /does not create triggers automatically/);
   assert.deepEqual(plan.at(-1)?.command, ["pnpm", "run", "deploy:glyph", "--", "--check", "--database", "glyph-prod"]);
   assert.equal(plan.at(-1)?.mutates, false);
+});
+
+test("turnkey plan is planning-first and reports setup, config, checks, and follow-up", () => {
+  const plan = buildTurnkeyPlan(
+    parseArgs(["--turnkey", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]),
+    validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000")
+  );
+
+  assert.match(plan.map((item) => item.label).join("\n"), /Verify local prerequisites/);
+  assert.deepEqual(
+    plan.filter((item) => item.mutates && item.command).map((item) => item.command),
+    [
+      ["pnpm", "wrangler", "d1", "create", "glyph-prod"],
+      ["pnpm", "wrangler", "r2", "bucket", "create", "glyph-prod-files"]
+    ]
+  );
+  assert.match(plan.map((item) => item.detail).join("\n"), /will not deploy until a real ID is supplied or captured/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /custom-domain route hints/);
+  assert.match(plan.map((item) => item.label).join("\n"), /Print live URLs/);
+
+  const reusePlan = buildTurnkeyPlan(parseArgs(["--turnkey", "--reuse-resources", "--d1-database-id", "real-id"]), validWranglerConfig);
+  assert.equal(reusePlan.some((item) => item.command?.includes("create")), false);
+  assert.match(reusePlan.map((item) => item.detail).join("\n"), /Uses existing R2 bucket/);
+});
+
+test("turnkey config generation updates bindings only with explicit values", () => {
+  const generated = buildTurnkeyWranglerConfig(null, parseArgs(["--turnkey"]));
+  assert.equal(generated.hasPlaceholderDatabaseId, true);
+  assert.match(generated.configText, /"binding": "DB"/);
+  assert.match(generated.configText, /"database_id": "00000000-0000-0000-0000-000000000000"/);
+  assert.match(generated.configText, /"bucket_name": "glyph-files"/);
+
+  const updated = buildTurnkeyWranglerConfig(
+    validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000"),
+    parseArgs([
+      "--turnkey",
+      "--d1-database-id",
+      "abc123",
+      "--bucket",
+      "private-files",
+      "--public-base-url",
+      "https://files.example.com"
+    ])
+  );
+  assert.equal(updated.hasPlaceholderDatabaseId, false);
+  assert.match(updated.configText, /"database_id": "abc123"/);
+  assert.match(updated.configText, /"bucket_name": "private-files"/);
+  assert.match(updated.configText, /"PUBLIC_BASE_URL": "https:\/\/files\.example\.com"/);
+  assert.equal(validateWranglerConfig(updated.configText, { requireDeployReady: true }).errors.length, 0);
+});
+
+test("turnkey follow-up output includes URLs, manual tasks, and partial setup recovery", () => {
+  const lines = buildTurnkeyFollowUpLines(
+    JSON.stringify({
+      vars: { PUBLIC_BASE_URL: "https://files.example.com" }
+    }),
+    parseArgs(["--turnkey"])
+  );
+
+  assert.match(lines.join("\n"), /Public URL: https:\/\/files\.example\.com/);
+  assert.match(lines.join("\n"), /Admin URL: https:\/\/files\.example\.com\/admin/);
+  assert.match(lines.join("\n"), /R2 CORS/);
+  assert.match(lines.join("\n"), /Scheduled Worker triggers/);
+  assert.match(lines.join("\n"), /re-run --turnkey --yes with --reuse-resources/);
 });
 
 test("wrangler config validation checks required Glyph bindings", () => {

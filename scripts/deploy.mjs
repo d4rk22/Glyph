@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -14,9 +14,13 @@ export function parseArgs(argv) {
     yes: false,
     check: false,
     setup: false,
+    turnkey: false,
     skipInstall: false,
+    reuseResources: false,
     database: DEFAULT_DATABASE_NAME,
+    databaseId: null,
     bucket: DEFAULT_BUCKET_NAME,
+    publicBaseUrl: null,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
     help: false
   };
@@ -29,18 +33,34 @@ export function parseArgs(argv) {
       options.check = true;
     } else if (arg === "--setup") {
       options.setup = true;
+    } else if (arg === "--turnkey") {
+      options.turnkey = true;
     } else if (arg === "--skip-install") {
       options.skipInstall = true;
+    } else if (arg === "--reuse-resources") {
+      options.reuseResources = true;
     } else if (arg === "--database") {
       options.database = requireValue(argv, index, arg);
       index += 1;
     } else if (arg.startsWith("--database=")) {
       options.database = arg.slice("--database=".length);
+    } else if (arg === "--d1-database-id" || arg === "--database-id") {
+      options.databaseId = requireValue(argv, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--d1-database-id=")) {
+      options.databaseId = arg.slice("--d1-database-id=".length);
+    } else if (arg.startsWith("--database-id=")) {
+      options.databaseId = arg.slice("--database-id=".length);
     } else if (arg === "--bucket") {
       options.bucket = requireValue(argv, index, arg);
       index += 1;
     } else if (arg.startsWith("--bucket=")) {
       options.bucket = arg.slice("--bucket=".length);
+    } else if (arg === "--public-base-url") {
+      options.publicBaseUrl = requireValue(argv, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--public-base-url=")) {
+      options.publicBaseUrl = arg.slice("--public-base-url=".length);
     } else if (arg === "--outdir") {
       options.outdir = requireValue(argv, index, arg);
       index += 1;
@@ -61,12 +81,35 @@ export function parseArgs(argv) {
     throw new Error("Use --setup by itself for a setup plan, or --setup --yes to create resources.");
   }
 
+  if (options.setup && options.turnkey) {
+    throw new Error("Use either --setup or --turnkey, not both.");
+  }
+
   if (options.database.trim().length === 0) {
     throw new Error("Database name cannot be empty.");
   }
 
+  if (options.databaseId !== null && options.databaseId.trim().length === 0) {
+    throw new Error("D1 database ID cannot be empty.");
+  }
+
+  if (options.databaseId === PLACEHOLDER_D1_DATABASE_ID) {
+    throw new Error("D1 database ID cannot be the placeholder value.");
+  }
+
   if (options.bucket.trim().length === 0) {
     throw new Error("R2 bucket name cannot be empty.");
+  }
+
+  if (options.publicBaseUrl !== null && options.publicBaseUrl.trim().length === 0) {
+    throw new Error("PUBLIC_BASE_URL cannot be empty.");
+  }
+
+  if (options.publicBaseUrl !== null) {
+    const publicBaseResult = validatePublicBaseUrl(options.publicBaseUrl);
+    if (publicBaseResult.error) {
+      throw new Error(publicBaseResult.error);
+    }
   }
 
   if (options.outdir.trim().length === 0) {
@@ -286,22 +329,176 @@ export function buildSetupPlan(options, configText = null) {
   ];
 }
 
+export function buildTurnkeyPlan(options, configText = null) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const dbBinding = Array.isArray(config?.d1_databases)
+    ? config.d1_databases.find((binding) => binding?.binding === "DB")
+    : null;
+  const r2Binding = Array.isArray(config?.r2_buckets)
+    ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
+    : null;
+  const publicBaseUrl = options.publicBaseUrl
+    ?? (typeof config?.vars?.PUBLIC_BASE_URL === "string" ? config.vars.PUBLIC_BASE_URL.trim() : "");
+  const hasRealDatabaseId = options.databaseId
+    || (typeof dbBinding?.database_id === "string" && dbBinding.database_id !== PLACEHOLDER_D1_DATABASE_ID);
+  const shouldCreateD1 = !options.reuseResources && !options.databaseId && !hasRealDatabaseId;
+  const shouldCreateR2 = !options.reuseResources;
+
+  return [
+    {
+      label: "Verify local prerequisites",
+      mutates: false,
+      detail: "Checks Node.js, pnpm, Wrangler, project files, and Wrangler authentication before any deploy action.",
+      commands: [
+        ["node", "--version"],
+        ["pnpm", "--version"],
+        ["pnpm", "wrangler", "--version"],
+        ["pnpm", "wrangler", "whoami"]
+      ]
+    },
+    {
+      label: shouldCreateD1 ? "Create D1 database" : "Reuse D1 database",
+      command: shouldCreateD1 ? ["pnpm", "wrangler", "d1", "create", options.database] : undefined,
+      mutates: shouldCreateD1,
+      detail: shouldCreateD1
+        ? "With --yes, Wrangler creates the D1 database and Glyph attempts to capture the returned database_id for local config."
+        : "Uses the configured or supplied D1 database_id; no D1 create command is needed."
+    },
+    {
+      label: shouldCreateR2 ? "Create or confirm R2 bucket" : "Reuse R2 bucket",
+      command: shouldCreateR2 ? ["pnpm", "wrangler", "r2", "bucket", "create", options.bucket] : undefined,
+      mutates: shouldCreateR2,
+      detail: shouldCreateR2
+        ? "With --yes, Wrangler creates the R2 bucket. If the bucket already exists, re-run with --reuse-resources after confirming ownership."
+        : `Uses existing R2 bucket ${options.bucket}; confirm it belongs to the intended Cloudflare account.`
+    },
+    {
+      label: "Update or generate Wrangler config",
+      mutates: true,
+      detail: hasRealDatabaseId
+        ? `With --yes, writes DB/FILES bindings for database ${options.database}, bucket ${options.bucket}, and any supplied PUBLIC_BASE_URL.`
+        : "No real D1 database_id is available yet; the helper will not deploy until a real ID is supplied or captured from Wrangler."
+    },
+    {
+      label: "Validate deployment readiness",
+      mutates: false,
+      detail: publicBaseUrl
+        ? `Validates bindings, https PUBLIC_BASE_URL ${publicBaseUrl}, custom-domain route hints, scheduled trigger readiness, and direct/multipart credential guidance.`
+        : "Validates bindings, request-origin fallback, custom-domain route hints, scheduled trigger readiness, and direct/multipart credential guidance."
+    },
+    {
+      label: "Run checks, migrations, dry-run, and deploy",
+      mutates: true,
+      detail: "With --yes and deploy-ready config, runs install, typecheck, tests, remote D1 migrations, Wrangler dry-run, and Wrangler deploy."
+    },
+    {
+      label: "Print live URLs and follow-up tasks",
+      mutates: false,
+      detail: "Reports the public/admin URL when known, plus manual Cloudflare tasks that remain operator-owned."
+    }
+  ];
+}
+
+export function buildTurnkeyWranglerConfig(configText, options) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const next = config && typeof config === "object" ? structuredClone(config) : {};
+  const existingDbBinding = Array.isArray(next.d1_databases)
+    ? next.d1_databases.find((binding) => binding?.binding === "DB")
+    : null;
+  const existingR2Binding = Array.isArray(next.r2_buckets)
+    ? next.r2_buckets.find((binding) => binding?.binding === "FILES")
+    : null;
+  const databaseId = options.databaseId
+    ?? existingDbBinding?.database_id
+    ?? PLACEHOLDER_D1_DATABASE_ID;
+
+  next.$schema ??= "node_modules/wrangler/config-schema.json";
+  next.name = typeof next.name === "string" && next.name.length > 0 ? next.name : "glyph";
+  next.main = "src/index.ts";
+  next.compatibility_date ??= "2026-05-08";
+  next.observability ??= { enabled: true };
+  next.vars = next.vars && typeof next.vars === "object" && !Array.isArray(next.vars) ? next.vars : {};
+  next.vars.APP_ENV = typeof next.vars.APP_ENV === "string" && next.vars.APP_ENV.length > 0
+    ? next.vars.APP_ENV
+    : "production";
+
+  if (options.publicBaseUrl !== null && options.publicBaseUrl !== undefined) {
+    next.vars.PUBLIC_BASE_URL = options.publicBaseUrl;
+  }
+
+  const dbBinding = {
+    ...(existingDbBinding && typeof existingDbBinding === "object" ? existingDbBinding : {}),
+    binding: "DB",
+    database_name: options.database,
+    database_id: databaseId,
+    migrations_dir: "migrations"
+  };
+  const r2Binding = {
+    ...(existingR2Binding && typeof existingR2Binding === "object" ? existingR2Binding : {}),
+    binding: "FILES",
+    bucket_name: options.bucket
+  };
+
+  next.d1_databases = upsertBinding(next.d1_databases, "DB", dbBinding);
+  next.r2_buckets = upsertBinding(next.r2_buckets, "FILES", r2Binding);
+
+  const output = `${JSON.stringify(next, null, 2)}\n`;
+  return {
+    configText: output,
+    changed: normalizeConfigText(configText) !== normalizeConfigText(output),
+    hasPlaceholderDatabaseId: databaseId === PLACEHOLDER_D1_DATABASE_ID
+  };
+}
+
+export function buildTurnkeyFollowUpLines(configText, options) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const publicBaseUrl = options.publicBaseUrl
+    ?? (typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+      ? config.vars.PUBLIC_BASE_URL.trim()
+      : null);
+  const lines = [];
+
+  if (publicBaseUrl) {
+    lines.push(`Public URL: ${publicBaseUrl}`);
+    lines.push(`Admin URL: ${publicBaseUrl.replace(/\/$/u, "")}/admin`);
+  } else {
+    lines.push("Public URL: use the workers.dev/custom-domain URL printed by Wrangler deploy.");
+    lines.push("Admin URL: open /admin on the deployed origin to bootstrap or sign in.");
+  }
+
+  lines.push("Manual follow-up: configure direct/multipart R2 S3 credentials only if those upload modes will be used.");
+  lines.push("Manual follow-up: configure R2 CORS for the deployed origin before enabling direct or multipart browser uploads.");
+  lines.push("Manual follow-up: configure DNS/custom-domain attachment and passkey registration on the final origin if using a custom domain.");
+  lines.push("Manual follow-up: configure Cloudflare Scheduled Worker triggers yourself before enabling read-only update checks or scheduled maintenance in /admin.");
+  lines.push("Recovery: if setup stops midway, re-run --turnkey without --yes to review current readiness, then re-run --turnkey --yes with --reuse-resources and the real --d1-database-id when needed.");
+
+  return lines;
+}
+
 export function usage() {
   return `Glyph deploy helper
 
 Usage:
   pnpm run deploy:glyph -- --setup
   pnpm run deploy:glyph -- --setup --yes
+  pnpm run deploy:glyph -- --turnkey
+  pnpm run deploy:glyph -- --turnkey --yes
   pnpm run deploy:glyph -- --check
   pnpm run deploy:glyph -- --yes
 
 Options:
   --setup             Print a guided Cloudflare setup plan. With --yes, create D1/R2 resources.
+  --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --check             Run validation, remote migration check, tests, and dry-run without deploying. Default.
   --yes, -y           Apply remote D1 migrations and deploy after checks pass.
   --skip-install      Skip pnpm install --frozen-lockfile.
+  --reuse-resources   In --turnkey mode, skip D1/R2 create commands and use existing resources.
   --database <name>   D1 database name or binding to migrate. Default: glyph.
+  --d1-database-id <id>
+                      Real D1 database_id to write into wrangler.jsonc during --turnkey --yes.
   --bucket <name>     R2 bucket name to create during --setup --yes. Default: glyph-files.
+  --public-base-url <url>
+                      Optional deployed https:// origin to write into wrangler.jsonc during --turnkey --yes.
   --outdir <path>     Wrangler dry-run output directory. Default: /tmp/glyph-deploy-dry-run.
   --help, -h          Show this help.
 
@@ -319,13 +516,20 @@ Scheduled maintenance readiness:
   Optional scheduled maintenance uses the same Wrangler cron trigger mechanism plus scheduled
   maintenance enabled in /admin. It can enforce storage policy in Glyph metadata and R2, but the helper
   never creates triggers or mutates Cloudflare resources.
+
+Turnkey safety:
+  --turnkey is a non-mutating plan by default. --turnkey --yes may create D1/R2 resources, write local
+  wrangler.jsonc binding values, apply remote D1 migrations, and deploy. It never stores secrets, creates
+  DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases.
 `;
 }
 
 export function validateProject(rootDir, options) {
   const errors = [];
   const warnings = [];
-  const requiredFiles = ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
+  const requiredFiles = options.turnkey
+    ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
+    : ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
 
   for (const file of requiredFiles) {
     if (!existsSync(join(rootDir, file))) {
@@ -525,6 +729,32 @@ function runStep(step, rootDir) {
   }
 }
 
+function runStepCapture(step, rootDir) {
+  console.log(`\n==> ${step.label}`);
+  console.log(`$ ${step.command.join(" ")}`);
+
+  const result = spawnSync(step.command[0], step.command.slice(1), {
+    cwd: rootDir,
+    encoding: "utf8",
+    env: process.env
+  });
+
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`${step.label} failed with exit code ${result.status ?? "unknown"}.`);
+  }
+
+  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+}
+
 function printSetupPlan(plan) {
   for (const item of plan) {
     console.log(`\n- ${item.label}`);
@@ -543,6 +773,122 @@ function runSetupCommands(plan, rootDir) {
   }
 }
 
+function printTurnkeyPlan(plan) {
+  for (const item of plan) {
+    console.log(`\n- ${item.label}`);
+    console.log(`  ${item.detail}`);
+    if (item.command) {
+      console.log(`  ${item.mutates ? "Command" : "Suggested"}: ${item.command.join(" ")}`);
+    }
+    if (item.commands) {
+      for (const command of item.commands) {
+        console.log(`  Check: ${command.join(" ")}`);
+      }
+    }
+  }
+}
+
+function upsertBinding(bindings, bindingName, nextBinding) {
+  if (!Array.isArray(bindings)) {
+    return [nextBinding];
+  }
+
+  let replaced = false;
+  const updated = bindings.map((binding) => {
+    if (binding?.binding === bindingName) {
+      replaced = true;
+      return nextBinding;
+    }
+    return binding;
+  });
+
+  return replaced ? updated : [...updated, nextBinding];
+}
+
+function normalizeConfigText(value) {
+  return typeof value === "string" ? `${value.trim()}\n` : "";
+}
+
+function extractD1DatabaseId(output) {
+  const match = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/iu.exec(output);
+  return match ? match[0] : null;
+}
+
+function shouldDeployTurnkey(configText) {
+  const validation = validateWranglerConfig(configText, { requireDeployReady: true });
+  return validation.errors.length === 0;
+}
+
+function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
+  const originalConfigText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const plan = buildTurnkeyPlan(effectiveOptions, originalConfigText);
+
+  console.log(effectiveOptions.yes ? "Glyph turnkey deploy: explicitly confirmed setup, checks, migrations, and deploy." : "Glyph turnkey deploy plan: no local files or Cloudflare resources will be changed.");
+  if (originalConfigText) {
+    for (const line of summarizeDeploymentTarget(originalConfigText)) {
+      console.log(line);
+    }
+  } else {
+    console.log("Wrangler config: wrangler.jsonc will be generated only with --turnkey --yes.");
+  }
+  printTurnkeyPlan(plan);
+
+  if (!effectiveOptions.yes) {
+    console.log("\nTurnkey plan complete. Re-run with --turnkey --yes when ready to create resources, write local config, run migrations, and deploy.");
+    return 0;
+  }
+
+  runStep({ label: "Check pnpm", command: ["pnpm", "--version"] }, rootDir);
+  runStep({ label: "Check Wrangler", command: ["pnpm", "wrangler", "--version"] }, rootDir);
+  runStep({ label: "Check Wrangler authentication", command: ["pnpm", "wrangler", "whoami"] }, rootDir);
+
+  let resolvedDatabaseId = effectiveOptions.databaseId;
+  const dbItem = plan.find((item) => item.label === "Create D1 database");
+  if (dbItem?.command) {
+    const output = runStepCapture(dbItem, rootDir);
+    resolvedDatabaseId = resolvedDatabaseId ?? extractD1DatabaseId(output);
+  }
+
+  const r2Item = plan.find((item) => item.label === "Create or confirm R2 bucket");
+  if (r2Item?.command) {
+    runStep(r2Item, rootDir);
+  }
+
+  const configOptions = { ...effectiveOptions, databaseId: resolvedDatabaseId };
+  const configResult = buildTurnkeyWranglerConfig(originalConfigText, configOptions);
+  if (configResult.changed) {
+    writeFileSync(wranglerPath, configResult.configText);
+    console.log("\nUpdated wrangler.jsonc with Glyph binding configuration.");
+  } else {
+    console.log("\nwrangler.jsonc already matches the requested Glyph binding configuration.");
+  }
+
+  const deployReadyText = readFileSync(wranglerPath, "utf8");
+  const deployValidation = validateWranglerConfig(deployReadyText, { requireDeployReady: true });
+  for (const warning of deployValidation.warnings) {
+    console.warn(`Warning: ${warning}`);
+  }
+
+  if (!shouldDeployTurnkey(deployReadyText)) {
+    for (const error of deployValidation.errors) {
+      console.error(`Error: ${error}`);
+    }
+    console.log("\nTurnkey setup stopped before deploy. Add the real D1 database_id with --d1-database-id or edit wrangler.jsonc, then re-run --turnkey --yes --reuse-resources.");
+    return 1;
+  }
+
+  for (const step of buildDeploySteps({ ...effectiveOptions, yes: true })) {
+    runStep(step, rootDir);
+  }
+
+  console.log("\nTurnkey deploy complete.");
+  for (const line of buildTurnkeyFollowUpLines(deployReadyText, effectiveOptions)) {
+    console.log(line);
+  }
+
+  return 0;
+}
+
 export async function main(argv = process.argv.slice(2), rootDir = process.cwd()) {
   const options = parseArgs(argv);
   if (options.help) {
@@ -553,7 +899,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -568,6 +914,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   }
 
   const wranglerPath = join(rootDir, "wrangler.jsonc");
+
+  if (effectiveOptions.turnkey) {
+    return runTurnkey(effectiveOptions, rootDir, wranglerPath);
+  }
 
   if (effectiveOptions.setup) {
     const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;

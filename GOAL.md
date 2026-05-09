@@ -162,6 +162,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Optional scheduled maintenance releases can keep the public release/update channel aligned with storage maintenance, D1 migration, and admin status changes while preserving the conservative source-only release model.
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
 - Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
+- Turnkey deploy v1 can guide a technical operator from fresh checkout to deployed Worker by verifying prerequisites, creating or reusing D1/R2 resources, safely updating local Wrangler bindings with explicit confirmation, running checks/migrations/dry-run/deploy, and printing live URLs plus remaining manual Cloudflare tasks.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -205,3 +206,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 41. Publish the scheduled update-check deploy-readiness maintenance release. Completed.
 42. Add optional scheduled maintenance for storage cap enforcement and R2 cleanup. Completed.
 43. Publish the optional scheduled maintenance release. Completed.
+44. Implement turnkey deploy v1. Completed.
