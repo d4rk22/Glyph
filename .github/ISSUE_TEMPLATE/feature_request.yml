@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest an improvement for Glyph.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea.
+
+        Do not post secrets, real Cloudflare account IDs, API tokens, private domains if sensitive, passkey data, R2 object keys for private files, private file names, private short links, or private deployment logs.
+
+        Security issues should not be reported in public issues. Please follow SECURITY.md instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should Glyph do?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Uploads
+        - Downloads
+        - Admin
+        - Deployment
+        - Updates
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints or tradeoffs
+      description: Any relevant privacy, Cloudflare, dependency, or self-hosting constraints.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have not included secrets, real Cloudflare account IDs, API tokens, sensitive private domains, passkey data, R2 object keys, private file details, or private deployment logs.
+          required: true

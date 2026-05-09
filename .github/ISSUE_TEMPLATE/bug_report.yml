@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible Glyph bug.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Glyph.
+
+        Do not post secrets, real Cloudflare account IDs, API tokens, private domains if sensitive, passkey data, R2 object keys for private files, private file names, private short links, or private deployment logs. Redact anything sensitive before submitting.
+
+        Security issues should not be reported in public issues. Please follow SECURITY.md instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest set of steps that reproduces the problem.
+      placeholder: |
+        1. Configure Glyph with ...
+        2. Run ...
+        3. Visit ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include non-sensitive versions and configuration shape.
+      placeholder: |
+        Glyph version:
+        Node version:
+        Wrangler version:
+        Upload mode:
+        Cloudflare feature involved: Workers / D1 / R2 / passkeys
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or screenshots
+      description: Optional. Redact secrets, account IDs, private domains if sensitive, R2 object keys, private file names, private links, and private deployment details.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have removed secrets, real Cloudflare account IDs, API tokens, sensitive private domains, passkey data, R2 object keys, private file details, and private deployment logs.
+          required: true
+        - label: This is not a security vulnerability report.
+          required: true

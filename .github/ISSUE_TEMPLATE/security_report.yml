@@ -1,0 +1,18 @@
+name: Security report
+description: Do not disclose vulnerabilities in public issues.
+title: "[Security]: "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not submit public issues with suspected vulnerability details, exploit steps, secrets, real Cloudflare account IDs, API tokens, private domains if sensitive, passkey data, R2 object keys, private file details, private short links, or private deployment logs.
+
+        Follow SECURITY.md. If a private contact is not available, open a minimal public issue asking for a security contact without including sensitive details.
+  - type: checkboxes
+    id: redirect
+    attributes:
+      label: Security reporting
+      options:
+        - label: I will follow SECURITY.md and will not include vulnerability details or sensitive data in this public issue.
+          required: true

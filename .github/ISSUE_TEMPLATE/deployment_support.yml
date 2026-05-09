@@ -1,0 +1,58 @@
+name: Deployment or setup support
+description: Ask for help with self-hosted Glyph setup.
+title: "[Deploy]: "
+labels: ["deployment", "support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Glyph is a self-hosted project with best-effort community support. There is no hosted service, SLA, billing support, or guarantee of compatibility with every Cloudflare account configuration.
+
+        Do not post secrets, real Cloudflare account IDs, API tokens, private domains if sensitive, passkey data, R2 object keys for private files, private file names, private short links, or private deployment logs. Redact Wrangler output carefully before submitting.
+
+        Security issues should not be reported in public issues. Please follow SECURITY.md instead.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to deploy?
+      description: Describe the intended setup without sharing sensitive identifiers.
+      placeholder: |
+        Local dev / preview / production
+        Workers + D1 + R2
+        Custom domain or workers.dev
+        Worker-mediated / direct / multipart upload mode
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or step that failed
+      description: Include the command and the redacted error output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks already run
+      description: Share non-sensitive results from relevant checks.
+      placeholder: |
+        pnpm install --frozen-lockfile:
+        pnpm run release:check:
+        pnpm run deploy:glyph -- --check:
+        wrangler d1 migrations list glyph --remote:
+  - type: textarea
+    id: config
+    attributes:
+      label: Redacted configuration shape
+      description: Share only placeholder-safe config. Do not include real database IDs, account IDs, tokens, private domains if sensitive, or secrets.
+      render: json
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I understand support is best-effort community support with no hosted service, SLA, billing support, or guaranteed compatibility with every Cloudflare account configuration.
+          required: true
+        - label: I have removed secrets, real Cloudflare account IDs, API tokens, sensitive private domains, passkey data, R2 object keys, private file details, and private deployment logs.
+          required: true

@@ -198,6 +198,12 @@ Phase 29 admin update rehearsal guidance maintenance release is in place:
 - `v0.1.3` publishes the protected admin update-check guidance through the public GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
 
+Phase 30 public repository issue and support templates are in place:
+
+- GitHub issue templates now cover bug reports, feature requests, deployment/setup support, and security-report redirection.
+- Templates remind users not to post secrets, real Cloudflare account IDs, API tokens, sensitive private domains, passkey data, R2 object keys, private file details, or private deployment logs.
+- Public support is best-effort community support only; Glyph is not a hosted service and does not provide an SLA, billing support, or guaranteed compatibility with every Cloudflare account configuration.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -461,10 +467,15 @@ Tracked configuration uses placeholders only. Before opening issues, sharing log
 - Real D1 `database_id` values.
 - Cloudflare account IDs.
 - R2 S3-compatible access keys and secret keys.
-- `.dev.vars`, Wrangler local state, and deployment logs.
+- API tokens, Wrangler secrets, `.dev.vars`, and Wrangler local state.
+- Private domains when they are sensitive.
+- Private deployment logs.
 - Passkey, session, or upload metadata from a real deployment.
+- R2 object keys, private file names, and private short links.
 
 The repository is MIT licensed. Security reporting and contribution expectations are documented in `SECURITY.md` and `CONTRIBUTING.md`.
+
+Public issue support is best-effort community support. Glyph does not provide a hosted service, SLA, billing support, or guaranteed compatibility with every Cloudflare account configuration. Maintainers should never need real secrets in public issues; security reports should follow `SECURITY.md` instead.
 
 ## Deployment
 
