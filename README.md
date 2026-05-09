@@ -322,6 +322,13 @@ Phase 48 turnkey deploy hardening is in place:
 - Deploy output now documents the remote D1 migration gate, direct/multipart secret readiness, R2 CORS readiness, and post-deploy `/health` plus `/admin` verification steps.
 - Defaults remain non-mutating; `--yes` is still required before resource creation, local config writes, remote migration application, and deploy.
 
+Phase 49 turnkey deploy hardening maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.3`.
+- `v0.2.3` publishes fresh-checkout deploy hardening through the GitHub release channel.
+- The release highlights Cloudflare auth and `CLOUDFLARE_API_TOKEN` readiness, token capability/scope recovery messaging, explicit remote D1 migration gates, direct/multipart secret readiness, R2 CORS readiness, post-deploy `/health` and `/admin` verification guidance, and recovery output for non-interactive or partial-setup failures.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

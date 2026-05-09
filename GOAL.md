@@ -213,3 +213,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 46. Improve turnkey resource discovery and recovery. Completed.
 47. Publish the turnkey discovery/recovery maintenance release. Completed.
 48. Harden turnkey deploy for fresh-checkout operator success. Completed.
+49. Publish the turnkey deploy hardening maintenance release. Completed.
