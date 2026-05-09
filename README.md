@@ -168,6 +168,12 @@ Phase 24 local manual self-update helper is in place:
 - `--source` and `--channel` let forks or private deployments check their own GitHub release source.
 - `--yes` is intentionally narrow: when an update is available and the working tree is clean, it fetches the validated release tag only, then leaves checkout, install, release checks, migrations, and deploy as explicit operator steps.
 
+Phase 25 first maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.1`.
+- `v0.1.1` is the first maintenance release intended to prove the public GitHub release channel and local manual update flow.
+- The release remains source-only; no npm package, Worker deploy, remote migration, or Cloudflare resource mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -319,7 +325,7 @@ Before tagging a release, update `package.json` with the next semver version and
 - New secrets, bindings, CORS, or custom-domain expectations.
 - Known limitations or rollback notes.
 
-Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.0`. Release titles should name the version, and release notes should include these sections when relevant:
+Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.1`. Release titles should name the version, and release notes should include these sections when relevant:
 
 - Highlights.
 - Migrations.

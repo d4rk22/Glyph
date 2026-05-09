@@ -143,6 +143,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Public repository readiness includes MIT license metadata, placeholder-only configuration examples, security notes, and contribution expectations.
 - The public release/update channel uses GitHub releases from the official public repository while allowing forks and private deployments to keep a blank or custom update source.
 - Local manual self-update can compare the package-backed version to the public release channel, print a safe operator update plan, and fetch a validated release tag only with explicit confirmation and a clean working tree.
+- Maintenance releases can bump the package-backed version, validate the release/update workflow, and publish GitHub release notes without npm publication, Worker deployment, remote migrations, or Cloudflare mutations.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -167,3 +168,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 22. Prepare Glyph for public repository visibility. Completed.
 23. Bootstrap the public GitHub release/update channel. Completed.
 24. Implement a conservative local manual self-update helper. Completed.
+25. Publish the first maintenance release through the public release/update channel. Completed.
