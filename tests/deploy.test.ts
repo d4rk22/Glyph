@@ -4,8 +4,11 @@ import test from "node:test";
 import {
   buildAuthReadinessLines,
   buildDirectUploadReadinessLines,
+  buildDirectUploadSecretPlan,
   buildPostDeployVerificationLines,
+  buildR2CorsRecommendation,
   buildRemoteMigrationPlan,
+  buildSecretPutCommand,
   buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
   buildTurnkeyPlan,
@@ -234,15 +237,39 @@ test("turnkey follow-up output includes URLs, manual tasks, and partial setup re
   assert.match(lines.join("\n"), /Admin URL: https:\/\/files\.example\.com\/admin/);
   assert.match(lines.join("\n"), /R2 CORS/);
   assert.match(lines.join("\n"), /R2_ACCOUNT_ID/);
+  assert.match(lines.join("\n"), /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
+  assert.doesNotMatch(lines.join("\n"), /secret-access-key/);
   assert.match(lines.join("\n"), /Scheduled Worker triggers/);
   assert.match(lines.join("\n"), /Post-deploy check: verify https:\/\/files\.example\.com\/health/);
   assert.match(lines.join("\n"), /re-run --turnkey --yes with --reuse-resources/);
+});
+
+test("direct upload secret plan prints commands without values", () => {
+  assert.deepEqual(buildSecretPutCommand("R2_SECRET_ACCESS_KEY"), ["pnpm", "wrangler", "secret", "put", "R2_SECRET_ACCESS_KEY"]);
+
+  const plan = buildDirectUploadSecretPlan({
+    R2_ACCOUNT_ID: "account-id",
+    R2_SECRET_ACCESS_KEY: "do-not-print"
+  });
+  assert.deepEqual(
+    plan.map((secret) => [secret.name, secret.required, secret.present]),
+    [
+      ["R2_ACCOUNT_ID", true, true],
+      ["R2_ACCESS_KEY_ID", true, false],
+      ["R2_SECRET_ACCESS_KEY", true, true],
+      ["R2_BUCKET_NAME", false, false]
+    ]
+  );
+  assert.equal(plan.some((secret) => secret.command.includes("do-not-print")), false);
 });
 
 test("direct upload readiness reports secret and CORS guidance without storing secrets", () => {
   const missing = buildDirectUploadReadinessLines(validWranglerConfig, {});
   assert.match(missing.join("\n"), /R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY not detected/);
   assert.match(missing.join("\n"), /Worker-mediated uploads remain the safe fallback/);
+  assert.match(missing.join("\n"), /pnpm wrangler secret put R2_ACCOUNT_ID/);
+  assert.match(missing.join("\n"), /pnpm wrangler secret put R2_BUCKET_NAME \(optional\)/);
+  assert.match(missing.join("\n"), /does not set secrets, echo secret values, or apply CORS automatically/);
   assert.match(missing.join("\n"), /do not write R2 secret access keys/);
 
   const configured = buildDirectUploadReadinessLines(
@@ -255,7 +282,9 @@ test("direct upload readiness reports secret and CORS guidance without storing s
   );
   assert.match(configured.join("\n"), /required R2 S3-compatible environment values are present/);
   assert.match(configured.join("\n"), /https:\/\/files\.example\.com/);
+  assert.match(configured.join("\n"), /Suggested CORS JSON/);
   assert.match(configured.join("\n"), /expose ETag/);
+  assert.doesNotMatch(configured.join("\n"), /secret-access-key/);
 });
 
 test("post deploy verification reports known or operator-provided URLs", () => {
@@ -264,6 +293,28 @@ test("post deploy verification reports known or operator-provided URLs", () => {
     buildPostDeployVerificationLines(validWranglerConfig.replace('"APP_ENV":"production"', '"APP_ENV":"production","PUBLIC_BASE_URL":"https://files.example.com"')).join("\n"),
     /https:\/\/files\.example\.com\/health/
   );
+});
+
+test("R2 CORS recommendation validates origins and keeps CORS manual", () => {
+  const missingOrigin = buildR2CorsRecommendation(validWranglerConfig);
+  assert.equal(missingOrigin.origin, null);
+  assert.equal(missingOrigin.corsJson, null);
+  assert.match(missingOrigin.lines.join("\n"), /deployed Glyph origin/);
+  assert.match(missingOrigin.lines.join("\n"), /Worker-mediated uploads remain the fallback/);
+
+  const invalidOrigin = buildR2CorsRecommendation(null, { publicBaseUrl: "https://files.example.com/path", bucket: "private-files" });
+  assert.equal(invalidOrigin.origin, null);
+  assert.match(invalidOrigin.summary, /PUBLIC_BASE_URL is fixed/);
+  assert.match(invalidOrigin.lines.join("\n"), /origin only/);
+
+  const recommendation = buildR2CorsRecommendation(
+    validWranglerConfig.replace('"APP_ENV":"production"', '"APP_ENV":"production","PUBLIC_BASE_URL":"https://files.example.com"')
+  );
+  assert.equal(recommendation.origin, "https://files.example.com");
+  assert.equal(recommendation.bucketName, "glyph-files");
+  assert.match(recommendation.corsJson ?? "", /"AllowedMethods": \[\n      "PUT"\n    \]/);
+  assert.match(recommendation.corsJson ?? "", /"ExposeHeaders": \[\n      "ETag"\n    \]/);
+  assert.match(recommendation.lines.join("\n"), /does not apply CORS automatically/);
 });
 
 test("turnkey discovery parses D1 database list output and finds IDs", () => {

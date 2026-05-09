@@ -165,6 +165,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Turnkey deploy v1 can guide a technical operator from fresh checkout to deployed Worker by verifying prerequisites, creating or reusing D1/R2 resources, safely updating local Wrangler bindings with explicit confirmation, running checks/migrations/dry-run/deploy, and printing live URLs plus remaining manual Cloudflare tasks.
 - Turnkey resource discovery and recovery can detect existing D1/R2 resources, reuse safe matches, extract D1 database IDs when Wrangler exposes them, and print focused recovery steps for auth, placeholder IDs, already-existing resources, invalid public origins, and direct/multipart readiness blockers.
 - Turnkey deploy hardening can improve fresh-checkout success by reporting Cloudflare auth/token readiness, preserving explicit remote migration gates, checking direct/multipart secret and R2 CORS readiness, printing post-deploy verification steps, and showing recovery guidance for non-interactive and partial-setup failures.
+- Guided direct/multipart setup planning can print exact Wrangler secret commands without values, recommend R2 CORS for the deployed Glyph origin, keep CORS application manual, and preserve Worker-mediated uploads as the fallback until deployed secrets and CORS are ready.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -214,3 +215,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 47. Publish the turnkey discovery/recovery maintenance release. Completed.
 48. Harden turnkey deploy for fresh-checkout operator success. Completed.
 49. Publish the turnkey deploy hardening maintenance release. Completed.
+50. Add guided secrets and R2 CORS setup planning for turnkey deploy. Completed.

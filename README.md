@@ -329,6 +329,13 @@ Phase 49 turnkey deploy hardening maintenance release is in place:
 - The release highlights Cloudflare auth and `CLOUDFLARE_API_TOKEN` readiness, token capability/scope recovery messaging, explicit remote D1 migration gates, direct/multipart secret readiness, R2 CORS readiness, post-deploy `/health` and `/admin` verification guidance, and recovery output for non-interactive or partial-setup failures.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 50 guided secret and CORS planning is in place:
+
+- Deploy/setup output now prints exact `pnpm wrangler secret put ...` commands for required direct/multipart upload secrets and the optional `R2_BUCKET_NAME` override without printing or storing secret values.
+- The helper reports when direct/multipart modes are blocked by missing local secret hints and keeps Worker-mediated uploads as the documented fallback until deployed secrets and CORS are ready.
+- The helper generates an R2 CORS recommendation for the configured `PUBLIC_BASE_URL` when known, including PUT from the Glyph origin and exposed `ETag` for multipart finalization.
+- R2 CORS application remains manual in this phase; the helper does not set secrets, apply CORS, store secret values, or mutate Cloudflare resources for direct/multipart readiness.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -403,6 +410,33 @@ See `.env.example` and `.dev.vars.example` for placeholder-only configuration ex
 Direct-to-R2 and multipart direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Multipart mode also requires CORS to expose the `ETag` response header so the browser can report completed part ETags back to the Worker for finalization. Without the credential values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct or multipart.
 
 The deploy helper reports whether the local shell has `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` available as a readiness hint, but deployed Workers should receive sensitive values through Wrangler secrets or the Cloudflare dashboard. Do not put real R2 secret access keys in `wrangler.jsonc`, `.env.example`, `.dev.vars.example`, README snippets, issues, or committed files.
+
+Use these commands to set deployed direct/multipart upload secrets when you are ready. Wrangler prompts for values interactively, so the values do not appear in the command or repo:
+
+```sh
+pnpm wrangler secret put R2_ACCOUNT_ID
+pnpm wrangler secret put R2_ACCESS_KEY_ID
+pnpm wrangler secret put R2_SECRET_ACCESS_KEY
+pnpm wrangler secret put R2_BUCKET_NAME
+```
+
+`R2_BUCKET_NAME` is optional when the presigned-upload bucket name matches the `FILES` binding bucket. The deploy helper prints these commands as guidance only; it does not set secrets or echo values.
+
+For direct/multipart uploads, configure R2 bucket CORS for the final Glyph origin. With `PUBLIC_BASE_URL = https://files.example.com`, the recommended rule is:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://files.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Apply the CORS rule in the Cloudflare dashboard or API after reviewing it. The deploy helper does not apply CORS automatically in this phase because CORS setup should remain operator-owned until the Cloudflare path is boring and safely testable.
 
 For a custom domain, configure Cloudflare so the Worker is reachable at the desired `https://` origin, then set `vars.PUBLIC_BASE_URL` in `wrangler.jsonc` to that exact origin, for example `https://files.example.com`. Keep it origin-only: no path, query string, or fragment. Generated short links use this value, and passkeys registered for `/admin` are bound to that origin. If direct-to-R2 or multipart uploads are enabled, the R2 bucket CORS allowed origin must match the deployed Glyph origin.
 

@@ -9,6 +9,7 @@ export const DEFAULT_BUCKET_NAME = "glyph-files";
 export const DEFAULT_DRY_RUN_OUTDIR = "/tmp/glyph-deploy-dry-run";
 export const PLACEHOLDER_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 export const DIRECT_UPLOAD_SECRET_NAMES = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
+export const OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES = ["R2_BUCKET_NAME"];
 
 export function parseArgs(argv) {
   const options = {
@@ -299,7 +300,6 @@ export function buildSetupPlan(options, configText = null) {
     ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
     : null;
   const publicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" ? config.vars.PUBLIC_BASE_URL.trim() : "";
-  const routeHosts = config ? wranglerRouteHosts(config) : [];
   const cronTriggers = config ? wranglerCronTriggers(config) : [];
 
   return [
@@ -334,14 +334,12 @@ export function buildSetupPlan(options, configText = null) {
     {
       label: "Configure direct-upload secrets",
       mutates: false,
-      detail: "For direct or multipart uploads, set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY with Wrangler secrets or dashboard values. Do not commit secrets."
+      detail: `For direct or multipart uploads, set required secrets with ${buildSecretPutCommand("R2_ACCOUNT_ID").join(" ")}, ${buildSecretPutCommand("R2_ACCESS_KEY_ID").join(" ")}, and ${buildSecretPutCommand("R2_SECRET_ACCESS_KEY").join(" ")}. Optionally set ${OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES[0]} when the presigned-upload bucket name differs from ${options.bucket}. Do not commit secrets.`
     },
     {
       label: "Configure R2 CORS",
       mutates: false,
-      detail: routeHosts.length > 0 || publicBaseUrl
-        ? "Allow browser PUT requests from the deployed Glyph origin and expose ETag for multipart uploads."
-        : "Once the deployed origin is known, allow browser PUT requests from it and expose ETag for multipart uploads."
+      detail: buildR2CorsRecommendation(configText, { bucket: options.bucket }).summary
     },
     {
       label: "Configure optional scheduled work",
@@ -545,27 +543,125 @@ export function buildTurnkeyRecoveryLines(options, context = {}) {
   return [...new Set(lines)];
 }
 
-export function buildDirectUploadReadinessLines(configText = null, env = process.env) {
+export function buildSecretPutCommand(secretName) {
+  return ["pnpm", "wrangler", "secret", "put", secretName];
+}
+
+export function buildDirectUploadSecretPlan(env = process.env) {
+  return [...DIRECT_UPLOAD_SECRET_NAMES, ...OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES].map((name) => ({
+    name,
+    required: DIRECT_UPLOAD_SECRET_NAMES.includes(name),
+    present: typeof env[name] === "string" && env[name].trim().length > 0,
+    command: buildSecretPutCommand(name)
+  }));
+}
+
+export function buildR2CorsRecommendation(configText = null, options = {}) {
   const config = configText ? parseWranglerConfig(configText) : null;
-  const publicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
-    ? config.vars.PUBLIC_BASE_URL.trim()
-    : null;
-  const missingEnv = DIRECT_UPLOAD_SECRET_NAMES.filter((name) => typeof env[name] !== "string" || env[name].trim().length === 0);
+  const originValue = options.publicBaseUrl
+    ?? (typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+      ? config.vars.PUBLIC_BASE_URL.trim()
+      : null);
+  const bucketName = options.bucket
+    ?? (Array.isArray(config?.r2_buckets)
+      ? config.r2_buckets.find((binding) => binding?.binding === "FILES")?.bucket_name
+      : null)
+    ?? DEFAULT_BUCKET_NAME;
+
+  if (!originValue) {
+    return {
+      origin: null,
+      bucketName,
+      corsJson: null,
+      summary: "Once the deployed Glyph origin is known, allow browser PUT requests from it and expose ETag for multipart uploads.",
+      lines: [
+        `R2 CORS recommendation: bucket ${bucketName} needs the deployed Glyph origin before CORS can be configured.`,
+        "Set PUBLIC_BASE_URL to the final https:// origin, or use the workers.dev/custom-domain origin printed by Wrangler deploy.",
+        "Worker-mediated uploads remain the fallback until direct/multipart secrets and R2 CORS are ready."
+      ]
+    };
+  }
+
+  const validation = validatePublicBaseUrl(originValue);
+  if (validation.error || !validation.url) {
+    return {
+      origin: null,
+      bucketName,
+      corsJson: null,
+      summary: `R2 CORS cannot be recommended until PUBLIC_BASE_URL is fixed: ${validation.error}`,
+      lines: [
+        `R2 CORS blocked: ${validation.error}`,
+        "Use an origin-only https URL such as https://files.example.com.",
+        "Worker-mediated uploads remain the fallback until direct/multipart secrets and R2 CORS are ready."
+      ]
+    };
+  }
+
+  const origin = validation.url.origin;
+  const corsRules = [
+    {
+      AllowedOrigins: [origin],
+      AllowedMethods: ["PUT"],
+      AllowedHeaders: ["*"],
+      ExposeHeaders: ["ETag"],
+      MaxAgeSeconds: 3600
+    }
+  ];
+  const corsJson = JSON.stringify(corsRules, null, 2);
+
+  return {
+    origin,
+    bucketName,
+    corsJson,
+    summary: `Allow browser PUT requests from ${origin} to R2 bucket ${bucketName} and expose ETag for multipart uploads.`,
+    lines: [
+      `R2 CORS recommendation: apply this rule to bucket ${bucketName} before enabling direct or multipart uploads.`,
+      `Allowed origin: ${origin}`,
+      "Allowed methods: PUT",
+      "Allowed headers: *",
+      "Expose headers: ETag",
+      "Suggested CORS JSON:",
+      corsJson,
+      "Apply CORS in the Cloudflare dashboard or API after reviewing it; the deploy helper does not apply CORS automatically.",
+      "Worker-mediated uploads remain the fallback until direct/multipart secrets and R2 CORS are ready."
+    ]
+  };
+}
+
+export function buildDirectUploadReadinessLines(configText = null, env = process.env) {
+  const secretPlan = buildDirectUploadSecretPlan(env);
+  const missingRequired = secretPlan.filter((secret) => secret.required && !secret.present);
+  const presentRequired = secretPlan.filter((secret) => secret.required && secret.present);
+  const optionalBucketSecret = secretPlan.find((secret) => secret.name === "R2_BUCKET_NAME");
+  const cors = buildR2CorsRecommendation(configText);
   const lines = [];
 
-  if (missingEnv.length === 0) {
+  if (missingRequired.length === 0) {
     lines.push("Direct/multipart secrets: required R2 S3-compatible environment values are present in this shell; verify matching Wrangler secrets exist for the deployed Worker.");
   } else {
-    lines.push(`Direct/multipart secrets: ${missingEnv.join(", ")} not detected in this shell. Worker-mediated uploads remain the safe fallback until matching Wrangler secrets are set.`);
+    lines.push(`Direct/multipart secrets: ${missingRequired.map((secret) => secret.name).join(", ")} not detected in this shell. Worker-mediated uploads remain the safe fallback until matching Wrangler secrets are set.`);
   }
 
-  if (publicBaseUrl) {
-    lines.push(`R2 CORS readiness: allow browser PUT requests from ${publicBaseUrl} and expose ETag before enabling direct or multipart uploads.`);
+  if (presentRequired.length > 0 && missingRequired.length > 0) {
+    lines.push(`Direct/multipart secrets: ${presentRequired.map((secret) => secret.name).join(", ")} detected locally, but direct/multipart mode is blocked until every required secret is present in the deployed Worker.`);
+  }
+
+  if (optionalBucketSecret?.present) {
+    lines.push("Optional direct/multipart secret: R2_BUCKET_NAME is present locally; verify it matches the FILES bucket or the intended presigned-upload bucket.");
   } else {
-    lines.push("R2 CORS readiness: configure allowed origin after the deployed Worker/custom-domain URL is known, and expose ETag before enabling multipart uploads.");
+    lines.push(`Optional direct/multipart secret: R2_BUCKET_NAME is not detected; Glyph will use the R2 binding bucket name unless a deployed secret overrides it.`);
   }
 
+  lines.push("Recommended Wrangler secret commands (values are entered interactively and are not printed):");
+  for (const secret of secretPlan) {
+    const suffix = secret.required ? "required" : "optional";
+    lines.push(`- ${secret.command.join(" ")} (${suffix})`);
+  }
+
+  lines.push(`R2 CORS readiness: ${cors.summary}`);
+  lines.push(...cors.lines);
   lines.push("Secret safety: use Wrangler secrets or the Cloudflare dashboard; do not write R2 secret access keys into source-controlled files.");
+  lines.push("Safety gate: this helper only prints secret and CORS guidance; it does not set secrets, echo secret values, or apply CORS automatically.");
 
   return lines;
 }
@@ -642,6 +738,7 @@ export function buildTurnkeyFollowUpLines(configText, options) {
   lines.push("Manual follow-up: configure DNS/custom-domain attachment and passkey registration on the final origin if using a custom domain.");
   lines.push("Manual follow-up: configure Cloudflare Scheduled Worker triggers yourself before enabling read-only update checks or scheduled maintenance in /admin.");
   lines.push("Manual follow-up: for direct or multipart upload modes, verify R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, optional R2_BUCKET_NAME, and bucket CORS before switching modes in /admin.");
+  lines.push(...buildDirectUploadReadinessLines(configText));
   lines.push(...buildPostDeployVerificationLines(configText));
   lines.push("Recovery: if setup stops midway, re-run --turnkey without --yes to review current readiness, then re-run --turnkey --yes with --reuse-resources and the real --d1-database-id when needed.");
 
