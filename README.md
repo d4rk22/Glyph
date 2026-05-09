@@ -260,6 +260,13 @@ Phase 39 scheduled update-check guidance maintenance release is in place:
 - `v0.1.8` publishes the clarified admin scheduled-check guidance through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, or Cloudflare mutation is part of the release process.
 
+Phase 40 scheduled update-check deploy readiness is in place:
+
+- `pnpm run deploy:glyph -- --check` and `pnpm run deploy:glyph -- --setup` report whether Wrangler cron triggers for optional read-only scheduled update checks are configured.
+- Readiness output explains that scheduled checks require both an operator-owned Cloudflare Scheduled Worker trigger and `/admin` read-only scheduled checks with a valid update source.
+- The deploy helper never creates scheduled triggers or mutates Cloudflare resources for scheduled checks.
+- Scheduled checks remain D1-only release metadata notices; they never deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -603,9 +610,13 @@ The deploy helper also reports:
 - Worker name.
 - Public base URL, or that Glyph will use the request-origin fallback.
 - Wrangler route hosts discovered from `route`, `routes`, or `custom_domains` config.
+- Optional scheduled update-check cron triggers discovered from `triggers.crons`.
+- A reminder that scheduled checks also require a valid update source and read-only scheduled checks enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
+
+Optional read-only scheduled update checks are a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then configure a valid update source and enable read-only scheduled checks in `/admin`. The deploy helper only reports trigger readiness; it does not create triggers or mutate Cloudflare resources for scheduled checks.
 
 Before deploying, make sure these Cloudflare pieces already exist:
 
@@ -614,6 +625,7 @@ Before deploying, make sure these Cloudflare pieces already exist:
 - The R2 bucket exists and is bound as `FILES`.
 - Optional `PUBLIC_BASE_URL` is configured if generated links should use a custom public origin.
 - Optional custom-domain routing is configured in Cloudflare or Wrangler so the Worker answers on that origin.
+- Optional read-only scheduled update-check trigger is configured if periodic release notices are desired; the `/admin` setting and update source must also be configured after deploy.
 - Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`.
 - R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads.
 - `/admin` bootstrap is completed from the deployed origin after first deploy.
@@ -635,7 +647,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
-- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1.
+- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1, and the deploy helper only reports cron trigger readiness.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.

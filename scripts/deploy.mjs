@@ -128,6 +128,10 @@ export function validateWranglerConfig(configText, options = {}) {
 
   const publicBaseUrl = config.vars?.PUBLIC_BASE_URL;
   const routeHosts = wranglerRouteHosts(config);
+  const cronValidation = validateWranglerCronTriggers(config);
+  errors.push(...cronValidation.errors);
+  warnings.push(...cronValidation.warnings);
+
   if (publicBaseUrl !== undefined) {
     if (typeof publicBaseUrl !== "string") {
       errors.push("vars.PUBLIC_BASE_URL must be a string when configured.");
@@ -162,10 +166,17 @@ export function summarizeDeploymentTarget(configText) {
     ? config.vars.PUBLIC_BASE_URL.trim()
     : null;
   const routeHosts = wranglerRouteHosts(config);
+  const cronTriggers = wranglerCronTriggers(config);
 
   lines.push(`Worker name: ${typeof config.name === "string" ? config.name : "unknown"}`);
   lines.push(publicBaseUrl ? `Public base URL: ${publicBaseUrl}` : "Public base URL: request origin fallback");
   lines.push(routeHosts.length > 0 ? `Wrangler route hosts: ${routeHosts.join(", ")}` : "Wrangler route hosts: none configured");
+  lines.push(
+    cronTriggers.length > 0
+      ? `Scheduled update check trigger(s): ${cronTriggers.join(", ")}`
+      : "Scheduled update check trigger(s): none configured"
+  );
+  lines.push("Scheduled update checks also require a valid update source and read-only scheduled checks enabled in /admin.");
 
   return lines;
 }
@@ -215,6 +226,7 @@ export function buildSetupPlan(options, configText = null) {
     : null;
   const publicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" ? config.vars.PUBLIC_BASE_URL.trim() : "";
   const routeHosts = config ? wranglerRouteHosts(config) : [];
+  const cronTriggers = config ? wranglerCronTriggers(config) : [];
 
   return [
     {
@@ -258,6 +270,13 @@ export function buildSetupPlan(options, configText = null) {
         : "Once the deployed origin is known, allow browser PUT requests from it and expose ETag for multipart uploads."
     },
     {
+      label: "Configure optional scheduled update checks",
+      mutates: false,
+      detail: cronTriggers.length > 0
+        ? `Wrangler cron trigger(s) found: ${cronTriggers.join(", ")}. Scheduled checks still require a valid update source and read-only scheduled checks enabled in /admin. They only fetch public GitHub release metadata and persist the result in D1.`
+        : "No Wrangler cron trigger is configured. To use read-only scheduled update checks, add a Cloudflare Scheduled Worker trigger manually, then configure a valid update source and enable read-only scheduled checks in /admin. Glyph does not create triggers automatically."
+    },
+    {
       label: "Run deploy readiness check",
       command: ["pnpm", "run", "deploy:glyph", "--", "--check", "--database", options.database],
       mutates: false,
@@ -288,6 +307,12 @@ Options:
 Custom domain readiness:
   Set vars.PUBLIC_BASE_URL in wrangler.jsonc to the deployed https:// origin when using a custom domain.
   The helper validates the URL shape and warns when it does not line up with Wrangler routes.
+
+Scheduled update check readiness:
+  Optional read-only scheduled update checks require a Wrangler cron trigger plus a valid update source
+  and read-only scheduled checks enabled in /admin. The helper reports cron trigger configuration but
+  never creates triggers, deploys updates, applies migrations, checks out code, stores GitHub tokens,
+  executes local update helpers, or mutates Cloudflare resources for scheduled checks.
 `;
 }
 
@@ -408,6 +433,41 @@ function wranglerRouteHosts(config) {
   }
 
   return [...new Set(patterns.map(routeHost).filter(Boolean))];
+}
+
+function validateWranglerCronTriggers(config) {
+  if (config.triggers === undefined) {
+    return { errors: [], warnings: [] };
+  }
+
+  if (!config.triggers || typeof config.triggers !== "object" || Array.isArray(config.triggers)) {
+    return { errors: ["wrangler.jsonc triggers must be an object when configured."], warnings: [] };
+  }
+
+  if (config.triggers.crons === undefined) {
+    return { errors: [], warnings: ["wrangler.jsonc triggers is configured without crons; scheduled update checks will not run."] };
+  }
+
+  if (!Array.isArray(config.triggers.crons)) {
+    return { errors: ["wrangler.jsonc triggers.crons must be an array of cron strings when configured."], warnings: [] };
+  }
+
+  const invalid = config.triggers.crons.filter((cron) => typeof cron !== "string" || cron.trim().length === 0);
+  if (invalid.length > 0) {
+    return { errors: ["wrangler.jsonc triggers.crons must contain only non-empty cron strings."], warnings: [] };
+  }
+
+  if (config.triggers.crons.length === 0) {
+    return { errors: [], warnings: ["wrangler.jsonc triggers.crons is empty; scheduled update checks will not run."] };
+  }
+
+  return { errors: [], warnings: [] };
+}
+
+function wranglerCronTriggers(config) {
+  return Array.isArray(config.triggers?.crons)
+    ? [...new Set(config.triggers.crons.filter((cron) => typeof cron === "string" && cron.trim().length > 0).map((cron) => cron.trim()))]
+    : [];
 }
 
 function routeHost(pattern) {

@@ -156,6 +156,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Read-only scheduled update-check maintenance releases can keep the public release/update channel aligned with scheduled check groundwork while preserving the conservative source-only release model.
 - Admin scheduled update-check guidance can make the opt-in setting clearly read-only, explain operator-owned Cloudflare trigger setup, and preserve the no-deploy/no-mutation safety boundary.
 - Scheduled update-check guidance maintenance releases can keep the public release/update channel aligned with clarified admin guidance while preserving the conservative source-only release model.
+- Scheduled update-check deploy readiness can report Wrangler cron trigger configuration and required admin/source follow-up while preserving the no-trigger-creation/no-mutation safety boundary.
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
 - Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
 - Type checking passes.
@@ -197,3 +198,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 37. Publish the read-only scheduled update-check maintenance release. Completed.
 38. Add admin configuration guidance for read-only scheduled update checks. Completed.
 39. Publish the scheduled update-check guidance maintenance release. Completed.
+40. Add deploy/readiness checks for optional read-only scheduled update checks. Completed.

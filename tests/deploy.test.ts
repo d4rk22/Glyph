@@ -100,6 +100,8 @@ test("setup plan is non-mutating by default and scopes create commands to --setu
   );
   assert.match(plan.map((item) => item.detail).join("\n"), /copy the returned database_id/);
   assert.match(plan.map((item) => item.detail).join("\n"), /Do not commit secrets/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /No Wrangler cron trigger is configured/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /does not create triggers automatically/);
   assert.deepEqual(plan.at(-1)?.command, ["pnpm", "run", "deploy:glyph", "--", "--check", "--database", "glyph-prod"]);
   assert.equal(plan.at(-1)?.mutates, false);
 });
@@ -153,6 +155,42 @@ test("wrangler config validation checks custom-domain readiness", () => {
   assert.match(missingBase.warnings.join("\n"), /PUBLIC_BASE_URL is not set/);
 });
 
+test("wrangler config validation reports scheduled update check readiness", () => {
+  const noTriggerSummary = summarizeDeploymentTarget(validWranglerConfig);
+  assert.match(noTriggerSummary.join("\n"), /Scheduled update check trigger\(s\): none configured/);
+  assert.match(noTriggerSummary.join("\n"), /valid update source and read-only scheduled checks enabled in \/admin/);
+
+  const scheduledConfig = JSON.stringify({
+    name: "glyph",
+    main: "src/index.ts",
+    vars: { APP_ENV: "production" },
+    triggers: { crons: ["0 */6 * * *"] },
+    d1_databases: [
+      {
+        binding: "DB",
+        database_name: "glyph",
+        database_id: "real-database-id",
+        migrations_dir: "migrations"
+      }
+    ],
+    r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+  });
+  const valid = validateWranglerConfig(scheduledConfig, { requireDeployReady: true });
+  assert.deepEqual(valid.errors, []);
+  assert.deepEqual(valid.warnings, []);
+  assert.match(summarizeDeploymentTarget(scheduledConfig).join("\n"), /Scheduled update check trigger\(s\): 0 \*\/6 \* \* \*/);
+
+  const plan = buildSetupPlan(parseArgs(["--setup"]), scheduledConfig);
+  assert.match(plan.map((item) => item.detail).join("\n"), /Wrangler cron trigger\(s\) found: 0 \*\/6 \* \* \*/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /only fetch public GitHub release metadata and persist the result in D1/);
+
+  const invalidTrigger = validateWranglerConfig(scheduledConfig.replace('"0 */6 * * *"', "123"));
+  assert.match(invalidTrigger.errors.join("\n"), /non-empty cron strings/);
+
+  const emptyTrigger = validateWranglerConfig(scheduledConfig.replace('"0 */6 * * *"', '""'));
+  assert.match(emptyTrigger.errors.join("\n"), /non-empty cron strings/);
+});
+
 test("deployment target summary reports public base URL and route hosts", () => {
   const summary = summarizeDeploymentTarget(
     JSON.stringify({
@@ -165,7 +203,9 @@ test("deployment target summary reports public base URL and route hosts", () => 
   assert.deepEqual(summary, [
     "Worker name: glyph",
     "Public base URL: https://files.example.com",
-    "Wrangler route hosts: files.example.com"
+    "Wrangler route hosts: files.example.com",
+    "Scheduled update check trigger(s): none configured",
+    "Scheduled update checks also require a valid update source and read-only scheduled checks enabled in /admin."
   ]);
 
   assert.deepEqual(summarizeDeploymentTarget("{ nope"), ["Deployment target: wrangler.jsonc could not be parsed."]);
