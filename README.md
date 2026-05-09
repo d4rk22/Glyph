@@ -293,6 +293,13 @@ Phase 44 turnkey deploy v1 is in place:
 - Turnkey output reports public/admin URLs when known, direct/multipart credential and CORS follow-up, custom-domain/passkey notes, scheduled trigger follow-up, and partial-setup recovery guidance.
 - Turnkey remains conservative; it does not store secrets, create DNS records, zones, certificates, custom domains, scheduled triggers, GitHub releases, or hidden Cloudflare mutations.
 
+Phase 45 turnkey deploy maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.1`.
+- `v0.2.1` publishes turnkey deploy v1 through the GitHub release channel.
+- The release highlights the plan-only `--turnkey` flow, the explicit `--turnkey --yes` mutation gate, D1/R2 creation or reuse, safe Wrangler config binding updates, readiness reporting, URL output, partial-setup recovery guidance, and remaining manual Cloudflare tasks.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

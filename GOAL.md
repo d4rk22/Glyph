@@ -207,3 +207,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 42. Add optional scheduled maintenance for storage cap enforcement and R2 cleanup. Completed.
 43. Publish the optional scheduled maintenance release. Completed.
 44. Implement turnkey deploy v1. Completed.
+45. Publish the turnkey deploy v1 maintenance release. Completed.
