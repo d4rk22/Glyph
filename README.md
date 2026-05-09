@@ -280,6 +280,12 @@ Phase 42 optional scheduled maintenance is in place:
 - Scheduled maintenance stores last run time, expired count, cleanup attempted/completed/failed counts, and last error in D1 app settings.
 - Scheduled maintenance can mutate Glyph metadata and R2 objects by design, but it does not create Cloudflare triggers, mutate Cloudflare configuration, deploy, apply migrations, check out code, store GitHub tokens, or execute local update helpers.
 
+Phase 43 optional scheduled maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.0`.
+- `v0.2.0` publishes optional scheduled storage maintenance, the `0009_scheduled_maintenance.sql` migration, admin enable/disable controls, and D1-backed last-run status through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, scheduled trigger automation, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
