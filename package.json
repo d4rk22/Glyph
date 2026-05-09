@@ -23,7 +23,7 @@
     "d1",
     "file-sharing"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250523.0",
     "typescript": "^5.8.3",
