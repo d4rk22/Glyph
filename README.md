@@ -216,6 +216,12 @@ Phase 32 conservative local manual update apply mode is in place:
 - `pnpm run update:glyph -- --apply --yes` requires a clean working tree and a newer validated release, then fetches and checks out the release tag.
 - Apply mode stays local-only; it does not install dependencies, deploy, apply remote migrations, store tokens, schedule checks, run from admin, or mutate Cloudflare resources.
 
+Phase 33 update apply-mode maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.5`.
+- `v0.1.5` publishes the local manual update apply workflow through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
