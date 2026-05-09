@@ -153,6 +153,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Admin update apply-guidance maintenance releases can keep the public release/update channel aligned with protected admin apply guidance while preserving the conservative source-only release model.
 - Admin update rehearsal guidance maintenance releases can keep the public release/update channel aligned with protected admin guidance while preserving the conservative source-only release model.
 - Read-only scheduled update check groundwork can persist update-check results in D1 and optionally notice releases without deploying, applying migrations, checking out code, mutating source, storing tokens, executing local helpers, or mutating Cloudflare resources.
+- Read-only scheduled update-check maintenance releases can keep the public release/update channel aligned with scheduled check groundwork while preserving the conservative source-only release model.
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
 - Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
 - Type checking passes.
@@ -191,3 +192,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 34. Add admin-facing guidance for local update apply mode. Completed.
 35. Publish the admin update apply-guidance maintenance release. Completed.
 36. Add read-only scheduled update check groundwork. Completed.
+37. Publish the read-only scheduled update-check maintenance release. Completed.

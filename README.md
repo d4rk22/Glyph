@@ -241,6 +241,12 @@ Phase 36 read-only scheduled update check groundwork is in place:
 - An optional Scheduled Worker handler can perform the same read-only GitHub release metadata check when update checks are explicitly enabled and an update source is configured.
 - Scheduled checks only notice releases; they do not deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, or mutate Cloudflare resources.
 
+Phase 37 read-only scheduled update-check maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.7`.
+- `v0.1.7` publishes the D1-backed update-check result storage, protected admin last-check display, and optional read-only Scheduled Worker handler through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
