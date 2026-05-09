@@ -2,15 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
   buildTurnkeyPlan,
   buildTurnkeyWranglerConfig,
   buildSetupPlan,
   buildDeploySteps,
+  classifyWranglerFailure,
   DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
+  findD1DatabaseId,
+  hasR2Bucket,
   nodeMajorVersion,
   parseArgs,
+  parseD1DatabaseList,
+  parseR2BucketList,
   summarizeDeploymentTarget,
   validateWranglerConfig
 } from "../scripts/deploy.mjs";
@@ -146,6 +152,7 @@ test("turnkey plan is planning-first and reports setup, config, checks, and foll
   );
 
   assert.match(plan.map((item) => item.label).join("\n"), /Verify local prerequisites/);
+  assert.match(plan.map((item) => item.label).join("\n"), /Discover existing Cloudflare resources/);
   assert.deepEqual(
     plan.filter((item) => item.mutates && item.command).map((item) => item.command),
     [
@@ -155,6 +162,8 @@ test("turnkey plan is planning-first and reports setup, config, checks, and foll
   );
   assert.match(plan.map((item) => item.detail).join("\n"), /will not deploy until a real ID is supplied or captured/);
   assert.match(plan.map((item) => item.detail).join("\n"), /custom-domain route hints/);
+  assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler d1 list --json/);
+  assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler r2 bucket list/);
   assert.match(plan.map((item) => item.label).join("\n"), /Print live URLs/);
 
   const reusePlan = buildTurnkeyPlan(parseArgs(["--turnkey", "--reuse-resources", "--d1-database-id", "real-id"]), validWranglerConfig);
@@ -199,8 +208,62 @@ test("turnkey follow-up output includes URLs, manual tasks, and partial setup re
   assert.match(lines.join("\n"), /Public URL: https:\/\/files\.example\.com/);
   assert.match(lines.join("\n"), /Admin URL: https:\/\/files\.example\.com\/admin/);
   assert.match(lines.join("\n"), /R2 CORS/);
+  assert.match(lines.join("\n"), /R2_ACCOUNT_ID/);
   assert.match(lines.join("\n"), /Scheduled Worker triggers/);
   assert.match(lines.join("\n"), /re-run --turnkey --yes with --reuse-resources/);
+});
+
+test("turnkey discovery parses D1 database list output and finds IDs", () => {
+  const jsonOutput = JSON.stringify([
+    { uuid: "11111111-1111-1111-1111-111111111111", name: "other" },
+    { uuid: "22222222-2222-2222-2222-222222222222", name: "glyph" }
+  ]);
+  assert.deepEqual(parseD1DatabaseList(jsonOutput), [
+    { name: "other", id: "11111111-1111-1111-1111-111111111111" },
+    { name: "glyph", id: "22222222-2222-2222-2222-222222222222" }
+  ]);
+  assert.equal(findD1DatabaseId(jsonOutput, "glyph"), "22222222-2222-2222-2222-222222222222");
+
+  const tableOutput = `
+┌──────────┬──────────────────────────────────────┐
+│ name     │ uuid                                 │
+├──────────┼──────────────────────────────────────┤
+│ glyph    │ 33333333-3333-3333-3333-333333333333 │
+└──────────┴──────────────────────────────────────┘
+`;
+  assert.deepEqual(parseD1DatabaseList(tableOutput), [
+    { name: "glyph", id: "33333333-3333-3333-3333-333333333333" }
+  ]);
+});
+
+test("turnkey discovery parses R2 bucket list output", () => {
+  assert.deepEqual(parseR2BucketList(JSON.stringify([{ name: "glyph-files" }, { name: "archive-files" }])), [
+    "glyph-files",
+    "archive-files"
+  ]);
+  assert.equal(hasR2Bucket("glyph-files\narchive-files\n", "glyph-files"), true);
+  assert.equal(hasR2Bucket("archive-files\n", "glyph-files"), false);
+});
+
+test("turnkey recovery guidance classifies common Wrangler and setup blockers", () => {
+  assert.match(
+    classifyWranglerFailure("In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN environment variable") ?? "",
+    /CLOUDFLARE_API_TOKEN/
+  );
+  assert.match(classifyWranglerFailure("You are not authenticated. Run wrangler login.") ?? "", /Wrangler authentication/);
+  assert.match(classifyWranglerFailure("Bucket already exists") ?? "", /already exist/);
+  assert.match(classifyWranglerFailure("Replace the placeholder D1 database_id") ?? "", /database_id/);
+
+  const recovery = buildTurnkeyRecoveryLines(parseArgs(["--turnkey", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]), {
+    d1CreatedWithoutId: true,
+    r2AlreadyExists: true
+  }).join("\n");
+  assert.match(recovery, /wrangler d1 list --json/);
+  assert.match(recovery, /glyph-prod/);
+  assert.match(recovery, /glyph-prod-files already exists/);
+  assert.match(recovery, /CLOUDFLARE_API_TOKEN/);
+  assert.match(recovery, /PUBLIC_BASE_URL/);
+  assert.match(recovery, /direct and multipart upload modes/);
 });
 
 test("wrangler config validation checks required Glyph bindings", () => {

@@ -300,6 +300,14 @@ Phase 45 turnkey deploy maintenance release is in place:
 - The release highlights the plan-only `--turnkey` flow, the explicit `--turnkey --yes` mutation gate, D1/R2 creation or reuse, safe Wrangler config binding updates, readiness reporting, URL output, partial-setup recovery guidance, and remaining manual Cloudflare tasks.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 46 turnkey discovery and recovery is in place:
+
+- Confirmed turnkey deploy now discovers existing D1 databases and R2 buckets before creating resources.
+- D1 discovery reads Wrangler JSON/list output and can reuse the matching database ID when available.
+- Existing R2 buckets are reported and reused instead of forcing a failed create path.
+- Recovery output now calls out common blockers: missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, placeholder D1 database IDs, already-existing buckets, invalid `PUBLIC_BASE_URL`, and direct/multipart credential or CORS follow-up.
+- Defaults remain non-mutating; resource creation, config writes, remote migrations, and deploy still require `--turnkey --yes`.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -330,6 +338,8 @@ pnpm run deploy:glyph -- --turnkey --yes
 ```
 
 Turnkey mode verifies local prerequisites and Wrangler auth, creates or reuses the D1 database and R2 bucket, writes local `wrangler.jsonc` binding values when a real D1 database ID is available, runs deployment checks, applies remote migrations, performs a Wrangler dry-run, and deploys. If you already created resources, pass `--reuse-resources --d1-database-id <real-id>` so the helper can write config and skip resource creation.
+
+Confirmed turnkey mode first runs read-only discovery with `pnpm wrangler d1 list --json` and `pnpm wrangler r2 bucket list`. If the requested D1 database exists, Glyph reuses the discovered database ID. If the requested R2 bucket exists, Glyph reuses it instead of attempting to recreate it. When discovery cannot find a D1 ID, the helper prints the exact recovery path: run `pnpm wrangler d1 list --json`, copy the ID, and re-run with `--turnkey --yes --reuse-resources --d1-database-id <real-id>`.
 
 Use `--public-base-url https://files.example.com` with turnkey mode when deploying behind a custom domain. The value is written only with `--turnkey --yes`, must be an origin-only `https://` URL, and should match the Worker route/custom-domain origin.
 
@@ -627,6 +637,7 @@ pnpm run deploy:glyph -- --turnkey --yes
 Confirmed turnkey mode can:
 
 - Verify Node, pnpm, Wrangler, project files, and Wrangler authentication.
+- Discover existing D1 databases and R2 buckets by name before creating resources.
 - Create a D1 database and R2 bucket when they are not already configured.
 - Generate or update local `wrangler.jsonc` bindings for `DB`, `FILES`, `APP_ENV`, and optional `PUBLIC_BASE_URL` when a real D1 database ID is available.
 - Run install, typecheck, tests, remote D1 migration application, Wrangler dry-run, and Worker deploy.
@@ -639,6 +650,8 @@ pnpm run deploy:glyph -- --turnkey --yes --reuse-resources --d1-database-id <rea
 ```
 
 Turnkey mode does not store secrets in source-controlled files. It also does not create DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases. Direct-to-R2 credentials, bucket CORS, custom-domain attachment, scheduled triggers, and first `/admin` passkey bootstrap remain operator-owned follow-up steps.
+
+Turnkey recovery output includes common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, and direct/multipart upload credential or CORS readiness. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
 
 After replacing the D1 placeholder ID and confirming Wrangler is authenticated, run a safe deployment check:
 
@@ -729,7 +742,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Single admin identity only. Multi-user accounts are intentionally out of scope.
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
-- The turnkey deploy helper can guide a fresh checkout through resource creation, config binding updates, checks, migrations, dry-run, and deploy, but secrets, CORS, DNS, custom-domain attachment, scheduled trigger creation, and `/admin` bootstrap are still operator-owned.
+- The turnkey deploy helper can guide a fresh checkout through resource discovery, resource creation or reuse, config binding updates, checks, migrations, dry-run, and deploy, but secrets, CORS, DNS, custom-domain attachment, scheduled trigger creation, and `/admin` bootstrap are still operator-owned.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
 - Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1, and the deploy helper only reports cron trigger readiness.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.

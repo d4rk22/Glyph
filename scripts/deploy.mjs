@@ -357,6 +357,15 @@ export function buildTurnkeyPlan(options, configText = null) {
       ]
     },
     {
+      label: "Discover existing Cloudflare resources",
+      mutates: false,
+      detail: `Checks whether D1 database ${options.database} and R2 bucket ${options.bucket} already exist so confirmed turnkey setup can reuse them when safe.`,
+      commands: [
+        ["pnpm", "wrangler", "d1", "list", "--json"],
+        ["pnpm", "wrangler", "r2", "bucket", "list"]
+      ]
+    },
+    {
       label: shouldCreateD1 ? "Create D1 database" : "Reuse D1 database",
       command: shouldCreateD1 ? ["pnpm", "wrangler", "d1", "create", options.database] : undefined,
       mutates: shouldCreateD1,
@@ -397,6 +406,108 @@ export function buildTurnkeyPlan(options, configText = null) {
       detail: "Reports the public/admin URL when known, plus manual Cloudflare tasks that remain operator-owned."
     }
   ];
+}
+
+export function parseD1DatabaseList(output) {
+  const json = parseJsonOutput(output);
+  if (json) {
+    const rows = Array.isArray(json) ? json : Array.isArray(json.result) ? json.result : [];
+    return rows
+      .map((row) => ({
+        name: String(row?.name ?? row?.database_name ?? ""),
+        id: String(row?.uuid ?? row?.id ?? row?.database_id ?? "")
+      }))
+      .filter((row) => row.name.length > 0 && row.id.length > 0);
+  }
+
+  const rows = [];
+  for (const line of output.split(/\r?\n/u)) {
+    const id = extractD1DatabaseId(line);
+    if (!id) {
+      continue;
+    }
+    const beforeId = line.slice(0, line.indexOf(id));
+    const parts = beforeId
+      .replace(/[│|]/gu, " ")
+      .trim()
+      .split(/\s{2,}|\t/u)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const name = parts.at(-1);
+    if (name && !/^name$/iu.test(name)) {
+      rows.push({ name, id });
+    }
+  }
+
+  return rows;
+}
+
+export function parseR2BucketList(output) {
+  const json = parseJsonOutput(output);
+  if (json) {
+    const rows = Array.isArray(json) ? json : Array.isArray(json.result) ? json.result : [];
+    return rows
+      .map((row) => typeof row === "string" ? row : String(row?.name ?? row?.bucket_name ?? ""))
+      .filter((name) => name.length > 0);
+  }
+
+  return output
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/[│|]/gu, " ").trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !/^(name|bucket|buckets|created|jurisdiction|location|─|-|\+|\s)+$/iu.test(line))
+    .map((line) => line.split(/\s{2,}|\t/u)[0]?.trim() ?? "")
+    .filter((name) => /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(name));
+}
+
+export function findD1DatabaseId(output, databaseName) {
+  return parseD1DatabaseList(output).find((database) => database.name === databaseName)?.id ?? null;
+}
+
+export function hasR2Bucket(output, bucketName) {
+  return parseR2BucketList(output).includes(bucketName);
+}
+
+export function classifyWranglerFailure(output) {
+  if (/CLOUDFLARE_API_TOKEN|non-interactive environment/iu.test(output)) {
+    return "Wrangler needs CLOUDFLARE_API_TOKEN in non-interactive environments. Set a scoped token for the intended Cloudflare account, or run from an interactive shell where Wrangler is logged in.";
+  }
+
+  if (/not logged in|not authenticated|wrangler login|not authorized|authentication/iu.test(output)) {
+    return "Wrangler authentication is missing or does not have access to the requested account. Run pnpm wrangler login, or set CLOUDFLARE_API_TOKEN with D1, R2, and Workers permissions.";
+  }
+
+  if (/already exists|already in use|name.*taken/iu.test(output)) {
+    return "The requested Cloudflare resource appears to already exist. Re-run --turnkey without --yes to review readiness, then use --turnkey --yes --reuse-resources with the real --d1-database-id when needed.";
+  }
+
+  if (/database_id|placeholder/iu.test(output)) {
+    return "The D1 database exists but wrangler.jsonc still needs the real database_id. Run pnpm wrangler d1 list --json, copy the ID for the Glyph database, then re-run --turnkey --yes --reuse-resources --d1-database-id <real-id>.";
+  }
+
+  return null;
+}
+
+export function buildTurnkeyRecoveryLines(options, context = {}) {
+  const lines = [];
+
+  if (context.reason) {
+    lines.push(`Recovery: ${context.reason}`);
+  }
+
+  if (context.d1CreatedWithoutId) {
+    lines.push(`Recovery: run pnpm wrangler d1 list --json, find database ${options.database}, then re-run --turnkey --yes --reuse-resources --d1-database-id <real-id>.`);
+  }
+
+  if (context.r2AlreadyExists) {
+    lines.push(`Recovery: R2 bucket ${options.bucket} already exists. Confirm it belongs to the intended account, then re-run with --reuse-resources.`);
+  }
+
+  lines.push("Recovery: if Wrangler auth fails in CI or another non-interactive shell, set CLOUDFLARE_API_TOKEN before rerunning turnkey.");
+  lines.push("Recovery: if PUBLIC_BASE_URL is rejected, use an origin-only https URL such as https://files.example.com.");
+  lines.push("Recovery: direct and multipart upload modes also need R2 S3 credentials and bucket CORS; Worker-mediated uploads remain the fallback until those are configured.");
+
+  return [...new Set(lines)];
 }
 
 export function buildTurnkeyWranglerConfig(configText, options) {
@@ -470,6 +581,7 @@ export function buildTurnkeyFollowUpLines(configText, options) {
   lines.push("Manual follow-up: configure R2 CORS for the deployed origin before enabling direct or multipart browser uploads.");
   lines.push("Manual follow-up: configure DNS/custom-domain attachment and passkey registration on the final origin if using a custom domain.");
   lines.push("Manual follow-up: configure Cloudflare Scheduled Worker triggers yourself before enabling read-only update checks or scheduled maintenance in /admin.");
+  lines.push("Manual follow-up: for direct or multipart upload modes, verify R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, optional R2_BUCKET_NAME, and bucket CORS before switching modes in /admin.");
   lines.push("Recovery: if setup stops midway, re-run --turnkey without --yes to review current readiness, then re-run --turnkey --yes with --reuse-resources and the real --d1-database-id when needed.");
 
   return lines;
@@ -584,6 +696,19 @@ function stripJsonComments(value) {
 function parseWranglerConfig(configText) {
   try {
     return JSON.parse(stripJsonComments(configText));
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonOutput(output) {
+  const trimmed = output.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
   } catch {
     return null;
   }
@@ -729,7 +854,7 @@ function runStep(step, rootDir) {
   }
 }
 
-function runStepCapture(step, rootDir) {
+function runStepResult(step, rootDir) {
   console.log(`\n==> ${step.label}`);
   console.log(`$ ${step.command.join(" ")}`);
 
@@ -738,6 +863,7 @@ function runStepCapture(step, rootDir) {
     encoding: "utf8",
     env: process.env
   });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 
   if (result.stdout) {
     process.stdout.write(result.stdout);
@@ -746,13 +872,10 @@ function runStepCapture(step, rootDir) {
     process.stderr.write(result.stderr);
   }
   if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`${step.label} failed with exit code ${result.status ?? "unknown"}.`);
+    return { status: 1, output, error: result.error };
   }
 
-  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  return { status: result.status ?? 0, output, error: null };
 }
 
 function printSetupPlan(plan) {
@@ -814,6 +937,21 @@ function extractD1DatabaseId(output) {
   return match ? match[0] : null;
 }
 
+function runRequiredStep(step, rootDir) {
+  const result = runStepResult(step, rootDir);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const recovery = classifyWranglerFailure(result.output);
+    if (recovery) {
+      console.log(`\n${recovery}`);
+    }
+    throw new Error(`${step.label} failed with exit code ${result.status}.`);
+  }
+  return result.output;
+}
+
 function shouldDeployTurnkey(configText) {
   const validation = validateWranglerConfig(configText, { requireDeployReady: true });
   return validation.errors.length === 0;
@@ -840,18 +978,59 @@ function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
 
   runStep({ label: "Check pnpm", command: ["pnpm", "--version"] }, rootDir);
   runStep({ label: "Check Wrangler", command: ["pnpm", "wrangler", "--version"] }, rootDir);
-  runStep({ label: "Check Wrangler authentication", command: ["pnpm", "wrangler", "whoami"] }, rootDir);
+  runRequiredStep({ label: "Check Wrangler authentication", command: ["pnpm", "wrangler", "whoami"] }, rootDir);
 
-  let resolvedDatabaseId = effectiveOptions.databaseId;
+  const d1ListOutput = runRequiredStep({ label: "Discover D1 databases", command: ["pnpm", "wrangler", "d1", "list", "--json"] }, rootDir);
+  const discoveredDatabaseId = findD1DatabaseId(d1ListOutput, effectiveOptions.database);
+  if (discoveredDatabaseId) {
+    console.log(`\nFound existing D1 database ${effectiveOptions.database} (${discoveredDatabaseId}); it will be reused.`);
+  }
+
+  const r2ListOutput = runRequiredStep({ label: "Discover R2 buckets", command: ["pnpm", "wrangler", "r2", "bucket", "list"] }, rootDir);
+  const discoveredR2Bucket = hasR2Bucket(r2ListOutput, effectiveOptions.bucket);
+  if (discoveredR2Bucket) {
+    console.log(`\nFound existing R2 bucket ${effectiveOptions.bucket}; it will be reused.`);
+  }
+
+  let resolvedDatabaseId = effectiveOptions.databaseId ?? discoveredDatabaseId;
   const dbItem = plan.find((item) => item.label === "Create D1 database");
-  if (dbItem?.command) {
-    const output = runStepCapture(dbItem, rootDir);
-    resolvedDatabaseId = resolvedDatabaseId ?? extractD1DatabaseId(output);
+  if (!resolvedDatabaseId && dbItem?.command) {
+    const result = runStepResult(dbItem, rootDir);
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      const recovery = classifyWranglerFailure(result.output);
+      if (recovery) {
+        console.log(`\n${recovery}`);
+      }
+      if (!/already exists|already in use/iu.test(result.output)) {
+        throw new Error(`${dbItem.label} failed with exit code ${result.status}.`);
+      }
+    } else {
+      resolvedDatabaseId = resolvedDatabaseId ?? extractD1DatabaseId(result.output);
+    }
   }
 
   const r2Item = plan.find((item) => item.label === "Create or confirm R2 bucket");
-  if (r2Item?.command) {
-    runStep(r2Item, rootDir);
+  if (!discoveredR2Bucket && r2Item?.command) {
+    const result = runStepResult(r2Item, rootDir);
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      const recovery = classifyWranglerFailure(result.output);
+      if (recovery) {
+        console.log(`\n${recovery}`);
+      }
+      if (/already exists|already in use/iu.test(result.output)) {
+        for (const line of buildTurnkeyRecoveryLines(effectiveOptions, { r2AlreadyExists: true })) {
+          console.log(line);
+        }
+      } else {
+        throw new Error(`${r2Item.label} failed with exit code ${result.status}.`);
+      }
+    }
   }
 
   const configOptions = { ...effectiveOptions, databaseId: resolvedDatabaseId };
@@ -873,7 +1052,10 @@ function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
     for (const error of deployValidation.errors) {
       console.error(`Error: ${error}`);
     }
-    console.log("\nTurnkey setup stopped before deploy. Add the real D1 database_id with --d1-database-id or edit wrangler.jsonc, then re-run --turnkey --yes --reuse-resources.");
+    console.log("\nTurnkey setup stopped before deploy.");
+    for (const line of buildTurnkeyRecoveryLines(effectiveOptions, { d1CreatedWithoutId: !resolvedDatabaseId })) {
+      console.log(line);
+    }
     return 1;
   }
 

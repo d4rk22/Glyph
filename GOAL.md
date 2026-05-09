@@ -163,6 +163,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
 - Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
 - Turnkey deploy v1 can guide a technical operator from fresh checkout to deployed Worker by verifying prerequisites, creating or reusing D1/R2 resources, safely updating local Wrangler bindings with explicit confirmation, running checks/migrations/dry-run/deploy, and printing live URLs plus remaining manual Cloudflare tasks.
+- Turnkey resource discovery and recovery can detect existing D1/R2 resources, reuse safe matches, extract D1 database IDs when Wrangler exposes them, and print focused recovery steps for auth, placeholder IDs, already-existing resources, invalid public origins, and direct/multipart readiness blockers.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -208,3 +209,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 43. Publish the optional scheduled maintenance release. Completed.
 44. Implement turnkey deploy v1. Completed.
 45. Publish the turnkey deploy v1 maintenance release. Completed.
+46. Improve turnkey resource discovery and recovery. Completed.
