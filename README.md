@@ -180,6 +180,12 @@ Phase 26 local update rehearsal is in place:
 - `pnpm run update:glyph -- --rehearse --yes` can fetch the validated release tag, create a temporary detached worktree, run install and release checks there, summarize target migration files, and clean up the worktree.
 - Rehearsal mode still does not deploy, apply remote migrations, publish packages, execute updates from admin, store GitHub tokens, or mutate Cloudflare resources.
 
+Phase 27 update rehearsal maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.2`.
+- `v0.1.2` publishes the local update rehearsal workflow through the public GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -331,7 +337,7 @@ Before tagging a release, update `package.json` with the next semver version and
 - New secrets, bindings, CORS, or custom-domain expectations.
 - Known limitations or rollback notes.
 
-Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.1`. Release titles should name the version, and release notes should include these sections when relevant:
+Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.2`. Release titles should name the version, and release notes should include these sections when relevant:
 
 - Highlights.
 - Migrations.
