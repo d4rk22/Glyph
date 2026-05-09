@@ -141,6 +141,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Release/versioning groundwork keeps the deployed admin version tied to the package version and documents manual update/release expectations before executable self-updates exist.
 - Manual self-update workflow shows release metadata, release notes, semver-aware update status, and operator update steps without executing deploys or migrations from admin.
 - Public repository readiness includes MIT license metadata, placeholder-only configuration examples, security notes, and contribution expectations.
+- The public release/update channel uses GitHub releases from the official public repository while allowing forks and private deployments to keep a blank or custom update source.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -163,3 +164,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 20. Add release/versioning groundwork for future public self-updates. Completed.
 21. Improve self-update check into a manual update workflow. Completed.
 22. Prepare Glyph for public repository visibility. Completed.
+23. Bootstrap the public GitHub release/update channel. Completed.

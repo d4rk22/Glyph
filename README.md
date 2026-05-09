@@ -155,6 +155,13 @@ Phase 22 public repository readiness is in place:
 - `.env.example` and `.dev.vars.example` document optional configuration with placeholders only.
 - `SECURITY.md` and `CONTRIBUTING.md` document security reporting, secret handling, and contribution expectations.
 
+Phase 23 public release/update channel is in place:
+
+- The official public update source is `https://github.com/d4rk22/Glyph`.
+- `/admin` suggests that source when no update source is configured, while keeping the stored default blank for forks and private deployments.
+- Public releases use `vMAJOR.MINOR.PATCH` tags, starting with `v0.1.0`.
+- GitHub releases are the release/update channel for the manual self-update workflow.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -290,6 +297,14 @@ The recommended manual update workflow is:
 
 Glyph uses `package.json` as the release version source. The Worker imports that value through `src/version.ts`, and `/admin` displays it as the deployed Glyph version. Future self-update checks should compare this deployed version against the selected GitHub release tag after trimming a leading `v`.
 
+The official public update source is:
+
+```text
+https://github.com/d4rk22/Glyph
+```
+
+Use `stable` to check GitHub's latest release and `beta` to check the newest release entry. Forks and private deployments can leave the source blank or point it at their own public GitHub release source.
+
 Before tagging a release, update `package.json` with the next semver version and prepare GitHub release notes that call out:
 
 - User-visible changes.
@@ -297,6 +312,14 @@ Before tagging a release, update `package.json` with the next semver version and
 - Deployment or setup changes.
 - New secrets, bindings, CORS, or custom-domain expectations.
 - Known limitations or rollback notes.
+
+Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.0`. Release titles should name the version, and release notes should include these sections when relevant:
+
+- Highlights.
+- Migrations.
+- Deployment notes.
+- Manual update steps.
+- Known limitations.
 
 Run the local release checklist:
 

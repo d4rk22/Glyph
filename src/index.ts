@@ -90,6 +90,7 @@ const DIRECT_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 const DIRECT_UPLOAD_PRESIGN_TTL_SECONDS = 15 * 60;
 const MULTIPART_UPLOAD_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MULTIPART_UPLOAD_THRESHOLD_BYTES = 32 * 1024 * 1024;
+const OFFICIAL_UPDATE_SOURCE_URL = "https://github.com/d4rk22/Glyph";
 
 interface UploadedFile extends Blob {
   name: string;
@@ -1335,6 +1336,11 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
       margin-bottom: 8px;
     }
 
+    .settings-hint {
+      margin: 8px 0 14px;
+      font-size: 0.88rem;
+    }
+
     .upload-card {
       display: grid;
       grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.9fr) auto;
@@ -1829,6 +1835,9 @@ function r2CleanupPanel(cleanup: R2DeletionCleanupStats): string {
 
 function updatesPanel(settings: AppSettings): string {
   const sourceUrl = settings.updateSourceUrl ?? "";
+  const sourceGuidance = settings.updateSourceUrl
+    ? ""
+    : `<p class="settings-hint">Official public update source: <code>${escapeHtml(OFFICIAL_UPDATE_SOURCE_URL)}</code>. Leave blank for forks or private deployments.</p>`;
   return `<section class="settings-panel" aria-label="Self-update">
   <h2>Self-update</h2>
   <div class="settings-detail">
@@ -1840,7 +1849,8 @@ function updatesPanel(settings: AppSettings): string {
   <form class="settings-form" method="post" action="/admin/settings/updates">
     <div>
       <label for="update-source-url">Source URL</label>
-      <input id="update-source-url" name="updateSourceUrl" type="url" inputmode="url" placeholder="https://github.com/owner/repo" value="${escapeAttribute(sourceUrl)}">
+      <input id="update-source-url" name="updateSourceUrl" type="url" inputmode="url" placeholder="${escapeAttribute(OFFICIAL_UPDATE_SOURCE_URL)}" value="${escapeAttribute(sourceUrl)}">
+      ${sourceGuidance}
       <label for="update-channel">Channel</label>
       <select id="update-channel" name="updateChannel">
         <option value="stable"${settings.updateChannel === "stable" ? " selected" : ""}>Stable</option>

@@ -459,6 +459,9 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /aria-label="Self-update"/);
   assert.match(body, /Current 0\.1\.0/);
   assert.match(body, /Source Not configured/);
+  assert.match(body, /Official public update source/);
+  assert.match(body, /https:\/\/github\.com\/d4rk22\/Glyph/);
+  assert.match(body, /placeholder="https:\/\/github\.com\/d4rk22\/Glyph"/);
   assert.match(body, /Automatic Disabled/);
   assert.match(body, /action="\/admin\/settings\/updates"/);
   assert.match(body, /action="\/admin\/updates\/check"/);
@@ -512,6 +515,7 @@ test("authenticated admin page displays configured update settings", async () =>
   assert.match(body, /Automatic Enabled/);
   assert.match(body, /name="autoUpdateEnabled" type="checkbox" value="true" checked/);
   assert.match(body, /<option value="beta" selected>Beta<\/option>/);
+  assert.doesNotMatch(body, /Leave blank for forks or private deployments/);
 });
 
 test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
