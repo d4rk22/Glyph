@@ -228,6 +228,12 @@ Phase 34 admin-facing update apply guidance is in place:
 - Update result pages recommend `pnpm run update:glyph -- --apply` to review the local apply plan and `pnpm run update:glyph -- --apply --yes` only from a clean local checkout when ready.
 - Admin update checks remain read-only; they do not execute local commands, check out code, deploy, apply migrations, store tokens, schedule checks, or mutate Cloudflare resources.
 
+Phase 35 admin update apply-guidance maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.6`.
+- `v0.1.6` publishes the protected admin update-check apply guidance through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
