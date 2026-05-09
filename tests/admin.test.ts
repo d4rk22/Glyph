@@ -421,6 +421,7 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   );
   assert.equal(adminNoticeMessage("invalid-update-settings"), "Update settings must use a valid HTTPS source URL and known channel.");
   assert.equal(adminNoticeMessage("update-source-missing"), "Add a public GitHub update source before checking for updates.");
+  assert.equal(adminNoticeMessage("maintenance-settings-saved"), "Scheduled maintenance settings saved. No maintenance ran from admin.");
   assert.equal(adminNoticeMessage("unknown"), null);
 });
 
@@ -484,6 +485,14 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /do not deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, create Cloudflare triggers, or mutate Cloudflare resources/);
   assert.match(body, /action="\/admin\/settings\/updates"/);
   assert.match(body, /action="\/admin\/updates\/check"/);
+  assert.match(body, /aria-label="Scheduled maintenance"/);
+  assert.match(body, /Status Disabled/);
+  assert.match(body, /Enable scheduled storage maintenance/);
+  assert.match(body, /action="\/admin\/settings\/maintenance"/);
+  assert.match(body, /enforces the storage cap and retries R2 cleanup/);
+  assert.match(body, /separate from read-only scheduled update checks/);
+  assert.match(body, /aria-label="Last scheduled maintenance"/);
+  assert.match(body, /No scheduled maintenance result has been stored yet/);
   assert.match(body, /report\.pdf/);
   assert.match(body, /archive\.zip/);
   assert.match(body, /1\.50 KB/);
@@ -551,6 +560,39 @@ test("authenticated admin page displays configured update settings", async () =>
   assert.match(body, /name="autoUpdateEnabled" type="checkbox" value="true" checked/);
   assert.match(body, /<option value="beta" selected>Beta<\/option>/);
   assert.doesNotMatch(body, /Leave blank for forks or private deployments/);
+});
+
+test("authenticated admin page displays scheduled maintenance status", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "scheduled_maintenance_enabled", value: "true", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_run_at", value: "2026-05-09T12:00:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_expired_count", value: "2", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_cleanup_attempted_count", value: "3", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_cleanup_completed_count", value: "2", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_cleanup_failed_count", value: "1", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "maintenance_last_error", value: "delete failed", updated_at: "2026-05-09T12:00:00.000Z" }
+    ],
+    uploads: [activeUploadRow]
+  });
+
+  const response = await worker.fetch(adminRequest("/admin"), env, createExecutionContext());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /aria-label="Scheduled maintenance"/);
+  assert.match(body, /Status Enabled/);
+  assert.match(body, /name="scheduledMaintenanceEnabled" type="checkbox" value="true" checked/);
+  assert.match(body, /Cloudflare Scheduled Worker trigger is configured/);
+  assert.match(body, /does not create triggers/);
+  assert.match(body, /aria-label="Last scheduled maintenance"/);
+  assert.match(body, /Ran 2026-05-09T12:00:00.000Z/);
+  assert.match(body, /Expired 2/);
+  assert.match(body, /Cleanup attempted 3/);
+  assert.match(body, /Cleanup completed 2/);
+  assert.match(body, /Cleanup failed 1/);
+  assert.match(body, /delete failed/);
 });
 
 test("authenticated admin page displays expired upload state and expiration timestamps", async () => {
@@ -1480,6 +1522,35 @@ test("admin update settings reject invalid source and channel", async () => {
   assert.deepEqual(env.settingsUpdates, []);
 });
 
+test("admin scheduled maintenance settings validate origin and persist opt-in", async () => {
+  const env = createFakeEnv({ authenticated: true });
+  const blocked = await worker.fetch(
+    adminRequest("/admin/settings/maintenance", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: new URLSearchParams({ scheduledMaintenanceEnabled: "true" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(blocked.status, 403);
+  assert.deepEqual(env.settingsUpdates, []);
+
+  const saved = await worker.fetch(
+    adminRequest("/admin/settings/maintenance", {
+      method: "POST",
+      body: new URLSearchParams({ scheduledMaintenanceEnabled: "true" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(saved.status, 303);
+  assert.equal(saved.headers.get("Location"), "/admin?notice=maintenance-settings-saved");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["scheduled_maintenance_enabled", "true"]);
+});
+
 test("admin update check requires auth, same origin, and configured source", async () => {
   const unauthenticated = await worker.fetch(
     new Request("https://glyph.example/admin/updates/check", { method: "POST" }),
@@ -1751,6 +1822,100 @@ test("scheduled update check persists release metadata when enabled", async () =
   );
   assert.deepEqual(env.deletedObjectKeys, []);
   assert.deepEqual(env.insertedUploadBindings, []);
+});
+
+test("scheduled maintenance is inert by default", async () => {
+  const env = createFakeEnv({
+    storageUsage: {
+      active_bytes: 4096,
+      active_count: 1,
+      expired_bytes: 0,
+      expired_count: 0,
+      deleted_bytes: 0,
+      deleted_count: 0,
+      total_bytes: 4096,
+      total_count: 1
+    },
+    oldestActiveUploads: [activeUploadRow],
+    r2CleanupCandidates: [deletedUploadRow]
+  });
+
+  await runScheduled(env);
+
+  assert.deepEqual(env.markedExpiredIds, []);
+  assert.deepEqual(env.deletedObjectKeys, []);
+  assert.deepEqual(env.settingsUpdates, []);
+});
+
+test("scheduled maintenance enforces storage cap and retries R2 cleanup when enabled", async () => {
+  const env = createFakeEnv({
+    appSettings: [
+      { key: "scheduled_maintenance_enabled", value: "true", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "storage_cap_bytes", value: "0", updated_at: "2026-05-09T12:00:00.000Z" }
+    ],
+    storageUsage: {
+      active_bytes: 1536,
+      active_count: 1,
+      expired_bytes: 0,
+      expired_count: 0,
+      deleted_bytes: 4096,
+      deleted_count: 1,
+      total_bytes: 5632,
+      total_count: 2
+    },
+    oldestActiveUploads: [activeUploadRow],
+    r2CleanupCandidates: [deletedUploadRow]
+  });
+
+  await runScheduled(env);
+
+  assert.deepEqual(env.markedExpiredIds, ["active123"]);
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/active123/report.pdf", "uploads/deleted123/archive.zip"]);
+  assert.deepEqual(env.r2DeleteRequestedIds, ["active123", "deleted123"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, ["active123", "deleted123"]);
+  assert.deepEqual(
+    env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+    [
+      ["maintenance_last_run_at", env.settingsUpdates[0][1]],
+      ["maintenance_last_expired_count", "1"],
+      ["maintenance_last_cleanup_attempted_count", "1"],
+      ["maintenance_last_cleanup_completed_count", "1"],
+      ["maintenance_last_cleanup_failed_count", "0"],
+      ["maintenance_last_error", ""]
+    ]
+  );
+});
+
+test("scheduled maintenance records cleanup failures without making links available", async () => {
+  const env = createFakeEnv({
+    appSettings: [{ key: "scheduled_maintenance_enabled", value: "true", updated_at: "2026-05-09T12:00:00.000Z" }],
+    r2CleanupCandidates: [deletedUploadRow],
+    r2DeleteFailures: ["uploads/deleted123/archive.zip"]
+  });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await runScheduled(env);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(env.markedDeletedIds, []);
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/deleted123/archive.zip"]);
+  assert.deepEqual(env.r2DeleteCompletedIds, []);
+  assert.equal(env.r2DeleteFailedUpdates[0][2], "delete failed");
+  assert.deepEqual(
+    env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+    [
+      ["maintenance_last_run_at", env.settingsUpdates[0][1]],
+      ["maintenance_last_expired_count", "0"],
+      ["maintenance_last_cleanup_attempted_count", "1"],
+      ["maintenance_last_cleanup_completed_count", "0"],
+      ["maintenance_last_cleanup_failed_count", "1"],
+      ["maintenance_last_error", ""]
+    ]
+  );
 });
 
 test("admin R2 cleanup validates origin before touching candidates", async () => {

@@ -83,14 +83,14 @@ Phase 12 simple storage cap enforcement is in place:
 - Admins can view, set, update, and clear a storage cap in bytes from `/admin`.
 - Storage-cap enforcement runs after successful uploads and after admin cap updates.
 - When active stored bytes exceed the cap, Glyph expires the oldest active uploads first and asks R2 to delete those objects best-effort.
-- Enforcement stays request-driven for now; there are no scheduled Workers, queues, or retry systems.
+- Enforcement can also run from optional scheduled maintenance when the operator configures a Cloudflare Scheduled Worker trigger and enables it in `/admin`.
 
 Phase 13 R2 deletion retry and cleanup is in place:
 
 - Upload metadata tracks R2 deletion requested, completed, failed, and error state.
 - Admin deletion and storage-cap auto-expiration record R2 cleanup state around object deletion attempts.
 - `/admin` shows R2 cleanup counts and provides a protected same-origin retry action for expired/deleted uploads whose R2 cleanup is not complete.
-- Cleanup remains request-driven; scheduled Workers, queues, and cron triggers are still deferred.
+- Cleanup can also run from optional scheduled maintenance; queues and automatic trigger creation remain deferred.
 
 Phase 14 direct-to-R2 single-part uploads are in place:
 
@@ -273,6 +273,13 @@ Phase 41 scheduled update-check deploy-readiness maintenance release is in place
 - `v0.1.9` publishes the deploy/setup helper cron-trigger readiness reporting through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, scheduled trigger automation, or Cloudflare mutation is part of the release process.
 
+Phase 42 optional scheduled maintenance is in place:
+
+- `/admin` can enable or disable scheduled storage maintenance and show the last maintenance run result.
+- When enabled and an operator-owned Cloudflare Scheduled Worker trigger exists, scheduled maintenance enforces the storage cap, expires oldest active uploads as needed, and retries R2 cleanup for expired/deleted uploads.
+- Scheduled maintenance stores last run time, expired count, cleanup attempted/completed/failed counts, and last error in D1 app settings.
+- Scheduled maintenance can mutate Glyph metadata and R2 objects by design, but it does not create Cloudflare triggers, mutate Cloudflare configuration, deploy, apply migrations, check out code, store GitHub tokens, or execute local update helpers.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -382,11 +389,13 @@ Deleting an upload marks the D1 metadata row with `deleted_at`, then asks R2 to 
 
 Admins can set or clear a manual expiration for active uploads. Expiration timestamps are stored as UTC. Expired short links return the not-found response, but the metadata remains visible in the admin panel.
 
-Admins can also set or clear a storage cap in bytes. When active stored bytes exceed that cap after an upload or cap update, Glyph marks the oldest active uploads expired until active usage is at or below the cap, and requests best-effort R2 object deletion for those expired uploads. This is intentionally simple request-time enforcement; scheduled cleanup, retry queues, and richer policy controls are deferred.
+Admins can also set or clear a storage cap in bytes. When active stored bytes exceed that cap after an upload or cap update, Glyph marks the oldest active uploads expired until active usage is at or below the cap, and requests best-effort R2 object deletion for those expired uploads.
 
 The R2 cleanup panel can retry object deletion for expired or deleted uploads whose cleanup has not completed. The retry action is protected by the admin session and same-origin checks. Cleanup state never controls public link availability; D1 deletion and expiration metadata do.
 
 Once R2 cleanup is marked complete for an expired upload, its expiration cannot be cleared from the admin UI because the file bytes have already been removed.
+
+Optional scheduled maintenance can run the same storage-cap enforcement and R2 cleanup retry paths from the Cloudflare Scheduled Worker handler. It is inert by default because `wrangler.jsonc` does not configure a trigger and the handler exits unless scheduled maintenance is enabled in `/admin`. Operators who want periodic storage maintenance can add a Cloudflare Scheduled Worker trigger in their deployment configuration, set a storage cap if cap enforcement is desired, and enable scheduled storage maintenance in `/admin`. The scheduled maintenance panel records the last run time, expired count, cleanup attempted/completed/failed counts, and last error in D1.
 
 When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-lived presigned R2 PUT URL. The Worker still creates pending metadata first and finalizes the upload after the object appears in R2 with the expected size. The public short link is unavailable until finalization marks the metadata stored.
 
@@ -395,6 +404,8 @@ When multipart direct-to-R2 mode is enabled and configured, files at or above th
 The self-update panel is groundwork for a future public repository workflow. It stores update settings and the latest read-only update-check result in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. Manual checks persist the last checked time, latest release tag/name/URL, published date, update availability, and last check error for display in `/admin`. The manual check is intentionally read-only. It displays release metadata and a manual update checklist, but it does not reuse the deploy helper from admin except as the documented future path for applying migrations, running verification, and deploying safely.
 
 Glyph also exports a Scheduled Worker handler for read-only update checks. It is inert by default because `wrangler.jsonc` does not configure a trigger and the handler exits unless read-only scheduled update checks are enabled in settings and an update source URL is configured. Operators who want periodic notices can add a Cloudflare Scheduled Worker trigger in their deployment configuration, configure an update source in `/admin`, and enable read-only scheduled update checks from the self-update panel. This only fetches public GitHub release metadata and records the result in D1. Rehearsal, apply, migrations, deploy checks, and deployment remain local/operator-controlled.
+
+Scheduled maintenance is separate from read-only scheduled update checks. Maintenance can expire upload metadata and request R2 object deletion because it enforces storage policy; update checks only fetch public GitHub release metadata and persist a read-only result. Neither scheduled path creates Cloudflare triggers, deploys Workers, applies migrations, checks out code, stores GitHub tokens, executes local update helpers, or mutates Cloudflare configuration.
 
 The recommended manual update workflow is:
 
@@ -618,11 +629,12 @@ The deploy helper also reports:
 - Wrangler route hosts discovered from `route`, `routes`, or `custom_domains` config.
 - Optional scheduled update-check cron triggers discovered from `triggers.crons`.
 - A reminder that scheduled checks also require a valid update source and read-only scheduled checks enabled in `/admin`.
+- A reminder that scheduled maintenance also requires the scheduled maintenance setting enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
-Optional read-only scheduled update checks are a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then configure a valid update source and enable read-only scheduled checks in `/admin`. The deploy helper only reports trigger readiness; it does not create triggers or mutate Cloudflare resources for scheduled checks.
+Optional scheduled work is a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then enable the desired scheduled behavior in `/admin`. Read-only scheduled update checks also require a valid update source. Scheduled maintenance requires its own admin setting and uses the configured storage cap and R2 cleanup state. The deploy helper only reports trigger readiness; it does not create triggers or mutate Cloudflare resources for scheduled work.
 
 Before deploying, make sure these Cloudflare pieces already exist:
 
@@ -632,6 +644,7 @@ Before deploying, make sure these Cloudflare pieces already exist:
 - Optional `PUBLIC_BASE_URL` is configured if generated links should use a custom public origin.
 - Optional custom-domain routing is configured in Cloudflare or Wrangler so the Worker answers on that origin.
 - Optional read-only scheduled update-check trigger is configured if periodic release notices are desired; the `/admin` setting and update source must also be configured after deploy.
+- Optional scheduled maintenance trigger is configured if periodic storage-cap enforcement and R2 cleanup retry are desired; the `/admin` maintenance setting must also be enabled after deploy.
 - Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`.
 - R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads.
 - `/admin` bootstrap is completed from the deployed origin after first deploy.
@@ -658,5 +671,5 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.
 - Delete is soft in D1 metadata and best-effort for R2 object removal.
-- Storage-cap expiration and R2 cleanup are request-driven; they do not use scheduled Workers, background queues, or cron triggers yet.
+- Storage-cap expiration and R2 cleanup can run from the optional Scheduled Worker handler, but only when the operator configures a trigger and enables scheduled maintenance in `/admin`; there are still no queues, retry workers, or automatic Cloudflare trigger creation.
 - Passkeys are origin-bound, so local and deployed admin credentials are separate.

@@ -20,6 +20,7 @@ import {
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
   markUploadR2DeleteRequested,
+  recordMaintenanceResult,
   recordUpdateCheckResult,
   setMultipartUploadId,
   setAppSetting,
@@ -365,6 +366,15 @@ test("app settings helpers parse defaults and typed values", async () => {
       publishedAt: null,
       updateAvailable: false,
       lastError: null
+    },
+    scheduledMaintenanceEnabled: false,
+    maintenance: {
+      lastRunAt: null,
+      expiredCount: 0,
+      cleanupAttemptedCount: 0,
+      cleanupCompletedCount: 0,
+      cleanupFailedCount: 0,
+      lastError: null
     }
   });
 
@@ -383,6 +393,15 @@ test("app settings helpers parse defaults and typed values", async () => {
       publishedAt: null,
       updateAvailable: false,
       lastError: null
+    },
+    scheduledMaintenanceEnabled: false,
+    maintenance: {
+      lastRunAt: null,
+      expiredCount: 0,
+      cleanupAttemptedCount: 0,
+      cleanupCompletedCount: 0,
+      cleanupFailedCount: 0,
+      lastError: null
     }
   });
 });
@@ -394,7 +413,8 @@ test("app settings helpers validate and persist known setting keys", async () =>
         { key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
-        { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+        { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "scheduled_maintenance_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
       ]
     }
   ]);
@@ -409,13 +429,15 @@ test("app settings helpers validate and persist known setting keys", async () =>
     uploadMode: "direct",
     updateSourceUrl: "https://github.com/example/glyph",
     updateChannel: "beta",
-    autoUpdateEnabled: true
+    autoUpdateEnabled: true,
+    scheduledMaintenanceEnabled: true
   });
 
   assert.equal(settings.uploadMode, "direct");
   assert.equal(settings.updateSourceUrl, "https://github.com/example/glyph");
   assert.equal(settings.updateChannel, "beta");
   assert.equal(settings.autoUpdateEnabled, true);
+  assert.equal(settings.scheduledMaintenanceEnabled, true);
   assert.deepEqual(
     db.bindings.map((binding) => binding.slice(0, 2)),
     [
@@ -425,13 +447,15 @@ test("app settings helpers validate and persist known setting keys", async () =>
       ["upload_mode", "direct"],
       ["update_source_url", "https://github.com/example/glyph"],
       ["update_channel", "beta"],
-      ["auto_update_enabled", "true"]
+      ["auto_update_enabled", "true"],
+      ["scheduled_maintenance_enabled", "true"]
     ]
   );
   await assert.rejects(() => setAppSetting(db, "upload_mode", "invalid"));
   await assert.rejects(() => setAppSetting(db, "update_source_url", "http://example.com/glyph"));
   await assert.rejects(() => setAppSetting(db, "update_channel", "nightly"));
   await assert.rejects(() => setAppSetting(db, "auto_update_enabled", "sometimes"));
+  await assert.rejects(() => setAppSetting(db, "scheduled_maintenance_enabled", "sometimes"));
 });
 
 test("update settings helpers persist source channel and automatic opt-in", async () => {
@@ -465,6 +489,15 @@ test("update settings helpers persist source channel and automatic opt-in", asyn
       releaseUrl: null,
       publishedAt: null,
       updateAvailable: false,
+      lastError: null
+    },
+    scheduledMaintenanceEnabled: false,
+    maintenance: {
+      lastRunAt: null,
+      expiredCount: 0,
+      cleanupAttemptedCount: 0,
+      cleanupCompletedCount: 0,
+      cleanupFailedCount: 0,
       lastError: null
     }
   });
@@ -524,6 +557,54 @@ test("update check result helpers persist read-only release snapshot", async () 
       ["update_published_at", "2026-05-09T11:30:00.000Z"],
       ["update_available", "true"],
       ["update_last_error", ""]
+    ]
+  );
+});
+
+test("scheduled maintenance result helpers persist run snapshot", async () => {
+  const db = createFakeDb([
+    {
+      all: [
+        { key: "scheduled_maintenance_enabled", value: "true", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_run_at", value: "2026-05-09T12:00:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_expired_count", value: "2", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_cleanup_attempted_count", value: "3", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_cleanup_completed_count", value: "2", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_cleanup_failed_count", value: "1", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "maintenance_last_error", value: "delete failed", updated_at: "2026-05-09T12:00:00.000Z" }
+      ]
+    }
+  ]);
+
+  const snapshot = await recordMaintenanceResult(db, {
+    runAt: "2026-05-09T12:00:00.000Z",
+    expiredCount: 2,
+    cleanupAttemptedCount: 3,
+    cleanupCompletedCount: 2,
+    cleanupFailedCount: 1,
+    error: "delete failed"
+  });
+  const settings = await getAppSettings(db);
+
+  assert.equal(snapshot.expiredCount, 2);
+  assert.equal(settings.scheduledMaintenanceEnabled, true);
+  assert.deepEqual(settings.maintenance, {
+    lastRunAt: "2026-05-09T12:00:00.000Z",
+    expiredCount: 2,
+    cleanupAttemptedCount: 3,
+    cleanupCompletedCount: 2,
+    cleanupFailedCount: 1,
+    lastError: "delete failed"
+  });
+  assert.deepEqual(
+    db.bindings.slice(0, 6).map((binding) => binding.slice(0, 2)),
+    [
+      ["maintenance_last_run_at", "2026-05-09T12:00:00.000Z"],
+      ["maintenance_last_expired_count", "2"],
+      ["maintenance_last_cleanup_attempted_count", "3"],
+      ["maintenance_last_cleanup_completed_count", "2"],
+      ["maintenance_last_cleanup_failed_count", "1"],
+      ["maintenance_last_error", "delete failed"]
     ]
   );
 });

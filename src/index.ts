@@ -60,6 +60,7 @@ import {
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
   markUploadR2DeleteRequested,
+  recordMaintenanceResult,
   recordUpdateCheckResult,
   setMultipartUploadId,
   listWebAuthnCredentials,
@@ -189,6 +190,10 @@ export default {
       return handleAdminUpdateSettings(request, env);
     }
 
+    if (url.pathname === "/admin/settings/maintenance" && request.method === "POST") {
+      return handleAdminMaintenanceSettings(request, env);
+    }
+
     if (url.pathname === "/admin/updates/check" && request.method === "POST") {
       return handleAdminUpdateCheck(request, env);
     }
@@ -223,7 +228,7 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduledUpdateCheck(env));
+    ctx.waitUntil(runScheduledTasks(env));
   }
 };
 
@@ -719,6 +724,23 @@ async function handleAdminUpdateSettings(request: Request, env: Env): Promise<Re
   }
 
   return redirect("/admin?notice=update-settings-saved");
+}
+
+async function handleAdminMaintenanceSettings(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The maintenance settings request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const scheduledMaintenanceEnabled = formData.get("scheduledMaintenanceEnabled") === "true";
+  await updateAppSettings(env.DB, { scheduledMaintenanceEnabled });
+
+  return redirect("/admin?notice=maintenance-settings-saved");
 }
 
 async function handleAdminUpdateCheck(request: Request, env: Env): Promise<Response> {
@@ -1667,6 +1689,7 @@ ${storageCapPanel(settings, usage)}
 ${uploadModePanel(settings, directUploadAvailable)}
 ${updatesPanel(settings)}
 ${r2CleanupPanel(cleanup)}
+${scheduledMaintenancePanel(settings)}
 ${uploadList(uploads, origin, configuredBaseUrl)}
 <script type="module" src="/admin.js"></script>`;
 }
@@ -1837,6 +1860,45 @@ function r2CleanupPanel(cleanup: R2DeletionCleanupStats): string {
     <button type="submit">Retry cleanup</button>
   </form>
 </section>`;
+}
+
+function scheduledMaintenancePanel(settings: AppSettings): string {
+  const maintenance = settings.maintenance;
+  const lastRun = maintenance.lastRunAt
+    ? `<section class="settings-panel" aria-label="Last scheduled maintenance">
+  <h2>Last scheduled maintenance</h2>
+  <div class="settings-detail">
+    <span>Ran ${escapeHtml(maintenance.lastRunAt)}</span>
+    <span>Expired ${maintenance.expiredCount}</span>
+    <span>Cleanup attempted ${maintenance.cleanupAttemptedCount}</span>
+    <span>Cleanup completed ${maintenance.cleanupCompletedCount}</span>
+    <span>Cleanup failed ${maintenance.cleanupFailedCount}</span>
+  </div>
+  ${maintenance.lastError ? `<p class="error">${escapeHtml(maintenance.lastError)}</p>` : ""}
+</section>`
+    : `<section class="settings-panel" aria-label="Last scheduled maintenance">
+  <h2>Last scheduled maintenance</h2>
+  <p class="settings-hint">No scheduled maintenance result has been stored yet.</p>
+</section>`;
+
+  return `<section class="settings-panel" aria-label="Scheduled maintenance">
+  <h2>Scheduled maintenance</h2>
+  <div class="settings-detail">
+    <span>Status ${settings.scheduledMaintenanceEnabled ? "Enabled" : "Disabled"}</span>
+    <span>Storage cap ${settings.storageCapBytes === null ? "No cap" : formatBytes(settings.storageCapBytes)}</span>
+  </div>
+  <form method="post" action="/admin/settings/maintenance">
+    <label>
+      <input name="scheduledMaintenanceEnabled" type="checkbox" value="true"${settings.scheduledMaintenanceEnabled ? " checked" : ""}>
+      Enable scheduled storage maintenance
+    </label>
+    <p class="settings-hint">Scheduled maintenance is inert unless a Cloudflare Scheduled Worker trigger is configured for this Worker and this box is enabled.</p>
+    <button type="submit">Save maintenance</button>
+  </form>
+  <p class="settings-hint">Scheduled maintenance enforces the storage cap and retries R2 cleanup for expired or deleted uploads. It can expire metadata and request R2 object deletion, but it does not create triggers, mutate Cloudflare configuration, deploy, apply migrations, check out code, store GitHub tokens, or execute local update helpers.</p>
+  <p class="settings-hint">This is separate from read-only scheduled update checks, which only fetch public GitHub release metadata and store the result in D1.</p>
+</section>
+${lastRun}`;
 }
 
 function updatesPanel(settings: AppSettings): string {
@@ -2246,6 +2308,10 @@ function r2DeleteErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : "R2 delete failed.";
 }
 
+async function runScheduledTasks(env: Env): Promise<void> {
+  await Promise.all([runScheduledUpdateCheck(env), runScheduledMaintenance(env)]);
+}
+
 async function runScheduledUpdateCheck(env: Env): Promise<void> {
   const settings = await getAppSettings(env.DB);
   if (!settings.autoUpdateEnabled || !settings.updateSourceUrl) {
@@ -2254,6 +2320,38 @@ async function runScheduledUpdateCheck(env: Env): Promise<void> {
 
   const result = await checkForUpdates(settings);
   await recordUpdateCheckResult(env.DB, result);
+}
+
+async function runScheduledMaintenance(env: Env): Promise<void> {
+  const settings = await getAppSettings(env.DB);
+  if (!settings.scheduledMaintenanceEnabled) {
+    return;
+  }
+
+  const runAt = new Date().toISOString();
+  try {
+    const storage = await enforceStorageCap(env);
+    const cleanup = await retryR2DeletionCleanup(env);
+    await recordMaintenanceResult(env.DB, {
+      runAt,
+      expiredCount: storage.expiredCount,
+      cleanupAttemptedCount: cleanup.attemptedCount,
+      cleanupCompletedCount: cleanup.completedCount,
+      cleanupFailedCount: cleanup.failedCount,
+      error: null
+    });
+  } catch (error) {
+    const message = error instanceof Error && error.message.trim().length > 0 ? error.message : "Scheduled maintenance failed.";
+    console.error("Scheduled maintenance failed", error);
+    await recordMaintenanceResult(env.DB, {
+      runAt,
+      expiredCount: 0,
+      cleanupAttemptedCount: 0,
+      cleanupCompletedCount: 0,
+      cleanupFailedCount: 0,
+      error: message
+    });
+  }
 }
 
 async function checkForUpdates(settings: AppSettings): Promise<UpdateCheckResult> {

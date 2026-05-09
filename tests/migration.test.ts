@@ -9,6 +9,10 @@ const directUploadMigration = readFileSync(new URL("../migrations/0005_direct_up
 const multipartUploadMigration = readFileSync(new URL("../migrations/0006_multipart_uploads.sql", import.meta.url), "utf8");
 const updateSettingsMigration = readFileSync(new URL("../migrations/0007_update_settings.sql", import.meta.url), "utf8");
 const updateCheckResultsMigration = readFileSync(new URL("../migrations/0008_update_check_results.sql", import.meta.url), "utf8");
+const scheduledMaintenanceMigration = readFileSync(
+  new URL("../migrations/0009_scheduled_maintenance.sql", import.meta.url),
+  "utf8"
+);
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
@@ -92,6 +96,22 @@ test("update check results migration seeds read-only result settings", () => {
   }
 
   assert.match(updateCheckResultsMigration, /INSERT OR IGNORE INTO app_settings/);
+});
+
+test("scheduled maintenance migration seeds maintenance settings", () => {
+  for (const key of [
+    "scheduled_maintenance_enabled",
+    "maintenance_last_run_at",
+    "maintenance_last_expired_count",
+    "maintenance_last_cleanup_attempted_count",
+    "maintenance_last_cleanup_completed_count",
+    "maintenance_last_cleanup_failed_count",
+    "maintenance_last_error"
+  ]) {
+    assert.match(scheduledMaintenanceMigration, new RegExp(`'${key}'`));
+  }
+
+  assert.match(scheduledMaintenanceMigration, /INSERT OR IGNORE INTO app_settings/);
 });
 
 test("uploads table keeps file bytes out of D1 metadata", () => {

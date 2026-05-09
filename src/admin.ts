@@ -36,6 +36,8 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "Update settings must use a valid HTTPS source URL and known channel.";
     case "update-source-missing":
       return "Add a public GitHub update source before checking for updates.";
+    case "maintenance-settings-saved":
+      return "Scheduled maintenance settings saved. No maintenance ran from admin.";
     default:
       return null;
   }

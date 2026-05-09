@@ -159,6 +159,7 @@ test("wrangler config validation reports scheduled update check readiness", () =
   const noTriggerSummary = summarizeDeploymentTarget(validWranglerConfig);
   assert.match(noTriggerSummary.join("\n"), /Scheduled update check trigger\(s\): none configured/);
   assert.match(noTriggerSummary.join("\n"), /valid update source and read-only scheduled checks enabled in \/admin/);
+  assert.match(noTriggerSummary.join("\n"), /Scheduled maintenance also requires scheduled maintenance enabled in \/admin/);
 
   const scheduledConfig = JSON.stringify({
     name: "glyph",
@@ -182,7 +183,8 @@ test("wrangler config validation reports scheduled update check readiness", () =
 
   const plan = buildSetupPlan(parseArgs(["--setup"]), scheduledConfig);
   assert.match(plan.map((item) => item.detail).join("\n"), /Wrangler cron trigger\(s\) found: 0 \*\/6 \* \* \*/);
-  assert.match(plan.map((item) => item.detail).join("\n"), /only fetch public GitHub release metadata and persist the result in D1/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /scheduled maintenance requires scheduled maintenance enabled in \/admin/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /does not create triggers automatically/);
 
   const invalidTrigger = validateWranglerConfig(scheduledConfig.replace('"0 */6 * * *"', "123"));
   assert.match(invalidTrigger.errors.join("\n"), /non-empty cron strings/);
@@ -205,7 +207,8 @@ test("deployment target summary reports public base URL and route hosts", () => 
     "Public base URL: https://files.example.com",
     "Wrangler route hosts: files.example.com",
     "Scheduled update check trigger(s): none configured",
-    "Scheduled update checks also require a valid update source and read-only scheduled checks enabled in /admin."
+    "Scheduled update checks also require a valid update source and read-only scheduled checks enabled in /admin.",
+    "Scheduled maintenance also requires scheduled maintenance enabled in /admin."
   ]);
 
   assert.deepEqual(summarizeDeploymentTarget("{ nope"), ["Deployment target: wrangler.jsonc could not be parsed."]);

@@ -20,7 +20,14 @@ export type AppSettingKey =
   | "update_release_url"
   | "update_published_at"
   | "update_available"
-  | "update_last_error";
+  | "update_last_error"
+  | "scheduled_maintenance_enabled"
+  | "maintenance_last_run_at"
+  | "maintenance_last_expired_count"
+  | "maintenance_last_cleanup_attempted_count"
+  | "maintenance_last_cleanup_completed_count"
+  | "maintenance_last_cleanup_failed_count"
+  | "maintenance_last_error";
 
 export interface UploadMetadata {
   id: string;
@@ -118,6 +125,8 @@ export interface AppSettings {
   updateChannel: UpdateChannel;
   autoUpdateEnabled: boolean;
   updateCheck: UpdateCheckSnapshot;
+  scheduledMaintenanceEnabled: boolean;
+  maintenance: MaintenanceSnapshot;
 }
 
 export interface UpdateCheckSnapshot {
@@ -137,6 +146,24 @@ export interface RecordUpdateCheckResultInput {
   releaseUrl: string | null;
   publishedAt: string | null;
   updateAvailable: boolean;
+  error: string | null;
+}
+
+export interface MaintenanceSnapshot {
+  lastRunAt: string | null;
+  expiredCount: number;
+  cleanupAttemptedCount: number;
+  cleanupCompletedCount: number;
+  cleanupFailedCount: number;
+  lastError: string | null;
+}
+
+export interface RecordMaintenanceResultInput {
+  runAt: string;
+  expiredCount: number;
+  cleanupAttemptedCount: number;
+  cleanupCompletedCount: number;
+  cleanupFailedCount: number;
   error: string | null;
 }
 
@@ -864,6 +891,15 @@ export async function getAppSettings(db: D1Database): Promise<AppSettings> {
       publishedAt: parseNullableStringSetting(values.get("update_published_at")),
       updateAvailable: parseBooleanSetting(values.get("update_available")),
       lastError: parseNullableStringSetting(values.get("update_last_error"))
+    },
+    scheduledMaintenanceEnabled: parseBooleanSetting(values.get("scheduled_maintenance_enabled")),
+    maintenance: {
+      lastRunAt: parseNullableStringSetting(values.get("maintenance_last_run_at")),
+      expiredCount: parseIntegerSetting(values.get("maintenance_last_expired_count")),
+      cleanupAttemptedCount: parseIntegerSetting(values.get("maintenance_last_cleanup_attempted_count")),
+      cleanupCompletedCount: parseIntegerSetting(values.get("maintenance_last_cleanup_completed_count")),
+      cleanupFailedCount: parseIntegerSetting(values.get("maintenance_last_cleanup_failed_count")),
+      lastError: parseNullableStringSetting(values.get("maintenance_last_error"))
     }
   };
 }
@@ -892,6 +928,28 @@ export async function recordUpdateCheckResult(
   };
 }
 
+export async function recordMaintenanceResult(
+  db: D1Database,
+  result: RecordMaintenanceResultInput
+): Promise<MaintenanceSnapshot> {
+  const updatedAt = parseIsoDate(result.runAt) ?? new Date();
+  await setAppSetting(db, "maintenance_last_run_at", result.runAt, updatedAt);
+  await setAppSetting(db, "maintenance_last_expired_count", String(result.expiredCount), updatedAt);
+  await setAppSetting(db, "maintenance_last_cleanup_attempted_count", String(result.cleanupAttemptedCount), updatedAt);
+  await setAppSetting(db, "maintenance_last_cleanup_completed_count", String(result.cleanupCompletedCount), updatedAt);
+  await setAppSetting(db, "maintenance_last_cleanup_failed_count", String(result.cleanupFailedCount), updatedAt);
+  await setAppSetting(db, "maintenance_last_error", result.error ?? "", updatedAt);
+
+  return {
+    lastRunAt: result.runAt,
+    expiredCount: result.expiredCount,
+    cleanupAttemptedCount: result.cleanupAttemptedCount,
+    cleanupCompletedCount: result.cleanupCompletedCount,
+    cleanupFailedCount: result.cleanupFailedCount,
+    lastError: result.error
+  };
+}
+
 export async function updateAppSettings(
   db: D1Database,
   settings: Partial<{
@@ -901,6 +959,7 @@ export async function updateAppSettings(
     updateSourceUrl: string | null;
     updateChannel: UpdateChannel;
     autoUpdateEnabled: boolean;
+    scheduledMaintenanceEnabled: boolean;
   }>,
   now = new Date()
 ): Promise<AppSettings> {
@@ -931,6 +990,15 @@ export async function updateAppSettings(
 
   if (settings.autoUpdateEnabled !== undefined) {
     await setAppSetting(db, "auto_update_enabled", settings.autoUpdateEnabled ? "true" : "false", now);
+  }
+
+  if (settings.scheduledMaintenanceEnabled !== undefined) {
+    await setAppSetting(
+      db,
+      "scheduled_maintenance_enabled",
+      settings.scheduledMaintenanceEnabled ? "true" : "false",
+      now
+    );
   }
 
   return getAppSettings(db);
@@ -1442,7 +1510,14 @@ function parseAppSettingKey(value: string): AppSettingKey {
     value !== "update_release_url" &&
     value !== "update_published_at" &&
     value !== "update_available" &&
-    value !== "update_last_error"
+    value !== "update_last_error" &&
+    value !== "scheduled_maintenance_enabled" &&
+    value !== "maintenance_last_run_at" &&
+    value !== "maintenance_last_expired_count" &&
+    value !== "maintenance_last_cleanup_attempted_count" &&
+    value !== "maintenance_last_cleanup_completed_count" &&
+    value !== "maintenance_last_cleanup_failed_count" &&
+    value !== "maintenance_last_error"
   ) {
     throw new Error(`Unknown app setting: ${value}`);
   }
@@ -1461,7 +1536,7 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     return;
   }
 
-  if (key === "auto_update_enabled" || key === "update_available") {
+  if (key === "auto_update_enabled" || key === "update_available" || key === "scheduled_maintenance_enabled") {
     if (value !== "true" && value !== "false") {
       throw new Error(`${key} must be true or false.`);
     }
@@ -1489,7 +1564,9 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     key === "update_latest_version" ||
     key === "update_latest_name" ||
     key === "update_published_at" ||
-    key === "update_last_error"
+    key === "update_last_error" ||
+    key === "maintenance_last_run_at" ||
+    key === "maintenance_last_error"
   ) {
     return;
   }
@@ -1522,6 +1599,19 @@ function parseBooleanSetting(value: string | undefined): boolean {
   }
 
   return value === "true";
+}
+
+function parseIntegerSetting(value: string | undefined): number {
+  if (value === undefined || value === "") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("App setting must be empty or a non-negative safe integer.");
+  }
+
+  return parsed;
 }
 
 function parseNullableIntegerSetting(value: string | undefined): number | null {

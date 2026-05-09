@@ -158,6 +158,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Scheduled update-check guidance maintenance releases can keep the public release/update channel aligned with clarified admin guidance while preserving the conservative source-only release model.
 - Scheduled update-check deploy readiness can report Wrangler cron trigger configuration and required admin/source follow-up while preserving the no-trigger-creation/no-mutation safety boundary.
 - Scheduled update-check deploy-readiness maintenance releases can keep the public release/update channel aligned with deploy/setup helper readiness reporting while preserving the conservative source-only release model.
+- Optional scheduled maintenance can enforce storage caps, expire oldest active uploads, retry R2 cleanup, and persist last-run results only when an operator configures a Cloudflare Scheduled Worker trigger and enables maintenance in `/admin`.
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
 - Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
 - Type checking passes.
@@ -201,3 +202,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 39. Publish the scheduled update-check guidance maintenance release. Completed.
 40. Add deploy/readiness checks for optional read-only scheduled update checks. Completed.
 41. Publish the scheduled update-check deploy-readiness maintenance release. Completed.
+42. Add optional scheduled maintenance for storage cap enforcement and R2 cleanup. Completed.

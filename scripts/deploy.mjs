@@ -177,6 +177,7 @@ export function summarizeDeploymentTarget(configText) {
       : "Scheduled update check trigger(s): none configured"
   );
   lines.push("Scheduled update checks also require a valid update source and read-only scheduled checks enabled in /admin.");
+  lines.push("Scheduled maintenance also requires scheduled maintenance enabled in /admin.");
 
   return lines;
 }
@@ -270,11 +271,11 @@ export function buildSetupPlan(options, configText = null) {
         : "Once the deployed origin is known, allow browser PUT requests from it and expose ETag for multipart uploads."
     },
     {
-      label: "Configure optional scheduled update checks",
+      label: "Configure optional scheduled work",
       mutates: false,
       detail: cronTriggers.length > 0
-        ? `Wrangler cron trigger(s) found: ${cronTriggers.join(", ")}. Scheduled checks still require a valid update source and read-only scheduled checks enabled in /admin. They only fetch public GitHub release metadata and persist the result in D1.`
-        : "No Wrangler cron trigger is configured. To use read-only scheduled update checks, add a Cloudflare Scheduled Worker trigger manually, then configure a valid update source and enable read-only scheduled checks in /admin. Glyph does not create triggers automatically."
+        ? `Wrangler cron trigger(s) found: ${cronTriggers.join(", ")}. Read-only scheduled update checks still require a valid update source and read-only scheduled checks enabled in /admin; scheduled maintenance requires scheduled maintenance enabled in /admin. Glyph does not create triggers automatically.`
+        : "No Wrangler cron trigger is configured. To use read-only scheduled update checks or scheduled maintenance, add a Cloudflare Scheduled Worker trigger manually, then enable the desired scheduled behavior in /admin. Glyph does not create triggers automatically."
     },
     {
       label: "Run deploy readiness check",
@@ -313,6 +314,11 @@ Scheduled update check readiness:
   and read-only scheduled checks enabled in /admin. The helper reports cron trigger configuration but
   never creates triggers, deploys updates, applies migrations, checks out code, stores GitHub tokens,
   executes local update helpers, or mutates Cloudflare resources for scheduled checks.
+
+Scheduled maintenance readiness:
+  Optional scheduled maintenance uses the same Wrangler cron trigger mechanism plus scheduled
+  maintenance enabled in /admin. It can enforce storage policy in Glyph metadata and R2, but the helper
+  never creates triggers or mutates Cloudflare resources.
 `;
 }
 
