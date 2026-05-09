@@ -379,6 +379,17 @@ async function withMockedFetch<T>(handler: typeof fetch, callback: () => Promise
   }
 }
 
+async function runScheduled(env: Env): Promise<void> {
+  const promises: Promise<unknown>[] = [];
+  await worker.scheduled({} as ScheduledController, env, {
+    waitUntil(promise) {
+      promises.push(promise);
+    },
+    passThroughOnException() {}
+  } as ExecutionContext);
+  await Promise.all(promises);
+}
+
 test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("deleted"), "Upload deleted. R2 object deletion was requested and the metadata is marked deleted.");
   assert.equal(adminNoticeMessage("missing-upload"), "That upload no longer exists.");
@@ -501,7 +512,13 @@ test("authenticated admin page displays configured update settings", async () =>
     appSettings: [
       { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
       { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
-      { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+      { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_last_checked_at", value: "2026-05-09T12:00:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "update_latest_version", value: "v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "update_latest_name", value: "Glyph v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "update_release_url", value: "https://github.com/example/glyph/releases/tag/v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "update_published_at", value: "2026-05-09T11:30:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+      { key: "update_available", value: "true", updated_at: "2026-05-09T12:00:00.000Z" }
     ],
     uploads: [activeUploadRow]
   });
@@ -513,6 +530,13 @@ test("authenticated admin page displays configured update settings", async () =>
   assert.match(body, /Source https:\/\/github\.com\/example\/glyph/);
   assert.match(body, /Channel beta/);
   assert.match(body, /Automatic Enabled/);
+  assert.match(body, /aria-label="Last update check"/);
+  assert.match(body, /Checked 2026-05-09T12:00:00.000Z/);
+  assert.match(body, /Latest v0\.1\.7/);
+  assert.match(body, /Update Available/);
+  assert.match(body, /Glyph v0\.1\.7/);
+  assert.match(body, /Open latest release/);
+  assert.match(body, /Scheduled checks can notice releases/);
   assert.match(body, /name="autoUpdateEnabled" type="checkbox" value="true" checked/);
   assert.match(body, /<option value="beta" selected>Beta<\/option>/);
   assert.doesNotMatch(body, /Leave blank for forks or private deployments/);
@@ -1535,7 +1559,18 @@ test("admin update check fetches release metadata without mutating deploy state"
       assert.match(body, /execute local commands/);
       assert.match(body, /mutate Cloudflare resources/);
       assert.match(body, /Open release/);
-      assert.deepEqual(env.settingsUpdates, []);
+      assert.deepEqual(
+        env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+        [
+          ["update_last_checked_at", env.settingsUpdates[0][1]],
+          ["update_latest_version", "v0.10.0"],
+          ["update_latest_name", "Glyph 0.10.0"],
+          ["update_release_url", "https://github.com/example/glyph/releases/tag/v0.10.0"],
+          ["update_published_at", "2026-05-08T12:00:00.000Z"],
+          ["update_available", "true"],
+          ["update_last_error", ""]
+        ]
+      );
     }
   );
 });
@@ -1601,6 +1636,110 @@ test("admin update check treats older semver releases as not newer", async () =>
       assert.doesNotMatch(body, /A newer release is available/);
     }
   );
+});
+
+test("admin update check persists read-only errors without exposing scripts", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "stable", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
+  });
+
+  await withMockedFetch(
+    async () => new Response("nope", { status: 500 }),
+    async () => {
+      const response = await worker.fetch(
+        adminRequest("/admin/updates/check", { method: "POST" }),
+        env,
+        createExecutionContext()
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.match(body, /Update source returned 500/);
+      assert.doesNotMatch(body, /<script>/);
+      assert.deepEqual(
+        env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+        [
+          ["update_last_checked_at", env.settingsUpdates[0][1]],
+          ["update_latest_version", ""],
+          ["update_latest_name", ""],
+          ["update_release_url", ""],
+          ["update_published_at", ""],
+          ["update_available", "false"],
+          ["update_last_error", "Update source returned 500."]
+        ]
+      );
+    }
+  );
+});
+
+test("scheduled update check is inert by default", async () => {
+  const env = createFakeEnv();
+  const requestedUrls: string[] = [];
+
+  await withMockedFetch(
+    async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify({ tag_name: "v9.9.9" }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    },
+    async () => {
+      await runScheduled(env);
+    }
+  );
+
+  assert.deepEqual(requestedUrls, []);
+  assert.deepEqual(env.settingsUpdates, []);
+});
+
+test("scheduled update check persists release metadata when enabled", async () => {
+  const env = createFakeEnv({
+    appSettings: [
+      { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "update_channel", value: "stable", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
+  });
+  const requestedUrls: string[] = [];
+
+  await withMockedFetch(
+    async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          tag_name: "v0.10.0",
+          name: "Glyph 0.10.0",
+          body: "## Changes\n\n- Scheduled check",
+          html_url: "https://github.com/example/glyph/releases/tag/v0.10.0",
+          published_at: "2026-05-08T12:00:00.000Z"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      await runScheduled(env);
+    }
+  );
+
+  assert.deepEqual(requestedUrls, ["https://api.github.com/repos/example/glyph/releases/latest"]);
+  assert.deepEqual(
+    env.settingsUpdates.map((binding) => binding.slice(0, 2)),
+    [
+      ["update_last_checked_at", env.settingsUpdates[0][1]],
+      ["update_latest_version", "v0.10.0"],
+      ["update_latest_name", "Glyph 0.10.0"],
+      ["update_release_url", "https://github.com/example/glyph/releases/tag/v0.10.0"],
+      ["update_published_at", "2026-05-08T12:00:00.000Z"],
+      ["update_available", "true"],
+      ["update_last_error", ""]
+    ]
+  );
+  assert.deepEqual(env.deletedObjectKeys, []);
+  assert.deepEqual(env.insertedUploadBindings, []);
 });
 
 test("admin R2 cleanup validates origin before touching candidates", async () => {

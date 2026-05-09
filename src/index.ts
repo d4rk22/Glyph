@@ -60,6 +60,7 @@ import {
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
   markUploadR2DeleteRequested,
+  recordUpdateCheckResult,
   setMultipartUploadId,
   listWebAuthnCredentials,
   markUploadDeleted,
@@ -219,6 +220,10 @@ export default {
 
     ctx.waitUntil(Promise.resolve());
     return html(renderShell("Not Found", notFoundPage()), 404);
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduledUpdateCheck(env));
   }
 };
 
@@ -732,6 +737,7 @@ async function handleAdminUpdateCheck(request: Request, env: Env): Promise<Respo
   }
 
   const result = await checkForUpdates(settings);
+  await recordUpdateCheckResult(env.DB, result);
   return html(renderShell("Glyph Update Check", updateCheckPage(settings, result), { wide: true }));
 }
 
@@ -1838,6 +1844,23 @@ function updatesPanel(settings: AppSettings): string {
   const sourceGuidance = settings.updateSourceUrl
     ? ""
     : `<p class="settings-hint">Official public update source: <code>${escapeHtml(OFFICIAL_UPDATE_SOURCE_URL)}</code>. Leave blank for forks or private deployments.</p>`;
+  const lastCheck = settings.updateCheck.lastCheckedAt
+    ? `<section class="settings-panel" aria-label="Last update check">
+  <h2>Last update check</h2>
+  <div class="settings-detail">
+    <span>Checked ${escapeHtml(settings.updateCheck.lastCheckedAt)}</span>
+    <span>Latest ${escapeHtml(settings.updateCheck.latestVersion ?? "Unavailable")}</span>
+    <span>Update ${settings.updateCheck.updateAvailable ? "Available" : "Not available"}</span>
+    <span>Published ${escapeHtml(settings.updateCheck.publishedAt ?? "Unknown")}</span>
+  </div>
+  ${settings.updateCheck.latestName ? `<p class="settings-hint">${escapeHtml(settings.updateCheck.latestName)}</p>` : ""}
+  ${settings.updateCheck.releaseUrl ? `<p class="settings-hint"><a href="${escapeAttribute(settings.updateCheck.releaseUrl)}">Open latest release</a></p>` : ""}
+  ${settings.updateCheck.lastError ? `<p class="error">${escapeHtml(settings.updateCheck.lastError)}</p>` : ""}
+</section>`
+    : `<section class="settings-panel" aria-label="Last update check">
+  <h2>Last update check</h2>
+  <p class="settings-hint">No update check result has been stored yet.</p>
+</section>`;
   return `<section class="settings-panel" aria-label="Self-update">
   <h2>Self-update</h2>
   <div class="settings-detail">
@@ -1866,7 +1889,9 @@ function updatesPanel(settings: AppSettings): string {
   <form method="post" action="/admin/updates/check">
     <button class="secondary" type="submit">Check for updates</button>
   </form>
-</section>`;
+  <p class="settings-hint">Scheduled checks can notice releases when enabled, but rehearsal, apply, migrations, and deployment stay local and operator-controlled.</p>
+</section>
+${lastCheck}`;
 }
 
 function updateCheckPage(settings: AppSettings, result: UpdateCheckResult): string {
@@ -2218,6 +2243,16 @@ async function deleteR2ObjectForUpload(env: Env, upload: UploadMetadata): Promis
 
 function r2DeleteErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : "R2 delete failed.";
+}
+
+async function runScheduledUpdateCheck(env: Env): Promise<void> {
+  const settings = await getAppSettings(env.DB);
+  if (!settings.autoUpdateEnabled || !settings.updateSourceUrl) {
+    return;
+  }
+
+  const result = await checkForUpdates(settings);
+  await recordUpdateCheckResult(env.DB, result);
 }
 
 async function checkForUpdates(settings: AppSettings): Promise<UpdateCheckResult> {

@@ -234,6 +234,13 @@ Phase 35 admin update apply-guidance maintenance release is in place:
 - `v0.1.6` publishes the protected admin update-check apply guidance through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
 
+Phase 36 read-only scheduled update check groundwork is in place:
+
+- Update checks now persist a read-only D1 snapshot with last checked time, latest release tag/name/URL, published date, update availability, and last error.
+- `/admin` shows the last stored update-check result alongside the existing manual update guidance.
+- An optional Scheduled Worker handler can perform the same read-only GitHub release metadata check when update checks are explicitly enabled and an update source is configured.
+- Scheduled checks only notice releases; they do not deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -353,7 +360,9 @@ When direct-to-R2 mode is enabled and configured, anonymous uploads use a short-
 
 When multipart direct-to-R2 mode is enabled and configured, files at or above the conservative multipart threshold use R2 multipart upload. The Worker creates pending metadata, initiates the R2 multipart upload, signs individual part uploads, completes the multipart upload after all expected parts are reported, verifies the final object size where practical, and only then marks the short link stored. Smaller files in multipart mode continue through the direct single-part path. Failed or aborted multipart uploads are marked unavailable in D1. The normal Worker-mediated `POST /` path remains available as a fallback.
 
-The self-update panel is groundwork for a future public repository workflow. It stores update settings in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. The manual check is intentionally read-only in this phase. It displays release metadata and a manual update checklist, but it does not reuse the deploy helper from admin except as the documented future path for applying migrations, running verification, and deploying safely.
+The self-update panel is groundwork for a future public repository workflow. It stores update settings and the latest read-only update-check result in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. Manual checks persist the last checked time, latest release tag/name/URL, published date, update availability, and last check error for display in `/admin`. The manual check is intentionally read-only. It displays release metadata and a manual update checklist, but it does not reuse the deploy helper from admin except as the documented future path for applying migrations, running verification, and deploying safely.
+
+Glyph also exports a Scheduled Worker handler for read-only update checks. It is inert by default because `wrangler.jsonc` does not configure a trigger and the handler exits unless automatic update checks are enabled in settings and an update source URL is configured. Operators who want periodic notices can add a Cloudflare scheduled trigger in their deployment configuration and opt in from `/admin`; this only records release metadata in D1. Rehearsal, apply, migrations, deploy checks, and deployment remain local/operator-controlled.
 
 The recommended manual update workflow is:
 
@@ -488,7 +497,8 @@ Final MVP smoke checks should include:
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
 - `POST /admin/settings/upload-mode` switches between Worker-mediated, direct-to-R2, and multipart direct-to-R2 upload mode for an authenticated same-origin admin request.
 - `POST /admin/settings/updates` saves read-only self-update settings for an authenticated same-origin admin request.
-- `POST /admin/updates/check` checks configured GitHub release metadata, release notes, local rehearsal guidance, and manual update guidance without deploying, mutating code, executing local commands, storing GitHub tokens, or mutating Cloudflare resources.
+- `POST /admin/updates/check` checks configured GitHub release metadata, persists the read-only result snapshot in D1, shows release notes, local rehearsal guidance, and manual update guidance without deploying, mutating code, executing local commands, storing GitHub tokens, or mutating Cloudflare resources.
+- Scheduled update checks, when explicitly configured by the operator, use the same read-only release metadata path and only persist update-check results in D1.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 - `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
 - `pnpm run update:glyph` checks the public release channel and prints a non-mutating manual update plan.
@@ -606,7 +616,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
-- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot update the current checkout, deploy, apply remote migrations, restart Workers, store GitHub tokens, or schedule checks yet.
+- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.

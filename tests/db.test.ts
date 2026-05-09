@@ -20,6 +20,7 @@ import {
   markUploadR2DeleteCompleted,
   markUploadR2DeleteFailed,
   markUploadR2DeleteRequested,
+  recordUpdateCheckResult,
   setMultipartUploadId,
   setAppSetting,
   updateAppSettings,
@@ -355,7 +356,16 @@ test("app settings helpers parse defaults and typed values", async () => {
     uploadMode: "multipart",
     updateSourceUrl: null,
     updateChannel: "stable",
-    autoUpdateEnabled: false
+    autoUpdateEnabled: false,
+    updateCheck: {
+      lastCheckedAt: null,
+      latestVersion: null,
+      latestName: null,
+      releaseUrl: null,
+      publishedAt: null,
+      updateAvailable: false,
+      lastError: null
+    }
   });
 
   assert.deepEqual(await getAppSettings(db), {
@@ -364,7 +374,16 @@ test("app settings helpers parse defaults and typed values", async () => {
     uploadMode: "direct",
     updateSourceUrl: null,
     updateChannel: "stable",
-    autoUpdateEnabled: false
+    autoUpdateEnabled: false,
+    updateCheck: {
+      lastCheckedAt: null,
+      latestVersion: null,
+      latestName: null,
+      releaseUrl: null,
+      publishedAt: null,
+      updateAvailable: false,
+      lastError: null
+    }
   });
 });
 
@@ -438,7 +457,16 @@ test("update settings helpers persist source channel and automatic opt-in", asyn
     uploadMode: "worker",
     updateSourceUrl: "https://github.com/example/glyph",
     updateChannel: "beta",
-    autoUpdateEnabled: true
+    autoUpdateEnabled: true,
+    updateCheck: {
+      lastCheckedAt: null,
+      latestVersion: null,
+      latestName: null,
+      releaseUrl: null,
+      publishedAt: null,
+      updateAvailable: false,
+      lastError: null
+    }
   });
   assert.deepEqual(
     db.bindings.map((binding) => binding.slice(0, 2)),
@@ -446,6 +474,56 @@ test("update settings helpers persist source channel and automatic opt-in", asyn
       ["update_source_url", "https://github.com/example/glyph"],
       ["update_channel", "beta"],
       ["auto_update_enabled", "true"]
+    ]
+  );
+});
+
+test("update check result helpers persist read-only release snapshot", async () => {
+  const db = createFakeDb([
+    {
+      all: [
+        { key: "update_last_checked_at", value: "2026-05-09T12:00:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_latest_version", value: "v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_latest_name", value: "Glyph v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_release_url", value: "https://github.com/example/glyph/releases/tag/v0.1.7", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_published_at", value: "2026-05-09T11:30:00.000Z", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_available", value: "true", updated_at: "2026-05-09T12:00:00.000Z" },
+        { key: "update_last_error", value: "", updated_at: "2026-05-09T12:00:00.000Z" }
+      ]
+    }
+  ]);
+
+  const snapshot = await recordUpdateCheckResult(db, {
+    checkedAt: "2026-05-09T12:00:00.000Z",
+    latestVersion: "v0.1.7",
+    latestName: "Glyph v0.1.7",
+    releaseUrl: "https://github.com/example/glyph/releases/tag/v0.1.7",
+    publishedAt: "2026-05-09T11:30:00.000Z",
+    updateAvailable: true,
+    error: null
+  });
+  const settings = await getAppSettings(db);
+
+  assert.equal(snapshot.latestVersion, "v0.1.7");
+  assert.deepEqual(settings.updateCheck, {
+    lastCheckedAt: "2026-05-09T12:00:00.000Z",
+    latestVersion: "v0.1.7",
+    latestName: "Glyph v0.1.7",
+    releaseUrl: "https://github.com/example/glyph/releases/tag/v0.1.7",
+    publishedAt: "2026-05-09T11:30:00.000Z",
+    updateAvailable: true,
+    lastError: null
+  });
+  assert.deepEqual(
+    db.bindings.slice(0, 7).map((binding) => binding.slice(0, 2)),
+    [
+      ["update_last_checked_at", "2026-05-09T12:00:00.000Z"],
+      ["update_latest_version", "v0.1.7"],
+      ["update_latest_name", "Glyph v0.1.7"],
+      ["update_release_url", "https://github.com/example/glyph/releases/tag/v0.1.7"],
+      ["update_published_at", "2026-05-09T11:30:00.000Z"],
+      ["update_available", "true"],
+      ["update_last_error", ""]
     ]
   );
 });

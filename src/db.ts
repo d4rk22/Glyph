@@ -13,7 +13,14 @@ export type AppSettingKey =
   | "upload_mode"
   | "update_source_url"
   | "update_channel"
-  | "auto_update_enabled";
+  | "auto_update_enabled"
+  | "update_last_checked_at"
+  | "update_latest_version"
+  | "update_latest_name"
+  | "update_release_url"
+  | "update_published_at"
+  | "update_available"
+  | "update_last_error";
 
 export interface UploadMetadata {
   id: string;
@@ -110,6 +117,27 @@ export interface AppSettings {
   updateSourceUrl: string | null;
   updateChannel: UpdateChannel;
   autoUpdateEnabled: boolean;
+  updateCheck: UpdateCheckSnapshot;
+}
+
+export interface UpdateCheckSnapshot {
+  lastCheckedAt: string | null;
+  latestVersion: string | null;
+  latestName: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  updateAvailable: boolean;
+  lastError: string | null;
+}
+
+export interface RecordUpdateCheckResultInput {
+  checkedAt: string;
+  latestVersion: string | null;
+  latestName: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  updateAvailable: boolean;
+  error: string | null;
 }
 
 export interface StorageUsage {
@@ -827,7 +855,40 @@ export async function getAppSettings(db: D1Database): Promise<AppSettings> {
     uploadMode: parseUploadMode(values.get("upload_mode")),
     updateSourceUrl: parseNullableStringSetting(values.get("update_source_url")),
     updateChannel: parseUpdateChannel(values.get("update_channel")),
-    autoUpdateEnabled: parseBooleanSetting(values.get("auto_update_enabled"))
+    autoUpdateEnabled: parseBooleanSetting(values.get("auto_update_enabled")),
+    updateCheck: {
+      lastCheckedAt: parseNullableStringSetting(values.get("update_last_checked_at")),
+      latestVersion: parseNullableStringSetting(values.get("update_latest_version")),
+      latestName: parseNullableStringSetting(values.get("update_latest_name")),
+      releaseUrl: parseNullableStringSetting(values.get("update_release_url")),
+      publishedAt: parseNullableStringSetting(values.get("update_published_at")),
+      updateAvailable: parseBooleanSetting(values.get("update_available")),
+      lastError: parseNullableStringSetting(values.get("update_last_error"))
+    }
+  };
+}
+
+export async function recordUpdateCheckResult(
+  db: D1Database,
+  result: RecordUpdateCheckResultInput
+): Promise<UpdateCheckSnapshot> {
+  const updatedAt = parseIsoDate(result.checkedAt) ?? new Date();
+  await setAppSetting(db, "update_last_checked_at", result.checkedAt, updatedAt);
+  await setAppSetting(db, "update_latest_version", result.latestVersion ?? "", updatedAt);
+  await setAppSetting(db, "update_latest_name", result.latestName ?? "", updatedAt);
+  await setAppSetting(db, "update_release_url", result.releaseUrl ?? "", updatedAt);
+  await setAppSetting(db, "update_published_at", result.publishedAt ?? "", updatedAt);
+  await setAppSetting(db, "update_available", result.updateAvailable ? "true" : "false", updatedAt);
+  await setAppSetting(db, "update_last_error", result.error ?? "", updatedAt);
+
+  return {
+    lastCheckedAt: result.checkedAt,
+    latestVersion: result.latestVersion,
+    latestName: result.latestName,
+    releaseUrl: result.releaseUrl,
+    publishedAt: result.publishedAt,
+    updateAvailable: result.updateAvailable,
+    lastError: result.error
   };
 }
 
@@ -1317,6 +1378,11 @@ function optionalIso(value: Date | string | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
+function parseIsoDate(value: string): Date | null {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function assertValidUploadMode(value: string): asserts value is UploadMode {
   if (value !== "worker" && value !== "direct" && value !== "multipart") {
     throw new Error("Upload mode must be worker, direct, or multipart.");
@@ -1369,7 +1435,14 @@ function parseAppSettingKey(value: string): AppSettingKey {
     value !== "upload_mode" &&
     value !== "update_source_url" &&
     value !== "update_channel" &&
-    value !== "auto_update_enabled"
+    value !== "auto_update_enabled" &&
+    value !== "update_last_checked_at" &&
+    value !== "update_latest_version" &&
+    value !== "update_latest_name" &&
+    value !== "update_release_url" &&
+    value !== "update_published_at" &&
+    value !== "update_available" &&
+    value !== "update_last_error"
   ) {
     throw new Error(`Unknown app setting: ${value}`);
   }
@@ -1388,14 +1461,14 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     return;
   }
 
-  if (key === "auto_update_enabled") {
+  if (key === "auto_update_enabled" || key === "update_available") {
     if (value !== "true" && value !== "false") {
-      throw new Error("auto_update_enabled must be true or false.");
+      throw new Error(`${key} must be true or false.`);
     }
     return;
   }
 
-  if (key === "update_source_url") {
+  if (key === "update_source_url" || key === "update_release_url") {
     if (value === "") {
       return;
     }
@@ -1403,11 +1476,21 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     try {
       const url = new URL(value);
       if (url.protocol !== "https:") {
-        throw new Error("Update source URL must use HTTPS.");
+        throw new Error(`${key} must use HTTPS.`);
       }
     } catch {
-      throw new Error("Update source URL must be a valid HTTPS URL.");
+      throw new Error(`${key} must be a valid HTTPS URL.`);
     }
+    return;
+  }
+
+  if (
+    key === "update_last_checked_at" ||
+    key === "update_latest_version" ||
+    key === "update_latest_name" ||
+    key === "update_published_at" ||
+    key === "update_last_error"
+  ) {
     return;
   }
 

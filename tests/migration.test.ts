@@ -8,6 +8,7 @@ const r2CleanupMigration = readFileSync(new URL("../migrations/0004_r2_deletion_
 const directUploadMigration = readFileSync(new URL("../migrations/0005_direct_uploads.sql", import.meta.url), "utf8");
 const multipartUploadMigration = readFileSync(new URL("../migrations/0006_multipart_uploads.sql", import.meta.url), "utf8");
 const updateSettingsMigration = readFileSync(new URL("../migrations/0007_update_settings.sql", import.meta.url), "utf8");
+const updateCheckResultsMigration = readFileSync(new URL("../migrations/0008_update_check_results.sql", import.meta.url), "utf8");
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
@@ -17,7 +18,8 @@ test("migrations include the core metadata and auth tables", () => {
     r2CleanupMigration,
     directUploadMigration,
     multipartUploadMigration,
-    updateSettingsMigration
+    updateSettingsMigration,
+    updateCheckResultsMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
@@ -74,6 +76,22 @@ test("update settings migration seeds self-update app settings", () => {
   }
 
   assert.match(updateSettingsMigration, /INSERT OR IGNORE INTO app_settings/);
+});
+
+test("update check results migration seeds read-only result settings", () => {
+  for (const key of [
+    "update_last_checked_at",
+    "update_latest_version",
+    "update_latest_name",
+    "update_release_url",
+    "update_published_at",
+    "update_available",
+    "update_last_error"
+  ]) {
+    assert.match(updateCheckResultsMigration, new RegExp(`'${key}'`));
+  }
+
+  assert.match(updateCheckResultsMigration, /INSERT OR IGNORE INTO app_settings/);
 });
 
 test("uploads table keeps file bytes out of D1 metadata", () => {
