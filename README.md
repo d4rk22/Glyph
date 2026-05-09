@@ -204,6 +204,12 @@ Phase 30 public repository issue and support templates are in place:
 - Templates remind users not to post secrets, real Cloudflare account IDs, API tokens, sensitive private domains, passkey data, R2 object keys, private file details, or private deployment logs.
 - Public support is best-effort community support only; Glyph is not a hosted service and does not provide an SLA, billing support, or guaranteed compatibility with every Cloudflare account configuration.
 
+Phase 31 public support templates maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.4`.
+- `v0.1.4` publishes the public issue/support templates through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

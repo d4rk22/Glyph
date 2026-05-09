@@ -149,6 +149,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Admin update checks can guide operators toward local update rehearsal while remaining read-only and never executing commands, deploying, applying migrations, storing tokens, scheduling checks, or mutating Cloudflare resources.
 - Admin update rehearsal guidance maintenance releases can keep the public release/update channel aligned with protected admin guidance while preserving the conservative source-only release model.
 - Public repository support templates guide bug reports, feature requests, deployment/setup support, and security-report redirection without asking users to post secrets or private deployment details.
+- Public support template maintenance releases can keep the public release/update channel aligned with repository support-surface changes while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -179,3 +180,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 28. Add admin-facing guidance for local update rehearsal. Completed.
 29. Publish the admin update rehearsal guidance maintenance release. Completed.
 30. Add public repository issue and support templates. Completed.
+31. Publish the public support templates maintenance release. Completed.
