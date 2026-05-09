@@ -415,7 +415,10 @@ test("adminNoticeMessage maps known dashboard notices", () => {
     "R2 cleanup retried, but one or more objects still could not be deleted."
   );
   assert.equal(adminNoticeMessage("r2-cleanup-none"), "No expired or deleted uploads currently need R2 cleanup.");
-  assert.equal(adminNoticeMessage("update-settings-saved"), "Update settings saved. Automatic updates remain opt-in and no update was run.");
+  assert.equal(
+    adminNoticeMessage("update-settings-saved"),
+    "Update settings saved. Scheduled checks remain read-only and no update was run."
+  );
   assert.equal(adminNoticeMessage("invalid-update-settings"), "Update settings must use a valid HTTPS source URL and known channel.");
   assert.equal(adminNoticeMessage("update-source-missing"), "Add a public GitHub update source before checking for updates.");
   assert.equal(adminNoticeMessage("unknown"), null);
@@ -473,7 +476,12 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /Official public update source/);
   assert.match(body, /https:\/\/github\.com\/d4rk22\/Glyph/);
   assert.match(body, /placeholder="https:\/\/github\.com\/d4rk22\/Glyph"/);
-  assert.match(body, /Automatic Disabled/);
+  assert.match(body, /Scheduled checks Disabled/);
+  assert.match(body, /Enable read-only scheduled update checks/);
+  assert.match(body, /inert unless a Cloudflare Scheduled Worker trigger is configured/);
+  assert.match(body, /only fetch public GitHub release metadata/);
+  assert.match(body, /store the read-only result in D1/);
+  assert.match(body, /do not deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, create Cloudflare triggers, or mutate Cloudflare resources/);
   assert.match(body, /action="\/admin\/settings\/updates"/);
   assert.match(body, /action="\/admin\/updates\/check"/);
   assert.match(body, /report\.pdf/);
@@ -529,14 +537,17 @@ test("authenticated admin page displays configured update settings", async () =>
   assert.equal(response.status, 200);
   assert.match(body, /Source https:\/\/github\.com\/example\/glyph/);
   assert.match(body, /Channel beta/);
-  assert.match(body, /Automatic Enabled/);
+  assert.match(body, /Scheduled checks Enabled/);
   assert.match(body, /aria-label="Last update check"/);
   assert.match(body, /Checked 2026-05-09T12:00:00.000Z/);
   assert.match(body, /Latest v0\.1\.7/);
   assert.match(body, /Update Available/);
   assert.match(body, /Glyph v0\.1\.7/);
   assert.match(body, /Open latest release/);
-  assert.match(body, /Scheduled checks can notice releases/);
+  assert.match(body, /Enable read-only scheduled update checks/);
+  assert.match(body, /inert unless a Cloudflare Scheduled Worker trigger is configured/);
+  assert.match(body, /only fetch public GitHub release metadata/);
+  assert.match(body, /create Cloudflare triggers/);
   assert.match(body, /name="autoUpdateEnabled" type="checkbox" value="true" checked/);
   assert.match(body, /<option value="beta" selected>Beta<\/option>/);
   assert.doesNotMatch(body, /Leave blank for forks or private deployments/);

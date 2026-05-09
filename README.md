@@ -247,6 +247,13 @@ Phase 37 read-only scheduled update-check maintenance release is in place:
 - `v0.1.7` publishes the D1-backed update-check result storage, protected admin last-check display, and optional read-only Scheduled Worker handler through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, or Cloudflare mutation is part of the release process.
 
+Phase 38 scheduled update-check configuration guidance is in place:
+
+- The `/admin` self-update panel now labels the opt-in setting as read-only scheduled update checks instead of executable automatic updates.
+- Admin guidance explains that scheduled checks stay inert unless the operator configures a Cloudflare Scheduled Worker trigger and enables the setting in Glyph.
+- The panel states that scheduled checks only fetch public GitHub release metadata and persist the read-only result in D1.
+- Scheduled checks still never deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, create Cloudflare triggers, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -368,7 +375,7 @@ When multipart direct-to-R2 mode is enabled and configured, files at or above th
 
 The self-update panel is groundwork for a future public repository workflow. It stores update settings and the latest read-only update-check result in D1, displays the current deployed Glyph version, and can check GitHub release metadata from a configured public repo. Manual checks persist the last checked time, latest release tag/name/URL, published date, update availability, and last check error for display in `/admin`. The manual check is intentionally read-only. It displays release metadata and a manual update checklist, but it does not reuse the deploy helper from admin except as the documented future path for applying migrations, running verification, and deploying safely.
 
-Glyph also exports a Scheduled Worker handler for read-only update checks. It is inert by default because `wrangler.jsonc` does not configure a trigger and the handler exits unless automatic update checks are enabled in settings and an update source URL is configured. Operators who want periodic notices can add a Cloudflare scheduled trigger in their deployment configuration and opt in from `/admin`; this only records release metadata in D1. Rehearsal, apply, migrations, deploy checks, and deployment remain local/operator-controlled.
+Glyph also exports a Scheduled Worker handler for read-only update checks. It is inert by default because `wrangler.jsonc` does not configure a trigger and the handler exits unless read-only scheduled update checks are enabled in settings and an update source URL is configured. Operators who want periodic notices can add a Cloudflare Scheduled Worker trigger in their deployment configuration, configure an update source in `/admin`, and enable read-only scheduled update checks from the self-update panel. This only fetches public GitHub release metadata and records the result in D1. Rehearsal, apply, migrations, deploy checks, and deployment remain local/operator-controlled.
 
 The recommended manual update workflow is:
 

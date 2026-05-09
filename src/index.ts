@@ -1867,7 +1867,7 @@ function updatesPanel(settings: AppSettings): string {
     <span>Current ${escapeHtml(GLYPH_VERSION)}</span>
     <span>Source ${settings.updateSourceUrl ? escapeHtml(settings.updateSourceUrl) : "Not configured"}</span>
     <span>Channel ${escapeHtml(settings.updateChannel)}</span>
-    <span>Automatic ${settings.autoUpdateEnabled ? "Enabled" : "Disabled"}</span>
+    <span>Scheduled checks ${settings.autoUpdateEnabled ? "Enabled" : "Disabled"}</span>
   </div>
   <form class="settings-form" method="post" action="/admin/settings/updates">
     <div>
@@ -1881,15 +1881,16 @@ function updatesPanel(settings: AppSettings): string {
       </select>
       <label>
         <input name="autoUpdateEnabled" type="checkbox" value="true"${settings.autoUpdateEnabled ? " checked" : ""}>
-        Automatic updates
+        Enable read-only scheduled update checks
       </label>
+      <p class="settings-hint">Scheduled checks are inert unless a Cloudflare Scheduled Worker trigger is configured for this Worker and this box is enabled.</p>
     </div>
     <button type="submit">Save updates</button>
   </form>
   <form method="post" action="/admin/updates/check">
     <button class="secondary" type="submit">Check for updates</button>
   </form>
-  <p class="settings-hint">Scheduled checks can notice releases when enabled, but rehearsal, apply, migrations, and deployment stay local and operator-controlled.</p>
+  <p class="settings-hint">Scheduled checks only fetch public GitHub release metadata and store the read-only result in D1. They do not deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, create Cloudflare triggers, or mutate Cloudflare resources.</p>
 </section>
 ${lastCheck}`;
 }

@@ -31,7 +31,7 @@ export function adminNoticeMessage(notice: string | null): string | null {
     case "r2-cleanup-none":
       return "No expired or deleted uploads currently need R2 cleanup.";
     case "update-settings-saved":
-      return "Update settings saved. Automatic updates remain opt-in and no update was run.";
+      return "Update settings saved. Scheduled checks remain read-only and no update was run.";
     case "invalid-update-settings":
       return "Update settings must use a valid HTTPS source URL and known channel.";
     case "update-source-missing":
