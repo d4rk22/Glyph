@@ -1523,8 +1523,15 @@ test("admin update check fetches release metadata without mutating deploy state"
       assert.match(body, /pnpm run update:glyph -- --rehearse --yes/);
       assert.match(body, /local checkout is clean/);
       assert.match(body, /temporary worktree checks and migration-file summary/);
+      assert.match(body, /aria-label="Local update apply"/);
+      assert.match(body, /pnpm run update:glyph -- --apply/);
+      assert.match(body, /pnpm run update:glyph -- --apply --yes/);
+      assert.match(body, /move the checkout to the validated release tag/);
+      assert.match(body, /pnpm install --frozen-lockfile/);
       assert.match(body, /aria-label="Manual update workflow"/);
+      assert.match(body, /Review the local apply plan/);
       assert.match(body, /pnpm run release:check/);
+      assert.match(body, /check out code/);
       assert.match(body, /execute local commands/);
       assert.match(body, /mutate Cloudflare resources/);
       assert.match(body, /Open release/);

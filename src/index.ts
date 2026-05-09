@@ -1937,18 +1937,33 @@ function manualUpdatePanel(): string {
   </ol>
   <p>Rehearsal runs locally only. This admin page shows release information but does not execute local commands.</p>
 </section>
+<section class="settings-panel" aria-label="Local update apply">
+  <h2>Local update apply</h2>
+  <ol>
+    <li>After reviewing and rehearsing, run <code>pnpm run update:glyph -- --apply</code> to inspect the local apply plan.</li>
+    <li>When ready and the local checkout is clean, run <code>pnpm run update:glyph -- --apply --yes</code> to move the checkout to the validated release tag.</li>
+    <li>Run <code>pnpm install --frozen-lockfile</code>.</li>
+    <li>Run <code>pnpm run release:check</code>.</li>
+    <li>Review and apply remote D1 migrations intentionally.</li>
+    <li>Run deploy checks and deploy intentionally.</li>
+  </ol>
+  <p>Apply mode runs locally only. This admin page does not check out code, deploy, apply migrations, mutate files, or execute update helpers.</p>
+</section>
 <section class="settings-panel" aria-label="Manual update workflow">
   <h2>Manual update workflow</h2>
   <ol>
     <li>Review the release notes and migration notes.</li>
     <li>Rehearse the update locally with <code>pnpm run update:glyph -- --rehearse</code>.</li>
     <li>Run confirmed rehearsal from a clean checkout with <code>pnpm run update:glyph -- --rehearse --yes</code>.</li>
-    <li>Install and check the selected release in the rehearsal worktree with <code>pnpm install --frozen-lockfile</code> and <code>pnpm run release:check</code>.</li>
-    <li>Apply remote migrations intentionally.</li>
+    <li>Review the local apply plan with <code>pnpm run update:glyph -- --apply</code>.</li>
+    <li>Move a clean checkout to the selected release with <code>pnpm run update:glyph -- --apply --yes</code>.</li>
+    <li>Install dependencies with <code>pnpm install --frozen-lockfile</code>.</li>
+    <li>Run <code>pnpm run release:check</code>.</li>
+    <li>Review and apply remote migrations intentionally.</li>
     <li>Run <code>pnpm run deploy:glyph -- --check</code>.</li>
     <li>Deploy with <code>pnpm run deploy:glyph -- --yes</code>.</li>
   </ol>
-  <p>This admin page does not deploy, apply migrations, restart the Worker, mutate code, execute local commands, store GitHub tokens, schedule checks, or mutate Cloudflare resources.</p>
+  <p>This admin page does not deploy, apply migrations, restart the Worker, mutate code, check out code, execute local commands, store GitHub tokens, schedule checks, or mutate Cloudflare resources.</p>
 </section>`;
 }
 
