@@ -10,6 +10,7 @@
     "deploy": "wrangler deploy",
     "deploy:glyph": "node scripts/deploy.mjs",
     "release:check": "node scripts/release-check.mjs",
+    "update:glyph": "node scripts/update.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "cf-typegen": "wrangler types",

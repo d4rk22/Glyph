@@ -162,6 +162,12 @@ Phase 23 public release/update channel is in place:
 - Public releases use `vMAJOR.MINOR.PATCH` tags, starting with `v0.1.0`.
 - GitHub releases are the release/update channel for the manual self-update workflow.
 
+Phase 24 local manual self-update helper is in place:
+
+- `pnpm run update:glyph` checks the official GitHub release channel and prints a local update plan without changing files, git refs, deployments, migrations, or Cloudflare resources.
+- `--source` and `--channel` let forks or private deployments check their own GitHub release source.
+- `--yes` is intentionally narrow: when an update is available and the working tree is clean, it fetches the validated release tag only, then leaves checkout, install, release checks, migrations, and deploy as explicit operator steps.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -329,6 +335,32 @@ pnpm run release:check
 
 The release check validates the package-backed version source, runs typecheck and tests, performs a Wrangler deploy dry-run, and checks local D1 migrations. Use `--skip-d1` only when local Wrangler D1 is unavailable and the migration status has been checked another way. The command does not publish GitHub releases, deploy the Worker, apply remote migrations, make the repository public, or mutate Cloudflare resources.
 
+## Local Manual Updates
+
+Check the public release channel and print an update plan:
+
+```sh
+pnpm run update:glyph
+```
+
+Use a fork or beta-style release channel:
+
+```sh
+pnpm run update:glyph -- --source https://github.com/owner/repo --channel beta
+```
+
+The default source is `https://github.com/d4rk22/Glyph`, and the default channel is `stable`. `stable` checks GitHub's latest release endpoint; `beta` checks the newest release entry.
+
+By default, the helper is a dry run. It compares the current `package.json` version to the selected GitHub release, prints the release tag, URL, notes summary, published date, update status, and a manual operator workflow. It does not mutate files, fetch tags, check out code, install dependencies, deploy, apply migrations, store GitHub tokens, or call the deployed admin UI.
+
+When you want the helper to perform its only mutating action, run:
+
+```sh
+pnpm run update:glyph -- --yes
+```
+
+Confirmed mode refuses to continue unless the working tree is clean and the selected release is newer. When those checks pass, it fetches the validated release tag only. Continue manually by checking out the tag, running `pnpm install --frozen-lockfile`, `pnpm run release:check`, applying remote D1 migrations intentionally, running `pnpm run deploy:glyph -- --check`, and deploying with `pnpm run deploy:glyph -- --yes`.
+
 ## Verification
 
 ```sh
@@ -336,6 +368,7 @@ pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm test
 pnpm run release:check
+pnpm run update:glyph
 pnpm wrangler deploy --dry-run --outdir /tmp/glyph-dry-run
 ```
 
@@ -357,6 +390,7 @@ Final MVP smoke checks should include:
 - `POST /admin/updates/check` checks configured GitHub release metadata, release notes, and manual update guidance without deploying or mutating code.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 - `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
+- `pnpm run update:glyph` checks the public release channel and prints a non-mutating manual update plan.
 
 ## Dependency Policy
 
@@ -465,7 +499,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
-- Self-update is a read-only manual workflow only; it cannot run updates, deploy, apply migrations, restart Workers, store GitHub tokens, or schedule checks yet.
+- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag only with `--yes`; it cannot check out updates, deploy, apply migrations, restart Workers, store GitHub tokens, or schedule checks yet.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.

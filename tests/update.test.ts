@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  buildUpdatePlan,
+  compareVersions,
+  formatUpdatePlan,
+  normalizeReleaseResponse,
+  OFFICIAL_UPDATE_SOURCE_URL,
+  parseGitHubSource,
+  parseUpdateArgs,
+  updateReleaseRequestUrl
+} from "../scripts/update.mjs";
+
+const release = {
+  tag: "v0.2.0",
+  name: "Glyph v0.2.0",
+  body: "## Highlights - New update helper",
+  publishedAt: "2026-05-09T12:00:00Z",
+  url: "https://github.com/d4rk22/Glyph/releases/tag/v0.2.0"
+};
+
+test("manual update argument parser defaults to official source and dry run", () => {
+  assert.deepEqual(parseUpdateArgs([]), {
+    source: OFFICIAL_UPDATE_SOURCE_URL,
+    channel: "stable",
+    yes: false,
+    help: false
+  });
+
+  assert.deepEqual(parseUpdateArgs(["--source", "https://github.com/example/glyph", "--channel=beta", "--yes"]), {
+    source: "https://github.com/example/glyph",
+    channel: "beta",
+    yes: true,
+    help: false
+  });
+
+  assert.throws(() => parseUpdateArgs(["--source="]), /Update source cannot be empty/);
+  assert.throws(() => parseUpdateArgs(["--channel", "nightly"]), /stable or beta/);
+  assert.throws(() => parseUpdateArgs(["--source"]), /requires a value/);
+});
+
+test("manual update helper accepts only GitHub release sources", () => {
+  assert.deepEqual(parseGitHubSource("https://github.com/d4rk22/Glyph"), {
+    owner: "d4rk22",
+    repo: "Glyph",
+    repoUrl: "https://github.com/d4rk22/Glyph",
+    gitUrl: "https://github.com/d4rk22/Glyph.git"
+  });
+
+  assert.deepEqual(parseGitHubSource("https://github.com/d4rk22/Glyph.git"), {
+    owner: "d4rk22",
+    repo: "Glyph",
+    repoUrl: "https://github.com/d4rk22/Glyph",
+    gitUrl: "https://github.com/d4rk22/Glyph.git"
+  });
+
+  assert.match(String(parseGitHubSource("https://example.com/d4rk22/Glyph")), /Only https:\/\/github\.com/);
+});
+
+test("manual update helper builds stable and beta release API URLs", () => {
+  assert.equal(
+    updateReleaseRequestUrl("https://github.com/d4rk22/Glyph", "stable"),
+    "https://api.github.com/repos/d4rk22/Glyph/releases/latest"
+  );
+  assert.equal(
+    updateReleaseRequestUrl("https://github.com/d4rk22/Glyph", "beta"),
+    "https://api.github.com/repos/d4rk22/Glyph/releases?per_page=1"
+  );
+});
+
+test("manual update helper normalizes release metadata and notes", () => {
+  const parsed = normalizeReleaseResponse({
+    tag_name: " v0.2.0 ",
+    name: " Glyph v0.2.0 ",
+    body: "## Highlights\n\n- New update helper",
+    published_at: "2026-05-09T12:00:00Z",
+    html_url: "https://github.com/d4rk22/Glyph/releases/tag/v0.2.0"
+  });
+
+  assert.deepEqual(parsed, release);
+  assert.equal(normalizeReleaseResponse([{ tag_name: "v0.3.0" }])?.tag, "v0.3.0");
+  assert.equal(normalizeReleaseResponse({ name: "No tag" }), null);
+});
+
+test("manual update helper compares semver-like tags", () => {
+  assert.equal(compareVersions("v0.2.0", "0.1.0"), 1);
+  assert.equal(compareVersions("v0.1.0", "0.1.0"), 0);
+  assert.equal(compareVersions("v0.0.9", "0.1.0"), -1);
+  assert.equal(compareVersions("v1.0.0-beta.2", "1.0.0-beta.1"), 1);
+  assert.equal(compareVersions("release-2026", "0.1.0"), null);
+});
+
+test("manual update plan is non-mutating by default", () => {
+  const plan = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs([]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(plan.newer, true);
+  assert.equal(plan.mutates, false);
+  assert.deepEqual(plan.commands.fetchTag, ["git", "fetch", "https://github.com/d4rk22/Glyph.git", "tag", "v0.2.0"]);
+  assert.match(formatUpdatePlan(plan), /Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed/);
+});
+
+test("manual update plan only fetches a tag with confirmation and clean tree", () => {
+  const confirmed = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+  assert.equal(confirmed.mutates, true);
+  assert.match(formatUpdatePlan(confirmed), /will fetch the validated release tag only/);
+
+  const dirty = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--yes"]),
+    release,
+    cleanWorkingTree: false
+  });
+  assert.equal(dirty.mutates, false);
+  assert.match(dirty.warnings.join("\n"), /Working tree is not clean/);
+
+  const current = buildUpdatePlan({
+    currentVersion: "0.2.0",
+    options: parseUpdateArgs(["--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+  assert.equal(current.mutates, false);
+  assert.equal(current.newer, false);
+});
