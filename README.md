@@ -336,6 +336,13 @@ Phase 50 guided secret and CORS planning is in place:
 - The helper generates an R2 CORS recommendation for the configured `PUBLIC_BASE_URL` when known, including PUT from the Glyph origin and exposed `ETag` for multipart finalization.
 - R2 CORS application remains manual in this phase; the helper does not set secrets, apply CORS, store secret values, or mutate Cloudflare resources for direct/multipart readiness.
 
+Phase 51 guided secret and CORS planning maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.4`.
+- `v0.2.4` publishes guided direct/multipart upload setup planning through the GitHub release channel.
+- The release highlights exact `pnpm wrangler secret put ...` command guidance without secret values, required and optional R2 secret readiness reporting, R2 CORS recommendation generation for `PUBLIC_BASE_URL`, manual CORS application, and Worker-mediated upload fallback behavior.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS/custom-domain creation, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

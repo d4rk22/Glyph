@@ -216,3 +216,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 48. Harden turnkey deploy for fresh-checkout operator success. Completed.
 49. Publish the turnkey deploy hardening maintenance release. Completed.
 50. Add guided secrets and R2 CORS setup planning for turnkey deploy. Completed.
+51. Publish the guided secrets and R2 CORS planning maintenance release. Completed.
