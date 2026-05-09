@@ -174,6 +174,12 @@ Phase 25 first maintenance release is in place:
 - `v0.1.1` is the first maintenance release intended to prove the public GitHub release channel and local manual update flow.
 - The release remains source-only; no npm package, Worker deploy, remote migration, or Cloudflare resource mutation is part of the release process.
 
+Phase 26 local update rehearsal is in place:
+
+- `pnpm run update:glyph -- --rehearse` prints an isolated temporary-worktree rehearsal plan without changing the current checkout.
+- `pnpm run update:glyph -- --rehearse --yes` can fetch the validated release tag, create a temporary detached worktree, run install and release checks there, summarize target migration files, and clean up the worktree.
+- Rehearsal mode still does not deploy, apply remote migrations, publish packages, execute updates from admin, store GitHub tokens, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -359,6 +365,8 @@ The default source is `https://github.com/d4rk22/Glyph`, and the default channel
 
 By default, the helper is a dry run. It compares the current `package.json` version to the selected GitHub release, prints the release tag, URL, notes summary, published date, update status, and a manual operator workflow. It does not mutate files, fetch tags, check out code, install dependencies, deploy, apply migrations, store GitHub tokens, or call the deployed admin UI.
 
+The helper can use a read-only `GITHUB_TOKEN` or `GH_TOKEN` environment variable for GitHub release metadata if unauthenticated API rate limits are reached. Tokens are read from the process environment only; Glyph does not store them.
+
 When you want the helper to perform its only mutating action, run:
 
 ```sh
@@ -366,6 +374,22 @@ pnpm run update:glyph -- --yes
 ```
 
 Confirmed mode refuses to continue unless the working tree is clean and the selected release is newer. When those checks pass, it fetches the validated release tag only. Continue manually by checking out the tag, running `pnpm install --frozen-lockfile`, `pnpm run release:check`, applying remote D1 migrations intentionally, running `pnpm run deploy:glyph -- --check`, and deploying with `pnpm run deploy:glyph -- --yes`.
+
+Rehearse an update without touching the current checkout:
+
+```sh
+pnpm run update:glyph -- --rehearse
+```
+
+The rehearsal dry run prints the tag fetch, temporary worktree, install, release-check, migration summary, and cleanup plan. To execute that local rehearsal, run:
+
+```sh
+pnpm run update:glyph -- --rehearse --yes
+```
+
+Confirmed rehearsal mode requires a clean working tree and a newer selected release. It fetches the validated release tag, creates an isolated detached git worktree under `/tmp`, runs `pnpm install --frozen-lockfile` and `pnpm run release:check` inside that worktree, lists the target release's `migrations/*.sql` files, and removes the temporary worktree by default. Add `--keep-worktree` to keep the worktree for inspection; the helper prints the cleanup command.
+
+The rehearsal workflow prepares future opt-in automatic updates by proving that release checks can run away from the active checkout. It still does not check out code in the current tree, deploy Workers, apply remote migrations, publish npm packages, execute updates from admin, store GitHub tokens, schedule checks, or mutate Cloudflare resources.
 
 ## Verification
 
@@ -375,6 +399,7 @@ pnpm run typecheck
 pnpm test
 pnpm run release:check
 pnpm run update:glyph
+pnpm run update:glyph -- --rehearse
 pnpm wrangler deploy --dry-run --outdir /tmp/glyph-dry-run
 ```
 
@@ -397,6 +422,7 @@ Final MVP smoke checks should include:
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 - `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
 - `pnpm run update:glyph` checks the public release channel and prints a non-mutating manual update plan.
+- `pnpm run update:glyph -- --rehearse` prints a non-mutating temporary-worktree rehearsal plan.
 
 ## Dependency Policy
 
@@ -505,7 +531,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The deploy helper can create the basic D1 database and R2 bucket on request, but Wrangler auth, the copied D1 database ID, secrets, CORS, DNS, and custom-domain attachment are still manual setup.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
-- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag only with `--yes`; it cannot check out updates, deploy, apply migrations, restart Workers, store GitHub tokens, or schedule checks yet.
+- Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot update the current checkout, deploy, apply remote migrations, restart Workers, store GitHub tokens, or schedule checks yet.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.
 - No folders, public file browsing, billing, executable self-updates, or full custom-domain automation.
 - Admin listing is limited to the 100 most recent metadata rows.

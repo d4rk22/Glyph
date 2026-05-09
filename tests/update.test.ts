@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildRehearsalSteps,
   buildUpdatePlan,
   compareVersions,
   formatUpdatePlan,
@@ -25,6 +26,8 @@ test("manual update argument parser defaults to official source and dry run", ()
     source: OFFICIAL_UPDATE_SOURCE_URL,
     channel: "stable",
     yes: false,
+    rehearse: false,
+    keepWorktree: false,
     help: false
   });
 
@@ -32,12 +35,17 @@ test("manual update argument parser defaults to official source and dry run", ()
     source: "https://github.com/example/glyph",
     channel: "beta",
     yes: true,
+    rehearse: false,
+    keepWorktree: false,
     help: false
   });
 
+  assert.equal(parseUpdateArgs(["--rehearse"]).rehearse, true);
+  assert.equal(parseUpdateArgs(["--rehearse", "--keep-worktree"]).keepWorktree, true);
   assert.throws(() => parseUpdateArgs(["--source="]), /Update source cannot be empty/);
   assert.throws(() => parseUpdateArgs(["--channel", "nightly"]), /stable or beta/);
   assert.throws(() => parseUpdateArgs(["--source"]), /requires a value/);
+  assert.throws(() => parseUpdateArgs(["--keep-worktree"]), /only with --rehearse/);
 });
 
 test("manual update helper accepts only GitHub release sources", () => {
@@ -101,6 +109,7 @@ test("manual update plan is non-mutating by default", () => {
 
   assert.equal(plan.newer, true);
   assert.equal(plan.mutates, false);
+  assert.equal(plan.rehearses, false);
   assert.deepEqual(plan.commands.fetchTag, ["git", "fetch", "https://github.com/d4rk22/Glyph.git", "tag", "v0.2.0"]);
   assert.match(formatUpdatePlan(plan), /Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed/);
 });
@@ -132,4 +141,75 @@ test("manual update plan only fetches a tag with confirmation and clean tree", (
   });
   assert.equal(current.mutates, false);
   assert.equal(current.newer, false);
+});
+
+test("manual update rehearsal is a dry-run plan unless confirmed", () => {
+  const dryRun = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--rehearse"]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(dryRun.rehearses, true);
+  assert.equal(dryRun.mutates, false);
+  assert.deepEqual(dryRun.commands.worktreeAdd, ["git", "worktree", "add", "--detach", "/tmp/glyph-update-v0.2.0", "v0.2.0"]);
+  assert.deepEqual(dryRun.commands.worktreeRemove, ["git", "worktree", "remove", "--force", "/tmp/glyph-update-v0.2.0"]);
+  assert.match(formatUpdatePlan(dryRun), /Update rehearsal:/);
+  assert.match(formatUpdatePlan(dryRun), /Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed/);
+});
+
+test("manual update rehearsal requires confirmation and a clean tree", () => {
+  const confirmed = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--rehearse", "--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(confirmed.mutates, true);
+  assert.match(formatUpdatePlan(confirmed), /Confirmed rehearsal/);
+  assert.match(formatUpdatePlan(confirmed), /It will not change the current checkout/);
+
+  const dirty = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--rehearse", "--yes"]),
+    release,
+    cleanWorkingTree: false
+  });
+
+  assert.equal(dirty.mutates, false);
+  assert.match(dirty.warnings.join("\n"), /refusing to create an update rehearsal worktree/);
+});
+
+test("manual update rehearsal steps include isolated worktree checks and cleanup guidance", () => {
+  const plan = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--rehearse", "--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+  const steps = buildRehearsalSteps(plan);
+
+  assert.deepEqual(
+    steps.map((step) => step.label),
+    [
+      "Fetch release tag",
+      "Create isolated worktree",
+      "Install locked dependencies in worktree",
+      "Run release checks in worktree",
+      "Summarize target migrations",
+      "Remove rehearsal worktree"
+    ]
+  );
+  assert.equal(steps.at(-1)?.command?.join(" "), "git worktree remove --force /tmp/glyph-update-v0.2.0");
+
+  const keepPlan = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--rehearse", "--yes", "--keep-worktree"]),
+    release,
+    cleanWorkingTree: true
+  });
+  assert.equal(buildRehearsalSteps(keepPlan).some((step) => step.label === "Remove rehearsal worktree"), false);
+  assert.match(formatUpdatePlan(keepPlan), /Keep the rehearsal worktree for inspection/);
 });

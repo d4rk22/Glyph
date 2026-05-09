@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,6 +12,8 @@ export function parseUpdateArgs(argv) {
     source: OFFICIAL_UPDATE_SOURCE_URL,
     channel: DEFAULT_UPDATE_CHANNEL,
     yes: false,
+    rehearse: false,
+    keepWorktree: false,
     help: false
   };
 
@@ -29,6 +31,10 @@ export function parseUpdateArgs(argv) {
       options.channel = arg.slice("--channel=".length);
     } else if (arg === "--yes" || arg === "-y") {
       options.yes = true;
+    } else if (arg === "--rehearse") {
+      options.rehearse = true;
+    } else if (arg === "--keep-worktree") {
+      options.keepWorktree = true;
     } else if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else {
@@ -45,6 +51,10 @@ export function parseUpdateArgs(argv) {
 
   if (options.channel !== "stable" && options.channel !== "beta") {
     throw new Error("Update channel must be stable or beta.");
+  }
+
+  if (options.keepWorktree && !options.rehearse) {
+    throw new Error("Use --keep-worktree only with --rehearse.");
   }
 
   return options;
@@ -165,7 +175,9 @@ export function buildUpdatePlan({ currentVersion, options, release, cleanWorking
 
   const comparison = compareVersions(release.tag, currentVersion);
   const newer = comparison === null ? release.tag !== currentVersion && release.tag !== `v${currentVersion}` : comparison > 0;
-  const canFetchTag = Boolean(options.yes && newer && cleanWorkingTree);
+  const canFetchTag = Boolean(options.yes && newer && cleanWorkingTree && !options.rehearse);
+  const canRehearse = Boolean(options.rehearse && options.yes && newer && cleanWorkingTree);
+  const worktreePath = `/tmp/glyph-update-${safePathSegment(release.tag)}`;
 
   return {
     currentVersion,
@@ -175,21 +187,36 @@ export function buildUpdatePlan({ currentVersion, options, release, cleanWorking
     comparison,
     newer,
     cleanWorkingTree,
-    mutates: canFetchTag,
+    mutates: canFetchTag || canRehearse,
+    rehearses: Boolean(options.rehearse),
+    keepWorktree: Boolean(options.keepWorktree),
     warnings: [
       ...(comparison === null ? [`Could not compare ${release.tag} to ${currentVersion} as semver; treating different tags as potentially newer.`] : []),
-      ...(!cleanWorkingTree && options.yes ? ["Working tree is not clean; refusing to fetch the update tag."] : []),
-      ...(!newer && options.yes ? ["Latest release is not newer than the current package version; no tag fetch is needed."] : [])
+      ...(!cleanWorkingTree && options.yes ? [`Working tree is not clean; refusing to ${options.rehearse ? "create an update rehearsal worktree" : "fetch the update tag"}.`] : []),
+      ...(!newer && options.yes ? [`Latest release is not newer than the current package version; no ${options.rehearse ? "rehearsal" : "tag fetch"} is needed.`] : [])
     ],
     commands: {
       fetchTag: ["git", "fetch", source.gitUrl, "tag", release.tag],
       checkout: ["git", "checkout", release.tag],
+      worktreeAdd: ["git", "worktree", "add", "--detach", worktreePath, release.tag],
+      worktreeRemove: ["git", "worktree", "remove", "--force", worktreePath],
       install: ["pnpm", "install", "--frozen-lockfile"],
       releaseCheck: ["pnpm", "run", "release:check"],
       deployCheck: ["pnpm", "run", "deploy:glyph", "--", "--check"],
       deploy: ["pnpm", "run", "deploy:glyph", "--", "--yes"]
     }
   };
+}
+
+export function buildRehearsalSteps(plan) {
+  return [
+    { label: "Fetch release tag", command: plan.commands.fetchTag, cwd: null, mutates: true },
+    { label: "Create isolated worktree", command: plan.commands.worktreeAdd, cwd: null, mutates: true },
+    { label: "Install locked dependencies in worktree", command: plan.commands.install, cwd: plan.commands.worktreeAdd.at(-2), mutates: true },
+    { label: "Run release checks in worktree", command: plan.commands.releaseCheck, cwd: plan.commands.worktreeAdd.at(-2), mutates: false },
+    { label: "Summarize target migrations", command: null, cwd: plan.commands.worktreeAdd.at(-2), mutates: false },
+    ...(!plan.keepWorktree ? [{ label: "Remove rehearsal worktree", command: plan.commands.worktreeRemove, cwd: null, mutates: true }] : [])
+  ];
 }
 
 export function formatUpdatePlan(plan) {
@@ -202,7 +229,8 @@ export function formatUpdatePlan(plan) {
     plan.release.publishedAt ? `Published: ${plan.release.publishedAt}` : "Published: unknown",
     plan.release.url ? `Release URL: ${plan.release.url}` : "Release URL: unavailable",
     `Update available: ${plan.newer ? "yes" : "no"}`,
-    `Working tree clean: ${plan.cleanWorkingTree ? "yes" : "no"}`
+    `Working tree clean: ${plan.cleanWorkingTree ? "yes" : "no"}`,
+    `Rehearsal mode: ${plan.rehearses ? "yes" : "no"}`
   ];
 
   if (plan.release.body) {
@@ -227,8 +255,24 @@ export function formatUpdatePlan(plan) {
     `6. Run deploy checks: ${plan.commands.deployCheck.join(" ")}`,
     `7. Deploy intentionally: ${plan.commands.deploy.join(" ")}`,
     "",
+    ...(plan.rehearses
+      ? [
+          "Update rehearsal:",
+          `1. Fetch the release tag: ${plan.commands.fetchTag.join(" ")}`,
+          `2. Create an isolated worktree: ${plan.commands.worktreeAdd.join(" ")}`,
+          `3. Install locked dependencies inside the worktree: ${plan.commands.install.join(" ")}`,
+          `4. Run release checks inside the worktree: ${plan.commands.releaseCheck.join(" ")}`,
+          "5. Summarize migration files from the target release.",
+          plan.keepWorktree
+            ? `6. Keep the rehearsal worktree for inspection; remove it later with: ${plan.commands.worktreeRemove.join(" ")}`
+            : `6. Clean up the rehearsal worktree: ${plan.commands.worktreeRemove.join(" ")}`,
+          ""
+        ]
+      : []),
     plan.mutates
-      ? "Confirmed mode: this run will fetch the validated release tag only. It will not check out code, install dependencies, deploy, or apply migrations."
+      ? plan.rehearses
+        ? "Confirmed rehearsal: this run will fetch the tag, create a temporary worktree, run local checks there, and clean up unless --keep-worktree is set. It will not change the current checkout, deploy, apply remote migrations, or mutate Cloudflare resources."
+        : "Confirmed mode: this run will fetch the validated release tag only. It will not check out code, install dependencies, deploy, or apply migrations."
       : "Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed."
   );
 
@@ -243,16 +287,23 @@ Usage:
   pnpm run update:glyph -- --channel beta
   pnpm run update:glyph -- --source https://github.com/owner/repo
   pnpm run update:glyph -- --yes
+  pnpm run update:glyph -- --rehearse
+  pnpm run update:glyph -- --rehearse --yes
 
 Options:
   --source <url>      GitHub release source. Default: ${OFFICIAL_UPDATE_SOURCE_URL}.
   --channel <name>    stable uses latest release; beta uses newest release entry. Default: stable.
   --yes, -y           Fetch the validated release tag when an update is available and the tree is clean.
+  --rehearse          Plan a temporary-worktree update rehearsal. With --yes, run it.
+  --keep-worktree     Keep the rehearsal worktree for inspection. Only valid with --rehearse.
   --help, -h          Show this help.
 
 By default this command only checks release metadata and prints an update plan. It does not
 mutate files, check out code, install dependencies, deploy, apply migrations, store tokens, or
 call the deployed admin UI.
+
+Rehearsal mode also defaults to a dry-run plan. Rehearsal execution requires --rehearse --yes,
+uses an isolated temporary git worktree, and does not change the current checkout.
 `;
 }
 
@@ -313,6 +364,10 @@ function comparePrerelease(candidate, current) {
   return 0;
 }
 
+function safePathSegment(value) {
+  return value.replace(/[^0-9A-Za-z._-]/g, "-");
+}
+
 function readPackageVersion(rootDir) {
   const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
   if (typeof packageJson.version !== "string" || packageJson.version.trim().length === 0) {
@@ -328,11 +383,17 @@ async function fetchLatestRelease(sourceUrl, channel) {
     throw requestUrl;
   }
 
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Glyph local update helper"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(requestUrl, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "Glyph local update helper"
-    }
+    headers
   });
 
   if (!response.ok) {
@@ -380,6 +441,87 @@ function runTagFetch(plan, rootDir) {
   }
 }
 
+function runCommand(command, cwd, label) {
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd,
+    stdio: "inherit",
+    env: process.env
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`${label} failed with exit code ${result.status ?? "unknown"}.`);
+  }
+}
+
+function runUpdateRehearsal(plan, rootDir) {
+  const baseWorktreePath = plan.commands.worktreeAdd.at(-2);
+  const worktreePath = mkdtempSync(`${baseWorktreePath}-`);
+  rmSync(worktreePath, { recursive: true, force: true });
+  const rehearsalPlan = {
+    ...plan,
+    commands: {
+      ...plan.commands,
+      worktreeAdd: [...plan.commands.worktreeAdd.slice(0, -2), worktreePath, plan.release.tag],
+      worktreeRemove: [...plan.commands.worktreeRemove.slice(0, -1), worktreePath]
+    }
+  };
+
+  console.log(`\nStarting update rehearsal in ${worktreePath}`);
+  let worktreeCreated = false;
+
+  try {
+    runCommand(rehearsalPlan.commands.fetchTag, rootDir, "Fetch release tag");
+    runCommand(rehearsalPlan.commands.worktreeAdd, rootDir, "Create isolated worktree");
+    worktreeCreated = true;
+    runCommand(rehearsalPlan.commands.install, worktreePath, "Install locked dependencies in worktree");
+    runCommand(rehearsalPlan.commands.releaseCheck, worktreePath, "Run release checks in worktree");
+
+    const migrations = listMigrationFiles(worktreePath);
+    console.log("\nTarget release migration files:");
+    if (migrations.length === 0) {
+      console.log("- None found.");
+    } else {
+      for (const migration of migrations) {
+        console.log(`- ${migration}`);
+      }
+    }
+
+    console.log("\nRehearsal complete. Review release notes and migration files before applying remote migrations or deploying.");
+  } finally {
+    if (plan.keepWorktree) {
+      console.log(`\nKept rehearsal worktree: ${worktreePath}`);
+      console.log(`Remove it later with: git worktree remove --force ${worktreePath}`);
+    } else if (worktreeCreated) {
+      const result = spawnSync("git", ["worktree", "remove", "--force", worktreePath], {
+        cwd: rootDir,
+        stdio: "inherit",
+        env: process.env
+      });
+      if (result.status !== 0) {
+        console.warn(`Could not remove rehearsal worktree automatically. Remove it manually with: git worktree remove --force ${worktreePath}`);
+        rmSync(worktreePath, { recursive: true, force: true });
+      }
+    } else {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  }
+}
+
+function listMigrationFiles(rootDir) {
+  const migrationsDir = join(rootDir, "migrations");
+  if (!existsSync(migrationsDir)) {
+    return [];
+  }
+
+  return readdirSync(migrationsDir)
+    .filter((entry) => entry.endsWith(".sql"))
+    .sort();
+}
+
 export async function main(argv = process.argv.slice(2), rootDir = process.cwd()) {
   const options = parseUpdateArgs(argv);
   if (options.help) {
@@ -395,6 +537,14 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   console.log(formatUpdatePlan(plan));
 
   if (options.yes) {
+    if (options.rehearse) {
+      if (!plan.mutates) {
+        return plan.newer && !plan.cleanWorkingTree ? 1 : 0;
+      }
+      runUpdateRehearsal(plan, rootDir);
+      return 0;
+    }
+
     if (!plan.mutates) {
       return plan.newer && !plan.cleanWorkingTree ? 1 : 0;
     }
