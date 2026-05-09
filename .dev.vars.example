@@ -1,0 +1,9 @@
+# Local Wrangler values for development.
+# Copy this file to `.dev.vars` and fill in local-only values.
+# `.dev.vars` is ignored by git.
+
+# PUBLIC_BASE_URL=http://127.0.0.1:8787
+# R2_ACCOUNT_ID=00000000000000000000000000000000
+# R2_ACCESS_KEY_ID=example-access-key-id
+# R2_SECRET_ACCESS_KEY=example-secret-access-key
+# R2_BUCKET_NAME=glyph-files

@@ -32,6 +32,7 @@ The next product goal is to evolve Glyph from a minimal private file drop into a
 - Deployment can become a guided one-command setup/deploy workflow with explicit safety gates.
 - Admins can check for updates and choose manual or opt-in automatic self-updates once the repository is public.
 - Releases have a single package-backed version source and a local, non-publishing readiness check.
+- The repository can be public after a secrets/configuration audit confirms tracked files use placeholders only.
 - Expired/deleted objects can be reconciled with R2 by a simple retryable cleanup path.
 - Custom-domain setup can start with deploy-time readiness checks and clear manual Cloudflare steps, then move toward fuller automation after the basic deploy workflow is boring and reliable.
 
@@ -139,6 +140,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Guided setup can create the basic D1/R2 resources on explicit request while keeping secrets, CORS, DNS, and custom-domain attachment manual until safer automation exists.
 - Release/versioning groundwork keeps the deployed admin version tied to the package version and documents manual update/release expectations before executable self-updates exist.
 - Manual self-update workflow shows release metadata, release notes, semver-aware update status, and operator update steps without executing deploys or migrations from admin.
+- Public repository readiness includes MIT license metadata, placeholder-only configuration examples, security notes, and contribution expectations.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -160,3 +162,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 19. Improve one-command deploy with guided Cloudflare resource setup. Completed.
 20. Add release/versioning groundwork for future public self-updates. Completed.
 21. Improve self-update check into a manual update workflow. Completed.
+22. Prepare Glyph for public repository visibility. Completed.

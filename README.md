@@ -2,6 +2,8 @@
 
 Glyph is a private-use, Cloudflare-first file sharing app. The MVP target is anonymous uploads, R2-backed file storage, D1-backed metadata, random short download links, and a passkey-protected admin panel.
 
+Glyph is licensed under the MIT License. It is source-available for self-hosting and public review, but the package is marked private to avoid accidental npm publication.
+
 ## Current Status
 
 Phase 1 scaffold is in place:
@@ -146,6 +148,13 @@ Phase 21 manual self-update workflow is in place:
 - The update result page includes a manual operator checklist for reviewing release notes, pulling a tag locally, running release checks, applying migrations intentionally, and deploying through the deploy helper.
 - Admin update checks remain read-only; they do not deploy, apply migrations, restart the Worker, mutate code, store GitHub tokens, or run automatic updates.
 
+Phase 22 public repository readiness is in place:
+
+- Public-readiness audit found no committed real secrets, tokens, real Cloudflare account identifiers, or private deployment details in tracked files.
+- MIT license metadata and `LICENSE` are present.
+- `.env.example` and `.dev.vars.example` document optional configuration with placeholders only.
+- `SECURITY.md` and `CONTRIBUTING.md` document security reporting, secret handling, and contribution expectations.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -192,6 +201,8 @@ The Worker expects these bindings:
 - `R2_ACCESS_KEY_ID`: optional R2 S3-compatible access key ID for direct-to-R2 presigned uploads.
 - `R2_SECRET_ACCESS_KEY`: optional R2 S3-compatible secret access key for direct-to-R2 presigned uploads. Store this as a Wrangler secret.
 - `R2_BUCKET_NAME`: optional R2 bucket name for presigned URLs. Defaults to `glyph-files`.
+
+See `.env.example` and `.dev.vars.example` for placeholder-only configuration examples. Do not commit real values. `.dev.vars` and `.wrangler/` are ignored by git.
 
 Direct-to-R2 and multipart direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Multipart mode also requires CORS to expose the `ETag` response header so the browser can report completed part ETags back to the Worker for finalization. Without the credential values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct or multipart.
 
@@ -333,6 +344,18 @@ Runtime dependency justification:
 - `@simplewebauthn/server` verifies passkey registration and authentication responses. This is security-sensitive protocol work, so Glyph uses a focused, reputable WebAuthn package instead of hand-rolled cryptographic verification.
 
 `pnpm-workspace.yaml` explicitly allows install-time builds for Wrangler's native transitive tooling packages: `esbuild`, `sharp`, and `workerd`.
+
+## Public Repository Notes
+
+Tracked configuration uses placeholders only. Before opening issues, sharing logs, or deploying from a fork, make sure these stay private:
+
+- Real D1 `database_id` values.
+- Cloudflare account IDs.
+- R2 S3-compatible access keys and secret keys.
+- `.dev.vars`, Wrangler local state, and deployment logs.
+- Passkey, session, or upload metadata from a real deployment.
+
+The repository is MIT licensed. Security reporting and contribution expectations are documented in `SECURITY.md` and `CONTRIBUTING.md`.
 
 ## Deployment
 
