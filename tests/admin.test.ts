@@ -1518,9 +1518,15 @@ test("admin update check fetches release metadata without mutating deploy state"
       assert.match(body, /aria-label="Release notes"/);
       assert.match(body, /Escaped &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
       assert.doesNotMatch(body, /<script>alert\(1\)<\/script>/);
+      assert.match(body, /aria-label="Local update rehearsal"/);
+      assert.match(body, /pnpm run update:glyph -- --rehearse/);
+      assert.match(body, /pnpm run update:glyph -- --rehearse --yes/);
+      assert.match(body, /local checkout is clean/);
+      assert.match(body, /temporary worktree checks and migration-file summary/);
       assert.match(body, /aria-label="Manual update workflow"/);
       assert.match(body, /pnpm run release:check/);
-      assert.match(body, /This admin page does not deploy, apply migrations, restart the Worker, mutate code, or store GitHub tokens\./);
+      assert.match(body, /execute local commands/);
+      assert.match(body, /mutate Cloudflare resources/);
       assert.match(body, /Open release/);
       assert.deepEqual(env.settingsUpdates, []);
     }

@@ -186,6 +186,12 @@ Phase 27 update rehearsal maintenance release is in place:
 - `v0.1.2` publishes the local update rehearsal workflow through the public GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
 
+Phase 28 admin-facing update rehearsal guidance is in place:
+
+- Protected `/admin` update checks now point operators toward `pnpm run update:glyph -- --rehearse` before any manual update work.
+- Update result pages recommend `pnpm run update:glyph -- --rehearse --yes` only from a clean local checkout when the operator is ready to validate the release in a temporary worktree.
+- Admin update checks remain read-only; they do not execute local commands, deploy, apply migrations, store tokens, schedule checks, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -397,6 +403,8 @@ Confirmed rehearsal mode requires a clean working tree and a newer selected rele
 
 The rehearsal workflow prepares future opt-in automatic updates by proving that release checks can run away from the active checkout. It still does not check out code in the current tree, deploy Workers, apply remote migrations, publish npm packages, execute updates from admin, store GitHub tokens, schedule checks, or mutate Cloudflare resources.
 
+The protected `/admin` update-check result page mirrors this local workflow. It can display release metadata and recommended commands, but it remains read-only and never runs local update helpers from the Worker.
+
 ## Verification
 
 ```sh
@@ -424,7 +432,7 @@ Final MVP smoke checks should include:
 - `POST /admin/settings/storage-cap` updates or clears the storage cap for an authenticated same-origin admin request.
 - `POST /admin/settings/upload-mode` switches between Worker-mediated, direct-to-R2, and multipart direct-to-R2 upload mode for an authenticated same-origin admin request.
 - `POST /admin/settings/updates` saves read-only self-update settings for an authenticated same-origin admin request.
-- `POST /admin/updates/check` checks configured GitHub release metadata, release notes, and manual update guidance without deploying or mutating code.
+- `POST /admin/updates/check` checks configured GitHub release metadata, release notes, local rehearsal guidance, and manual update guidance without deploying, mutating code, executing local commands, storing GitHub tokens, or mutating Cloudflare resources.
 - `POST /admin/maintenance/r2-cleanup` retries R2 object deletion for expired/deleted uploads whose cleanup is pending.
 - `pnpm run release:check` validates version consistency and local release readiness without publishing or deploying.
 - `pnpm run update:glyph` checks the public release channel and prints a non-mutating manual update plan.

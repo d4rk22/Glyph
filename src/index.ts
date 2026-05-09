@@ -1927,18 +1927,28 @@ ${manualUpdatePanel()}
 }
 
 function manualUpdatePanel(): string {
-  return `<section class="settings-panel" aria-label="Manual update workflow">
+  return `<section class="settings-panel" aria-label="Local update rehearsal">
+  <h2>Local update rehearsal</h2>
+  <ol>
+    <li>Review the release notes and migration notes.</li>
+    <li>From a local checkout, run <code>pnpm run update:glyph -- --rehearse</code>.</li>
+    <li>When ready and the local checkout is clean, run <code>pnpm run update:glyph -- --rehearse --yes</code>.</li>
+    <li>Inspect the temporary worktree checks and migration-file summary.</li>
+  </ol>
+  <p>Rehearsal runs locally only. This admin page shows release information but does not execute local commands.</p>
+</section>
+<section class="settings-panel" aria-label="Manual update workflow">
   <h2>Manual update workflow</h2>
   <ol>
     <li>Review the release notes and migration notes.</li>
-    <li>Pull the selected release or tag locally.</li>
-    <li>Run <code>pnpm install --frozen-lockfile</code>.</li>
-    <li>Run <code>pnpm run release:check</code>.</li>
+    <li>Rehearse the update locally with <code>pnpm run update:glyph -- --rehearse</code>.</li>
+    <li>Run confirmed rehearsal from a clean checkout with <code>pnpm run update:glyph -- --rehearse --yes</code>.</li>
+    <li>Install and check the selected release in the rehearsal worktree with <code>pnpm install --frozen-lockfile</code> and <code>pnpm run release:check</code>.</li>
     <li>Apply remote migrations intentionally.</li>
     <li>Run <code>pnpm run deploy:glyph -- --check</code>.</li>
     <li>Deploy with <code>pnpm run deploy:glyph -- --yes</code>.</li>
   </ol>
-  <p>This admin page does not deploy, apply migrations, restart the Worker, mutate code, or store GitHub tokens.</p>
+  <p>This admin page does not deploy, apply migrations, restart the Worker, mutate code, execute local commands, store GitHub tokens, schedule checks, or mutate Cloudflare resources.</p>
 </section>`;
 }
 
