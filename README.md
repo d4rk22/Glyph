@@ -343,6 +343,13 @@ Phase 51 guided secret and CORS planning maintenance release is in place:
 - The release highlights exact `pnpm wrangler secret put ...` command guidance without secret values, required and optional R2 secret readiness reporting, R2 CORS recommendation generation for `PUBLIC_BASE_URL`, manual CORS application, and Worker-mediated upload fallback behavior.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS/custom-domain creation, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 52 consolidated deploy readiness report is in place:
+
+- `pnpm run deploy:glyph -- --readiness` prints a consolidated read-only readiness report for fresh checkouts and existing deployments.
+- The report uses clear statuses such as `ready`, `needs attention`, `optional`, `blocked`, and `manual` across local prerequisites, Cloudflare auth, Wrangler config, D1/R2 setup, remote migrations, direct/multipart upload setup, post-deploy checks, and safety boundaries.
+- Readiness mode detects placeholder D1 database IDs, reports auth/token expectations, prints secret command guidance without values, recommends R2 CORS from the configured origin when possible, and keeps Worker-mediated uploads visible as the fallback.
+- The report never stores secrets, applies R2 CORS, applies remote migrations, deploys, creates DNS/custom-domain/scheduled-trigger resources, publishes releases, executes updates, or mutates Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -692,6 +699,14 @@ Public issue support is best-effort community support. Glyph does not provide a 
 
 ## Deployment
 
+To inspect a checkout before setup or deploy, run the consolidated readiness report:
+
+```sh
+pnpm run deploy:glyph -- --readiness
+```
+
+Readiness mode is always read-only. It summarizes local prerequisites, package version, Cloudflare auth mode, Wrangler D1/R2 bindings, placeholder D1 IDs, `APP_ENV`, `PUBLIC_BASE_URL`, custom-domain route hints, scheduled trigger presence, configured D1/R2 names, remote migration gates, direct/multipart secret readiness, R2 CORS recommendations, Worker-mediated fallback, expected `/health` and `/admin` checks, and the safety boundary. It does not run Cloudflare discovery commands, store secrets, apply CORS, apply remote migrations, deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or mutate Cloudflare resources.
+
 For the fewest first-deploy steps, start with turnkey mode:
 
 ```sh
@@ -779,6 +794,7 @@ The deploy helper also reports:
 - A reminder that scheduled maintenance also requires the scheduled maintenance setting enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 - Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
+- Consolidated status labels and operator-owned follow-up when run with `--readiness`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 

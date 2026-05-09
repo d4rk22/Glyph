@@ -44,6 +44,7 @@ test("manual update argument parser defaults to official source and dry run", ()
   });
 
   assert.equal(parseUpdateArgs(["--rehearse"]).rehearse, true);
+  assert.equal(parseUpdateArgs(["--", "--rehearse"]).rehearse, true);
   assert.equal(parseUpdateArgs(["--apply"]).apply, true);
   assert.equal(parseUpdateArgs(["--rehearse", "--keep-worktree"]).keepWorktree, true);
   assert.throws(() => parseUpdateArgs(["--source="]), /Update source cannot be empty/);

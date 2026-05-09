@@ -17,6 +17,7 @@ export function parseArgs(argv) {
     check: false,
     setup: false,
     turnkey: false,
+    readiness: false,
     skipInstall: false,
     reuseResources: false,
     database: DEFAULT_DATABASE_NAME,
@@ -29,7 +30,9 @@ export function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--yes" || arg === "-y") {
+    if (arg === "--") {
+      continue;
+    } else if (arg === "--yes" || arg === "-y") {
       options.yes = true;
     } else if (arg === "--check") {
       options.check = true;
@@ -37,6 +40,8 @@ export function parseArgs(argv) {
       options.setup = true;
     } else if (arg === "--turnkey") {
       options.turnkey = true;
+    } else if (arg === "--readiness") {
+      options.readiness = true;
     } else if (arg === "--skip-install") {
       options.skipInstall = true;
     } else if (arg === "--reuse-resources") {
@@ -85,6 +90,10 @@ export function parseArgs(argv) {
 
   if (options.setup && options.turnkey) {
     throw new Error("Use either --setup or --turnkey, not both.");
+  }
+
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey)) {
+    throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
   if (options.database.trim().length === 0) {
@@ -666,6 +675,357 @@ export function buildDirectUploadReadinessLines(configText = null, env = process
   return lines;
 }
 
+function readinessItem(status, label, detail) {
+  return { status, label, detail };
+}
+
+function safePackageVersion(packageJsonText) {
+  if (!packageJsonText) {
+    return { version: null, packageManager: null, error: "package.json is missing." };
+  }
+
+  try {
+    const packageJson = JSON.parse(packageJsonText);
+    return {
+      version: typeof packageJson.version === "string" && packageJson.version.length > 0 ? packageJson.version : null,
+      packageManager: typeof packageJson.packageManager === "string" ? packageJson.packageManager : null,
+      error: null
+    };
+  } catch (error) {
+    return {
+      version: null,
+      packageManager: null,
+      error: `package.json could not be parsed: ${error instanceof Error ? error.message : "invalid JSON"}`
+    };
+  }
+}
+
+function missingReadinessFiles(projectFiles = {}) {
+  return ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"]
+    .filter((file) => projectFiles[file] !== true);
+}
+
+function readinessAuthStatus(env, isInteractive) {
+  const hasToken = typeof env.CLOUDFLARE_API_TOKEN === "string" && env.CLOUDFLARE_API_TOKEN.trim().length > 0;
+  if (hasToken) {
+    return {
+      status: "ready",
+      detail: "CLOUDFLARE_API_TOKEN is set; verify it has Workers, D1, R2, and D1 migration permissions for the intended account."
+    };
+  }
+
+  if (isInteractive) {
+    return {
+      status: "manual",
+      detail: "No CLOUDFLARE_API_TOKEN detected; an interactive `pnpm wrangler login` session can be used locally."
+    };
+  }
+
+  return {
+    status: "blocked",
+    detail: "CLOUDFLARE_API_TOKEN is required before non-interactive Wrangler checks can inspect Cloudflare resources."
+  };
+}
+
+function readinessDiscoveryDetail(options, authStatus) {
+  const commands = `pnpm wrangler d1 list --json and pnpm wrangler r2 bucket list for D1 ${options.database} and R2 bucket ${options.bucket}`;
+  if (authStatus.status === "ready") {
+    return {
+      status: "ready",
+      detail: `Cloudflare auth appears available, so discovery can run with ${commands}. This report does not run those commands.`
+    };
+  }
+
+  if (authStatus.status === "manual") {
+    return {
+      status: "manual",
+      detail: `Run ${commands} after confirming interactive Wrangler login. This report does not run those commands.`
+    };
+  }
+
+  return {
+    status: "blocked",
+    detail: `Resource discovery is blocked until Cloudflare auth is available. Expected checks: ${commands}.`
+  };
+}
+
+export function collectReadinessContext(rootDir, env = process.env) {
+  const packageJsonPath = join(rootDir, "package.json");
+  const wranglerPath = join(rootDir, "wrangler.jsonc");
+  const projectFiles = {
+    "package.json": existsSync(packageJsonPath),
+    "pnpm-lock.yaml": existsSync(join(rootDir, "pnpm-lock.yaml")),
+    "wrangler.jsonc": existsSync(wranglerPath),
+    migrations: existsSync(join(rootDir, "migrations")),
+    "src/index.ts": existsSync(join(rootDir, "src/index.ts"))
+  };
+
+  return {
+    env,
+    isInteractive: Boolean(process.stdout.isTTY),
+    nodeVersion: process.version,
+    projectFiles,
+    packageJsonText: projectFiles["package.json"] ? readFileSync(packageJsonPath, "utf8") : null,
+    configText: projectFiles["wrangler.jsonc"] ? readFileSync(wranglerPath, "utf8") : null
+  };
+}
+
+export function buildReadinessReport(options, context = {}) {
+  const env = context.env ?? process.env;
+  const isInteractive = context.isInteractive ?? Boolean(process.stdout.isTTY);
+  const nodeVersion = context.nodeVersion ?? process.version;
+  const projectFiles = context.projectFiles ?? {};
+  const packageInfo = safePackageVersion(context.packageJsonText ?? null);
+  const configText = context.configText ?? null;
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const auth = readinessAuthStatus(env, isInteractive);
+  const directSecretPlan = buildDirectUploadSecretPlan(env);
+  const missingDirectSecrets = directSecretPlan.filter((secret) => secret.required && !secret.present);
+  const optionalBucketSecret = directSecretPlan.find((secret) => secret.name === "R2_BUCKET_NAME");
+  const cors = buildR2CorsRecommendation(configText, { bucket: options.bucket, publicBaseUrl: options.publicBaseUrl });
+  const sections = [];
+
+  const localItems = [];
+  const nodeMajor = nodeMajorVersion(nodeVersion);
+  localItems.push(
+    readinessItem(
+      nodeMajor >= 22 ? "ready" : "blocked",
+      "Node.js",
+      nodeMajor >= 22 ? `${nodeVersion} satisfies the Node.js 22+ requirement.` : `${nodeVersion} is below the Node.js 22+ requirement.`
+    )
+  );
+
+  if (packageInfo.error) {
+    localItems.push(readinessItem("blocked", "Package version", packageInfo.error));
+  } else {
+    localItems.push(
+      readinessItem(
+        packageInfo.version ? "ready" : "needs attention",
+        "Package version",
+        packageInfo.version ? `Glyph ${packageInfo.version} from package.json.` : "package.json does not declare a version."
+      )
+    );
+    localItems.push(
+      readinessItem(
+        packageInfo.packageManager?.startsWith("pnpm@") ? "ready" : "needs attention",
+        "Package manager",
+        packageInfo.packageManager?.startsWith("pnpm@")
+          ? `${packageInfo.packageManager} is declared.`
+          : "package.json should declare pnpm in packageManager."
+      )
+    );
+  }
+
+  const missingFiles = missingReadinessFiles(projectFiles);
+  localItems.push(
+    readinessItem(
+      missingFiles.length === 0 ? "ready" : "blocked",
+      "Project files",
+      missingFiles.length === 0
+        ? "package.json, pnpm-lock.yaml, wrangler.jsonc, migrations, and src/index.ts are present."
+        : `Missing required path(s): ${missingFiles.join(", ")}.`
+    )
+  );
+  localItems.push(readinessItem("manual", "pnpm availability", "Run `pnpm --version`; turnkey confirmed mode checks this before mutating anything."));
+  localItems.push(readinessItem("manual", "Wrangler availability", "Run `pnpm wrangler --version`; turnkey confirmed mode checks this before Cloudflare operations."));
+  sections.push({ title: "Local prerequisites", items: localItems });
+
+  sections.push({
+    title: "Cloudflare auth readiness",
+    items: [
+      readinessItem(auth.status, "Cloudflare auth", auth.detail),
+      readinessItem(
+        auth.status === "blocked" ? "blocked" : "manual",
+        "Auth mode",
+        auth.status === "ready"
+          ? "Non-interactive checks can use CLOUDFLARE_API_TOKEN; interactive Wrangler login is still acceptable for local operator workflows."
+          : "CI, Codex, and other non-interactive shells need CLOUDFLARE_API_TOKEN; local terminals may use `pnpm wrangler login`."
+      )
+    ]
+  });
+
+  const configItems = [];
+  if (!configText) {
+    configItems.push(readinessItem("blocked", "wrangler.jsonc", "missing; run turnkey setup or create the config before deployment."));
+  } else if (!config) {
+    configItems.push(readinessItem("blocked", "wrangler.jsonc", "could not be parsed."));
+  } else {
+    const validation = validateWranglerConfig(configText, { requireDeployReady: true });
+    const dbBinding = Array.isArray(config.d1_databases)
+      ? config.d1_databases.find((binding) => binding?.binding === "DB")
+      : null;
+    const r2Binding = Array.isArray(config.r2_buckets)
+      ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
+      : null;
+    const publicBaseUrl = typeof config.vars?.PUBLIC_BASE_URL === "string" ? config.vars.PUBLIC_BASE_URL.trim() : "";
+    const routeHosts = wranglerRouteHosts(config);
+    const cronTriggers = wranglerCronTriggers(config);
+
+    configItems.push(readinessItem("ready", "wrangler.jsonc", "present and parseable."));
+    configItems.push(
+      readinessItem(
+        dbBinding ? "ready" : "blocked",
+        "D1 binding",
+        dbBinding ? `DB binds database ${String(dbBinding.database_name ?? "unknown")}.` : "Missing D1 binding named DB."
+      )
+    );
+    if (dbBinding) {
+      const databaseId = typeof dbBinding.database_id === "string" ? dbBinding.database_id.trim() : "";
+      configItems.push(
+        readinessItem(
+          databaseId.length > 0 && databaseId !== PLACEHOLDER_D1_DATABASE_ID ? "ready" : "blocked",
+          "D1 database_id",
+          databaseId === PLACEHOLDER_D1_DATABASE_ID
+            ? "placeholder detected; copy the real database_id from `pnpm wrangler d1 list --json` or rerun turnkey with --d1-database-id."
+            : databaseId.length > 0
+              ? "non-placeholder database_id is configured."
+              : "database_id is missing."
+        )
+      );
+    }
+    configItems.push(
+      readinessItem(
+        r2Binding ? "ready" : "blocked",
+        "R2 binding",
+        r2Binding ? `FILES binds bucket ${String(r2Binding.bucket_name ?? "unknown")}.` : "Missing R2 binding named FILES."
+      )
+    );
+    configItems.push(
+      readinessItem(
+        typeof config.vars?.APP_ENV === "string" && config.vars.APP_ENV.length > 0 ? "ready" : "blocked",
+        "APP_ENV",
+        typeof config.vars?.APP_ENV === "string" && config.vars.APP_ENV.length > 0
+          ? `APP_ENV=${config.vars.APP_ENV}.`
+          : "vars.APP_ENV is required."
+      )
+    );
+    if (publicBaseUrl) {
+      const publicBaseResult = validatePublicBaseUrl(publicBaseUrl);
+      configItems.push(
+        readinessItem(
+          publicBaseResult.error ? "blocked" : "ready",
+          "PUBLIC_BASE_URL",
+          publicBaseResult.error ?? `${publicBaseUrl} is an origin-only https URL.`
+        )
+      );
+    } else {
+      configItems.push(readinessItem("optional", "PUBLIC_BASE_URL", "not set; generated links use the request origin until a custom domain is configured."));
+    }
+    configItems.push(
+      readinessItem(
+        routeHosts.length > 0 ? "ready" : "optional",
+        "Custom-domain routes",
+        routeHosts.length > 0 ? `Configured route host(s): ${routeHosts.join(", ")}.` : "none configured; attach custom domains manually when needed."
+      )
+    );
+    configItems.push(
+      readinessItem(
+        cronTriggers.length > 0 ? "ready" : "optional",
+        "Scheduled triggers",
+        cronTriggers.length > 0 ? `Configured cron trigger(s): ${cronTriggers.join(", ")}.` : "none configured; scheduled update checks and maintenance stay inert until an operator adds a trigger."
+      )
+    );
+    for (const error of validation.errors) {
+      configItems.push(readinessItem("blocked", "Config validation", error));
+    }
+    for (const warning of validation.warnings) {
+      configItems.push(readinessItem("needs attention", "Config warning", warning));
+    }
+  }
+  sections.push({ title: "Wrangler config readiness", items: configItems });
+
+  const dbBinding = Array.isArray(config?.d1_databases)
+    ? config.d1_databases.find((binding) => binding?.binding === "DB")
+    : null;
+  const r2Binding = Array.isArray(config?.r2_buckets)
+    ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
+    : null;
+  const discovery = readinessDiscoveryDetail(options, auth);
+  sections.push({
+    title: "D1/R2 setup readiness",
+    items: [
+      readinessItem(dbBinding ? "ready" : "needs attention", "Configured D1 database", dbBinding ? String(dbBinding.database_name ?? options.database) : `expected ${options.database}.`),
+      readinessItem(r2Binding ? "ready" : "needs attention", "Configured R2 bucket", r2Binding ? String(r2Binding.bucket_name ?? options.bucket) : `expected ${options.bucket}.`),
+      readinessItem(discovery.status, "Resource discovery", discovery.detail)
+    ]
+  });
+
+  sections.push({
+    title: "Remote migration readiness",
+    items: [
+      readinessItem("manual", "Remote migrations", `Readiness mode does not list or apply remote migrations. Use --check to list migrations for D1 database ${options.database}.`),
+      readinessItem("manual", "Apply gate", "Remote D1 migrations are applied only by the explicitly confirmed deploy path, such as `pnpm run deploy:glyph -- --yes` or `--turnkey --yes`.")
+    ]
+  });
+
+  sections.push({
+    title: "Direct/multipart upload readiness",
+    items: [
+      readinessItem(
+        missingDirectSecrets.length === 0 ? "ready" : "needs attention",
+        "Required R2 secrets",
+        missingDirectSecrets.length === 0
+          ? "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are present in this shell; verify matching Wrangler secrets exist for the deployed Worker."
+          : `${missingDirectSecrets.map((secret) => secret.name).join(", ")} not detected; direct/multipart uploads stay blocked until matching Wrangler secrets are set.`
+      ),
+      readinessItem(
+        optionalBucketSecret?.present ? "ready" : "optional",
+        "Optional R2 bucket secret",
+        optionalBucketSecret?.present ? "R2_BUCKET_NAME is present in this shell." : "R2_BUCKET_NAME can be omitted when the presigned-upload bucket matches the FILES binding bucket."
+      ),
+      readinessItem(
+        "manual",
+        "Secret commands",
+        [...DIRECT_UPLOAD_SECRET_NAMES, ...OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES]
+          .map((name) => buildSecretPutCommand(name).join(" "))
+          .join("; ")
+      ),
+      readinessItem(
+        cors.origin ? "manual" : "needs attention",
+        "R2 CORS recommendation",
+        cors.summary
+      ),
+      readinessItem("ready", "Worker-mediated fallback", "Worker-mediated uploads remain available until direct/multipart secrets and R2 CORS are ready.")
+    ]
+  });
+
+  sections.push({
+    title: "Post-deploy readiness",
+    items: buildPostDeployVerificationLines(configText).map((line) => readinessItem("manual", "Health/admin check", line))
+  });
+
+  sections.push({
+    title: "Safety boundary",
+    items: [
+      readinessItem(
+        "ready",
+        "Read-only report",
+        "No secret storage, no CORS application, no remote migrations, no deploy, no DNS/custom-domain/scheduled-trigger creation, no release publishing, no update execution, and no Cloudflare mutations."
+      )
+    ]
+  });
+
+  return { title: "Glyph deploy readiness report", sections };
+}
+
+export function formatReadinessReport(report) {
+  const lines = [
+    report.title,
+    "Read-only mode: this report inspects local configuration and environment hints only.",
+    ""
+  ];
+
+  for (const section of report.sections) {
+    lines.push(section.title);
+    for (const item of section.items) {
+      lines.push(`- [${item.status}] ${item.label}: ${item.detail}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 export function buildTurnkeyWranglerConfig(configText, options) {
   const config = configText ? parseWranglerConfig(configText) : null;
   const next = config && typeof config === "object" ? structuredClone(config) : {};
@@ -770,12 +1130,14 @@ Usage:
   pnpm run deploy:glyph -- --setup --yes
   pnpm run deploy:glyph -- --turnkey
   pnpm run deploy:glyph -- --turnkey --yes
+  pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
   pnpm run deploy:glyph -- --yes
 
 Options:
   --setup             Print a guided Cloudflare setup plan. With --yes, create D1/R2 resources.
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
+  --readiness         Print a consolidated read-only deployment readiness report.
   --check             Run validation, remote migration check, tests, and dry-run without deploying. Default.
   --yes, -y           Apply remote D1 migrations and deploy after checks pass.
   --skip-install      Skip pnpm install --frozen-lockfile.
@@ -808,6 +1170,11 @@ Turnkey safety:
   --turnkey is a non-mutating plan by default. --turnkey --yes may create D1/R2 resources, write local
   wrangler.jsonc binding values, apply remote D1 migrations, and deploy. It never stores secrets, creates
   DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases.
+
+Readiness safety:
+  --readiness is always non-mutating. It does not store secrets, apply R2 CORS, apply remote migrations,
+  deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or
+  mutate Cloudflare resources.
 `;
 }
 
@@ -863,9 +1230,61 @@ function requireValue(argv, index, optionName) {
 }
 
 function stripJsonComments(value) {
-  return value
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1];
+
+    if (inLineComment) {
+      if (char === "\n" || char === "\r") {
+        inLineComment = false;
+        output += char;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      } else if (char === "\n" || char === "\r") {
+        output += char;
+      }
+      continue;
+    }
+
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      output += char;
+    } else if (char === "/" && next === "/") {
+      inLineComment = true;
+      index += 1;
+    } else if (char === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+    } else {
+      output += char;
+    }
+  }
+
+  return output;
 }
 
 function parseWranglerConfig(configText) {
@@ -1263,6 +1682,12 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const options = parseArgs(argv);
   if (options.help) {
     console.log(usage());
+    return 0;
+  }
+
+  if (options.readiness) {
+    const report = buildReadinessReport(options, collectReadinessContext(rootDir, process.env));
+    console.log(formatReadinessReport(report));
     return 0;
   }
 

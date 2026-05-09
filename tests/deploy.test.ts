@@ -7,6 +7,7 @@ import {
   buildDirectUploadSecretPlan,
   buildPostDeployVerificationLines,
   buildR2CorsRecommendation,
+  buildReadinessReport,
   buildRemoteMigrationPlan,
   buildSecretPutCommand,
   buildTurnkeyRecoveryLines,
@@ -19,6 +20,7 @@ import {
   DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
   findD1DatabaseId,
+  formatReadinessReport,
   hasR2Bucket,
   nodeMajorVersion,
   parseArgs,
@@ -49,6 +51,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: false,
+    readiness: false,
     skipInstall: false,
     reuseResources: false,
     database: "glyph",
@@ -64,6 +67,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: false,
+    readiness: false,
     skipInstall: true,
     reuseResources: false,
     database: "prod-db",
@@ -79,6 +83,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: true,
     turnkey: false,
+    readiness: false,
     skipInstall: false,
     reuseResources: false,
     database: "glyph",
@@ -94,6 +99,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: true,
+    readiness: false,
     skipInstall: false,
     reuseResources: true,
     database: "glyph",
@@ -107,6 +113,9 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.throws(() => parseArgs(["--check", "--yes"]), /Use either --check or --yes/);
   assert.throws(() => parseArgs(["--setup", "--check"]), /Use --setup by itself/);
   assert.throws(() => parseArgs(["--setup", "--turnkey"]), /either --setup or --turnkey/);
+  assert.equal(parseArgs(["--readiness"]).readiness, true);
+  assert.equal(parseArgs(["--", "--readiness"]).readiness, true);
+  assert.throws(() => parseArgs(["--readiness", "--yes"]), /read-only report mode/);
   assert.throws(() => parseArgs(["--database"]), /requires a value/);
   assert.throws(() => parseArgs(["--d1-database-id="]), /D1 database ID cannot be empty/);
   assert.throws(() => parseArgs(["--bucket="]), /R2 bucket name cannot be empty/);
@@ -144,6 +153,102 @@ test("auth readiness reports token and non-interactive guidance", () => {
     buildAuthReadinessLines({ CLOUDFLARE_API_TOKEN: "token" }, { isInteractive: false }).join("\n"),
     /manage Workers, manage D1, manage R2/
   );
+});
+
+test("readiness report summarizes deploy state without mutating guidance", () => {
+  const report = buildReadinessReport(parseArgs(["--readiness"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: false,
+    env: {
+      CLOUDFLARE_API_TOKEN: "token",
+      R2_ACCOUNT_ID: "account-id",
+      R2_ACCESS_KEY_ID: "access-key-id",
+      R2_SECRET_ACCESS_KEY: "super-secret-value"
+    },
+    packageJsonText: JSON.stringify({ version: "9.9.9", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": true,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: JSON.stringify({
+      name: "glyph",
+      main: "src/index.ts",
+      vars: { APP_ENV: "production", PUBLIC_BASE_URL: "https://files.example.com" },
+      routes: ["files.example.com/*"],
+      triggers: { crons: ["0 */6 * * *"] },
+      d1_databases: [
+        {
+          binding: "DB",
+          database_name: "glyph",
+          database_id: "real-database-id",
+          migrations_dir: "migrations"
+        }
+      ],
+      r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+    })
+  });
+  const output = formatReadinessReport(report);
+
+  assert.match(output, /Glyph deploy readiness report/);
+  assert.match(output, /\[ready\] Package version: Glyph 9\.9\.9/);
+  assert.match(output, /\[ready\] Cloudflare auth: CLOUDFLARE_API_TOKEN is set/);
+  assert.match(output, /\[ready\] D1 binding: DB binds database glyph/);
+  assert.match(output, /\[ready\] D1 database_id: non-placeholder/);
+  assert.match(output, /\[ready\] R2 binding: FILES binds bucket glyph-files/);
+  assert.match(output, /\[ready\] Scheduled triggers: Configured cron trigger/);
+  assert.match(output, /\[manual\] Remote migrations: Readiness mode does not list or apply remote migrations/);
+  assert.match(output, /\[manual\] R2 CORS recommendation: Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /\[ready\] Worker-mediated fallback/);
+  assert.match(output, /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
+  assert.doesNotMatch(output, /super-secret-value/);
+  assert.match(output, /No secret storage, no CORS application, no remote migrations, no deploy/);
+});
+
+test("readiness report flags placeholder D1 IDs and non-interactive auth blockers", () => {
+  const output = formatReadinessReport(buildReadinessReport(parseArgs(["--readiness"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: false,
+    env: {},
+    packageJsonText: JSON.stringify({ version: "1.2.3", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": true,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000")
+  }));
+
+  assert.match(output, /\[blocked\] Cloudflare auth: CLOUDFLARE_API_TOKEN is required/);
+  assert.match(output, /\[blocked\] D1 database_id: placeholder detected/);
+  assert.match(output, /pnpm wrangler d1 list --json/);
+  assert.match(output, /\[blocked\] Resource discovery: Resource discovery is blocked/);
+  assert.match(output, /\[needs attention\] Required R2 secrets: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY not detected/);
+});
+
+test("readiness report handles missing Wrangler config as a report item", () => {
+  const output = formatReadinessReport(buildReadinessReport(parseArgs(["--readiness"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: true,
+    env: {},
+    packageJsonText: JSON.stringify({ version: "1.2.3", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": false,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: null
+  }));
+
+  assert.match(output, /\[blocked\] Project files: Missing required path\(s\): wrangler\.jsonc/);
+  assert.match(output, /\[blocked\] wrangler\.jsonc: missing/);
+  assert.match(output, /\[manual\] Cloudflare auth: No CLOUDFLARE_API_TOKEN detected/);
 });
 
 test("remote migration plan keeps apply behind explicit confirmation", () => {

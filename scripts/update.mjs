@@ -20,7 +20,9 @@ export function parseUpdateArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--source") {
+    if (arg === "--") {
+      continue;
+    } else if (arg === "--source") {
       options.source = requireValue(argv, index, arg);
       index += 1;
     } else if (arg.startsWith("--source=")) {
