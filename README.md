@@ -315,6 +315,13 @@ Phase 47 turnkey discovery/recovery maintenance release is in place:
 - The release highlights read-only D1/R2 discovery, D1 database ID extraction from Wrangler output, safe reuse of existing D1 databases and R2 buckets, and clearer recovery guidance for Wrangler auth, `CLOUDFLARE_API_TOKEN`, placeholder D1 IDs, already-existing resources, invalid public origins, and direct/multipart readiness.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 48 turnkey deploy hardening is in place:
+
+- Turnkey and deploy checks now print Cloudflare auth readiness, including when `CLOUDFLARE_API_TOKEN` is required for non-interactive environments.
+- Wrangler failures during remote migration checks, dry-runs, and deploys are captured so auth, token-scope, placeholder D1 ID, already-existing resource, and non-interactive recovery guidance can be shown.
+- Deploy output now documents the remote D1 migration gate, direct/multipart secret readiness, R2 CORS readiness, and post-deploy `/health` plus `/admin` verification steps.
+- Defaults remain non-mutating; `--yes` is still required before resource creation, local config writes, remote migration application, and deploy.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -347,6 +354,10 @@ pnpm run deploy:glyph -- --turnkey --yes
 Turnkey mode verifies local prerequisites and Wrangler auth, creates or reuses the D1 database and R2 bucket, writes local `wrangler.jsonc` binding values when a real D1 database ID is available, runs deployment checks, applies remote migrations, performs a Wrangler dry-run, and deploys. If you already created resources, pass `--reuse-resources --d1-database-id <real-id>` so the helper can write config and skip resource creation.
 
 Confirmed turnkey mode first runs read-only discovery with `pnpm wrangler d1 list --json` and `pnpm wrangler r2 bucket list`. If the requested D1 database exists, Glyph reuses the discovered database ID. If the requested R2 bucket exists, Glyph reuses it instead of attempting to recreate it. When discovery cannot find a D1 ID, the helper prints the exact recovery path: run `pnpm wrangler d1 list --json`, copy the ID, and re-run with `--turnkey --yes --reuse-resources --d1-database-id <real-id>`.
+
+For local terminal use, Wrangler can use `pnpm wrangler login`. In CI, Codex, or any other non-interactive shell, set `CLOUDFLARE_API_TOKEN` before running deploy checks that inspect remote D1/R2 resources. The token should target the intended Cloudflare account and allow the needed Worker, D1, R2, and D1 migration actions. Glyph prints token/auth readiness before remote checks and recovery guidance if Wrangler reports missing auth or insufficient scope.
+
+Remote D1 migrations stay behind an explicit gate. `pnpm run deploy:glyph -- --check` lists/checks remote migrations only. `pnpm run deploy:glyph -- --yes` or `pnpm run deploy:glyph -- --turnkey --yes` applies remote migrations before deploy, after local checks and the Wrangler dry-run.
 
 Use `--public-base-url https://files.example.com` with turnkey mode when deploying behind a custom domain. The value is written only with `--turnkey --yes`, must be an origin-only `https://` URL, and should match the Worker route/custom-domain origin.
 
@@ -384,7 +395,11 @@ See `.env.example` and `.dev.vars.example` for placeholder-only configuration ex
 
 Direct-to-R2 and multipart direct-to-R2 uploads require the R2 S3-compatible credentials above and bucket CORS that permits browser `PUT` requests from the Glyph origin. Multipart mode also requires CORS to expose the `ETag` response header so the browser can report completed part ETags back to the Worker for finalization. Without the credential values, Glyph keeps using the Worker-mediated upload form even if the saved upload mode is direct or multipart.
 
+The deploy helper reports whether the local shell has `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` available as a readiness hint, but deployed Workers should receive sensitive values through Wrangler secrets or the Cloudflare dashboard. Do not put real R2 secret access keys in `wrangler.jsonc`, `.env.example`, `.dev.vars.example`, README snippets, issues, or committed files.
+
 For a custom domain, configure Cloudflare so the Worker is reachable at the desired `https://` origin, then set `vars.PUBLIC_BASE_URL` in `wrangler.jsonc` to that exact origin, for example `https://files.example.com`. Keep it origin-only: no path, query string, or fragment. Generated short links use this value, and passkeys registered for `/admin` are bound to that origin. If direct-to-R2 or multipart uploads are enabled, the R2 bucket CORS allowed origin must match the deployed Glyph origin.
+
+After deploy, verify the deployed origin before sharing links: open `/health` and confirm the JSON response is ok, then open `/admin` on the same origin to bootstrap or sign in. If `PUBLIC_BASE_URL` is configured, the deploy helper prints the exact public and admin URLs. Otherwise, use the workers.dev or custom-domain URL printed by Wrangler deploy.
 
 ## Migrations
 

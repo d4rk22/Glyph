@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAuthReadinessLines,
+  buildDirectUploadReadinessLines,
+  buildPostDeployVerificationLines,
+  buildRemoteMigrationPlan,
   buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
   buildTurnkeyPlan,
@@ -124,6 +128,27 @@ test("deploy steps check by default and only mutate remotely with --yes", () => 
   assert.deepEqual(deploySteps[2].command, ["pnpm", "wrangler", "d1", "migrations", "apply", "prod", "--remote"]);
 });
 
+test("auth readiness reports token and non-interactive guidance", () => {
+  assert.match(
+    buildAuthReadinessLines({}, { isInteractive: false }).join("\n"),
+    /CLOUDFLARE_API_TOKEN is required/
+  );
+  assert.match(
+    buildAuthReadinessLines({}, { isInteractive: true }).join("\n"),
+    /wrangler login/
+  );
+  assert.match(
+    buildAuthReadinessLines({ CLOUDFLARE_API_TOKEN: "token" }, { isInteractive: false }).join("\n"),
+    /manage Workers, manage D1, manage R2/
+  );
+});
+
+test("remote migration plan keeps apply behind explicit confirmation", () => {
+  assert.match(buildRemoteMigrationPlan(parseArgs(["--check"])).join("\n"), /only lists remote D1 migrations/);
+  assert.match(buildRemoteMigrationPlan(parseArgs(["--yes"])).join("\n"), /--yes explicitly permits applying remote D1 migrations/);
+  assert.match(buildRemoteMigrationPlan(parseArgs(["--database", "glyph-prod"])).join("\n"), /glyph-prod/);
+});
+
 test("setup plan is non-mutating by default and scopes create commands to --setup --yes", () => {
   const plan = buildSetupPlan(
     parseArgs(["--setup", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]),
@@ -210,7 +235,35 @@ test("turnkey follow-up output includes URLs, manual tasks, and partial setup re
   assert.match(lines.join("\n"), /R2 CORS/);
   assert.match(lines.join("\n"), /R2_ACCOUNT_ID/);
   assert.match(lines.join("\n"), /Scheduled Worker triggers/);
+  assert.match(lines.join("\n"), /Post-deploy check: verify https:\/\/files\.example\.com\/health/);
   assert.match(lines.join("\n"), /re-run --turnkey --yes with --reuse-resources/);
+});
+
+test("direct upload readiness reports secret and CORS guidance without storing secrets", () => {
+  const missing = buildDirectUploadReadinessLines(validWranglerConfig, {});
+  assert.match(missing.join("\n"), /R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY not detected/);
+  assert.match(missing.join("\n"), /Worker-mediated uploads remain the safe fallback/);
+  assert.match(missing.join("\n"), /do not write R2 secret access keys/);
+
+  const configured = buildDirectUploadReadinessLines(
+    validWranglerConfig.replace('"APP_ENV":"production"', '"APP_ENV":"production","PUBLIC_BASE_URL":"https://files.example.com"'),
+    {
+      R2_ACCOUNT_ID: "account",
+      R2_ACCESS_KEY_ID: "key",
+      R2_SECRET_ACCESS_KEY: "secret"
+    }
+  );
+  assert.match(configured.join("\n"), /required R2 S3-compatible environment values are present/);
+  assert.match(configured.join("\n"), /https:\/\/files\.example\.com/);
+  assert.match(configured.join("\n"), /expose ETag/);
+});
+
+test("post deploy verification reports known or operator-provided URLs", () => {
+  assert.match(buildPostDeployVerificationLines(validWranglerConfig).join("\n"), /Wrangler prints the deployed workers\.dev/);
+  assert.match(
+    buildPostDeployVerificationLines(validWranglerConfig.replace('"APP_ENV":"production"', '"APP_ENV":"production","PUBLIC_BASE_URL":"https://files.example.com"')).join("\n"),
+    /https:\/\/files\.example\.com\/health/
+  );
 });
 
 test("turnkey discovery parses D1 database list output and finds IDs", () => {
@@ -253,6 +306,7 @@ test("turnkey recovery guidance classifies common Wrangler and setup blockers", 
   assert.match(classifyWranglerFailure("You are not authenticated. Run wrangler login.") ?? "", /Wrangler authentication/);
   assert.match(classifyWranglerFailure("Bucket already exists") ?? "", /already exist/);
   assert.match(classifyWranglerFailure("Replace the placeholder D1 database_id") ?? "", /database_id/);
+  assert.match(classifyWranglerFailure("Forbidden request scope missing") ?? "", /enough access/);
 
   const recovery = buildTurnkeyRecoveryLines(parseArgs(["--turnkey", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]), {
     d1CreatedWithoutId: true,
@@ -262,6 +316,7 @@ test("turnkey recovery guidance classifies common Wrangler and setup blockers", 
   assert.match(recovery, /glyph-prod/);
   assert.match(recovery, /glyph-prod-files already exists/);
   assert.match(recovery, /CLOUDFLARE_API_TOKEN/);
+  assert.match(recovery, /permission or scope errors/);
   assert.match(recovery, /PUBLIC_BASE_URL/);
   assert.match(recovery, /direct and multipart upload modes/);
 });

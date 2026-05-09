@@ -8,6 +8,7 @@ export const DEFAULT_DATABASE_NAME = "glyph";
 export const DEFAULT_BUCKET_NAME = "glyph-files";
 export const DEFAULT_DRY_RUN_OUTDIR = "/tmp/glyph-deploy-dry-run";
 export const PLACEHOLDER_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
+export const DIRECT_UPLOAD_SECRET_NAMES = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
 
 export function parseArgs(argv) {
   const options = {
@@ -225,6 +226,25 @@ export function summarizeDeploymentTarget(configText) {
   return lines;
 }
 
+export function buildAuthReadinessLines(env = process.env, options = {}) {
+  const hasToken = typeof env.CLOUDFLARE_API_TOKEN === "string" && env.CLOUDFLARE_API_TOKEN.trim().length > 0;
+  const isInteractive = options.isInteractive ?? Boolean(process.stdout.isTTY);
+  const lines = [];
+
+  if (hasToken) {
+    lines.push("Cloudflare auth: CLOUDFLARE_API_TOKEN is set for non-interactive Wrangler commands.");
+    lines.push("Token readiness: ensure the token can read account resources, manage Workers, manage D1, manage R2, and apply D1 migrations for the target account.");
+  } else if (isInteractive) {
+    lines.push("Cloudflare auth: no CLOUDFLARE_API_TOKEN detected; Wrangler can use an interactive `pnpm wrangler login` session.");
+    lines.push("Token readiness: CI and other non-interactive shells still need CLOUDFLARE_API_TOKEN with Workers, D1, and R2 access.");
+  } else {
+    lines.push("Cloudflare auth: CLOUDFLARE_API_TOKEN is required in this non-interactive environment before Wrangler can inspect or mutate Cloudflare resources.");
+    lines.push("Token readiness: create a scoped Cloudflare API token for the target account with Workers, D1, and R2 access, then rerun the deploy helper.");
+  }
+
+  return lines;
+}
+
 export function buildDeploySteps(options) {
   const steps = [];
 
@@ -258,6 +278,16 @@ export function buildDeploySteps(options) {
   }
 
   return steps;
+}
+
+export function buildRemoteMigrationPlan(options) {
+  return [
+    `Remote migrations: ${options.yes ? "apply" : "list/check"} D1 migrations for database ${options.database}.`,
+    options.yes
+      ? "Remote migration gate: --yes explicitly permits applying remote D1 migrations before deploy."
+      : "Remote migration gate: dry-run/check mode only lists remote D1 migrations; rerun with --yes only after reviewing migration files.",
+    "Recovery: if Wrangler reports missing auth in a non-interactive shell, set CLOUDFLARE_API_TOKEN and rerun the same command."
+  ];
 }
 
 export function buildSetupPlan(options, configText = null) {
@@ -348,7 +378,7 @@ export function buildTurnkeyPlan(options, configText = null) {
     {
       label: "Verify local prerequisites",
       mutates: false,
-      detail: "Checks Node.js, pnpm, Wrangler, project files, and Wrangler authentication before any deploy action.",
+      detail: "Checks Node.js, pnpm, Wrangler, project files, Wrangler authentication, and CLOUDFLARE_API_TOKEN readiness before any deploy action.",
       commands: [
         ["node", "--version"],
         ["pnpm", "--version"],
@@ -392,8 +422,8 @@ export function buildTurnkeyPlan(options, configText = null) {
       label: "Validate deployment readiness",
       mutates: false,
       detail: publicBaseUrl
-        ? `Validates bindings, https PUBLIC_BASE_URL ${publicBaseUrl}, custom-domain route hints, scheduled trigger readiness, and direct/multipart credential guidance.`
-        : "Validates bindings, request-origin fallback, custom-domain route hints, scheduled trigger readiness, and direct/multipart credential guidance."
+        ? `Validates bindings, https PUBLIC_BASE_URL ${publicBaseUrl}, custom-domain route hints, scheduled trigger readiness, remote migration gates, and direct/multipart credential plus R2 CORS guidance.`
+        : "Validates bindings, request-origin fallback, custom-domain route hints, scheduled trigger readiness, remote migration gates, and direct/multipart credential plus R2 CORS guidance."
     },
     {
       label: "Run checks, migrations, dry-run, and deploy",
@@ -470,7 +500,7 @@ export function hasR2Bucket(output, bucketName) {
 
 export function classifyWranglerFailure(output) {
   if (/CLOUDFLARE_API_TOKEN|non-interactive environment/iu.test(output)) {
-    return "Wrangler needs CLOUDFLARE_API_TOKEN in non-interactive environments. Set a scoped token for the intended Cloudflare account, or run from an interactive shell where Wrangler is logged in.";
+    return "Wrangler needs CLOUDFLARE_API_TOKEN in non-interactive environments. Set a scoped token for the intended Cloudflare account with Workers, D1, and R2 access, or run from an interactive shell where Wrangler is logged in.";
   }
 
   if (/not logged in|not authenticated|wrangler login|not authorized|authentication/iu.test(output)) {
@@ -483,6 +513,10 @@ export function classifyWranglerFailure(output) {
 
   if (/database_id|placeholder/iu.test(output)) {
     return "The D1 database exists but wrangler.jsonc still needs the real database_id. Run pnpm wrangler d1 list --json, copy the ID for the Glyph database, then re-run --turnkey --yes --reuse-resources --d1-database-id <real-id>.";
+  }
+
+  if (/permission|scope|forbidden|unauthorized|code:\s*10000|authentication error/iu.test(output)) {
+    return "Wrangler reached Cloudflare but the token/session may not have enough access. Confirm the token targets the intended account and includes Workers, D1, R2, and D1 migration permissions.";
   }
 
   return null;
@@ -504,10 +538,36 @@ export function buildTurnkeyRecoveryLines(options, context = {}) {
   }
 
   lines.push("Recovery: if Wrangler auth fails in CI or another non-interactive shell, set CLOUDFLARE_API_TOKEN before rerunning turnkey.");
+  lines.push("Recovery: if Cloudflare reports permission or scope errors, confirm the token can read account resources, manage Workers, manage D1, manage R2, and apply D1 migrations.");
   lines.push("Recovery: if PUBLIC_BASE_URL is rejected, use an origin-only https URL such as https://files.example.com.");
   lines.push("Recovery: direct and multipart upload modes also need R2 S3 credentials and bucket CORS; Worker-mediated uploads remain the fallback until those are configured.");
 
   return [...new Set(lines)];
+}
+
+export function buildDirectUploadReadinessLines(configText = null, env = process.env) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const publicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const missingEnv = DIRECT_UPLOAD_SECRET_NAMES.filter((name) => typeof env[name] !== "string" || env[name].trim().length === 0);
+  const lines = [];
+
+  if (missingEnv.length === 0) {
+    lines.push("Direct/multipart secrets: required R2 S3-compatible environment values are present in this shell; verify matching Wrangler secrets exist for the deployed Worker.");
+  } else {
+    lines.push(`Direct/multipart secrets: ${missingEnv.join(", ")} not detected in this shell. Worker-mediated uploads remain the safe fallback until matching Wrangler secrets are set.`);
+  }
+
+  if (publicBaseUrl) {
+    lines.push(`R2 CORS readiness: allow browser PUT requests from ${publicBaseUrl} and expose ETag before enabling direct or multipart uploads.`);
+  } else {
+    lines.push("R2 CORS readiness: configure allowed origin after the deployed Worker/custom-domain URL is known, and expose ETag before enabling multipart uploads.");
+  }
+
+  lines.push("Secret safety: use Wrangler secrets or the Cloudflare dashboard; do not write R2 secret access keys into source-controlled files.");
+
+  return lines;
 }
 
 export function buildTurnkeyWranglerConfig(configText, options) {
@@ -582,9 +642,27 @@ export function buildTurnkeyFollowUpLines(configText, options) {
   lines.push("Manual follow-up: configure DNS/custom-domain attachment and passkey registration on the final origin if using a custom domain.");
   lines.push("Manual follow-up: configure Cloudflare Scheduled Worker triggers yourself before enabling read-only update checks or scheduled maintenance in /admin.");
   lines.push("Manual follow-up: for direct or multipart upload modes, verify R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, optional R2_BUCKET_NAME, and bucket CORS before switching modes in /admin.");
+  lines.push(...buildPostDeployVerificationLines(configText));
   lines.push("Recovery: if setup stops midway, re-run --turnkey without --yes to review current readiness, then re-run --turnkey --yes with --reuse-resources and the real --d1-database-id when needed.");
 
   return lines;
+}
+
+export function buildPostDeployVerificationLines(configText) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const publicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim().replace(/\/$/u, "")
+    : null;
+
+  if (!publicBaseUrl) {
+    return [
+      "Post-deploy check: after Wrangler prints the deployed workers.dev or custom-domain URL, open /health and /admin on that origin."
+    ];
+  }
+
+  return [
+    `Post-deploy check: verify ${publicBaseUrl}/health returns ok, then open ${publicBaseUrl}/admin to bootstrap or sign in.`
+  ];
 }
 
 export function usage() {
@@ -952,6 +1030,10 @@ function runRequiredStep(step, rootDir) {
   return result.output;
 }
 
+function runDeployStep(step, rootDir) {
+  return step.command.includes("wrangler") ? runRequiredStep(step, rootDir) : runStep(step, rootDir);
+}
+
 function shouldDeployTurnkey(configText) {
   const validation = validateWranglerConfig(configText, { requireDeployReady: true });
   return validation.errors.length === 0;
@@ -968,6 +1050,15 @@ function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
     }
   } else {
     console.log("Wrangler config: wrangler.jsonc will be generated only with --turnkey --yes.");
+  }
+  for (const line of buildAuthReadinessLines(process.env)) {
+    console.log(line);
+  }
+  for (const line of buildRemoteMigrationPlan(effectiveOptions)) {
+    console.log(line);
+  }
+  for (const line of buildDirectUploadReadinessLines(originalConfigText, process.env)) {
+    console.log(line);
   }
   printTurnkeyPlan(plan);
 
@@ -1060,7 +1151,7 @@ function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
   }
 
   for (const step of buildDeploySteps({ ...effectiveOptions, yes: true })) {
-    runStep(step, rootDir);
+    runDeployStep(step, rootDir);
   }
 
   console.log("\nTurnkey deploy complete.");
@@ -1125,19 +1216,34 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   console.log(effectiveOptions.yes ? "Glyph deploy: checks, remote migrations, dry-run, deploy." : "Glyph deploy check: checks, remote migration list, dry-run.");
 
   if (existsSync(wranglerPath)) {
-    for (const line of summarizeDeploymentTarget(readFileSync(wranglerPath, "utf8"))) {
+    const configText = readFileSync(wranglerPath, "utf8");
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+    for (const line of buildAuthReadinessLines(process.env)) {
+      console.log(line);
+    }
+    for (const line of buildRemoteMigrationPlan(effectiveOptions)) {
+      console.log(line);
+    }
+    for (const line of buildDirectUploadReadinessLines(configText, process.env)) {
       console.log(line);
     }
   }
 
   for (const step of buildDeploySteps(effectiveOptions)) {
-    runStep(step, rootDir);
+    runDeployStep(step, rootDir);
   }
 
   if (!effectiveOptions.yes) {
     console.log("\nCheck complete. Re-run with --yes to apply remote migrations and deploy.");
   } else {
     console.log("\nDeploy complete. Open /admin on the deployed origin to bootstrap or sign in.");
+    if (existsSync(wranglerPath)) {
+      for (const line of buildPostDeployVerificationLines(readFileSync(wranglerPath, "utf8"))) {
+        console.log(line);
+      }
+    }
   }
 
   return 0;
