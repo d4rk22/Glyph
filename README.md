@@ -267,6 +267,12 @@ Phase 40 scheduled update-check deploy readiness is in place:
 - The deploy helper never creates scheduled triggers or mutates Cloudflare resources for scheduled checks.
 - Scheduled checks remain D1-only release metadata notices; they never deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, or mutate Cloudflare resources.
 
+Phase 41 scheduled update-check deploy-readiness maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.9`.
+- `v0.1.9` publishes the deploy/setup helper cron-trigger readiness reporting through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, scheduled trigger automation, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
