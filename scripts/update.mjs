@@ -13,6 +13,7 @@ export function parseUpdateArgs(argv) {
     channel: DEFAULT_UPDATE_CHANNEL,
     yes: false,
     rehearse: false,
+    apply: false,
     keepWorktree: false,
     help: false
   };
@@ -33,6 +34,8 @@ export function parseUpdateArgs(argv) {
       options.yes = true;
     } else if (arg === "--rehearse") {
       options.rehearse = true;
+    } else if (arg === "--apply") {
+      options.apply = true;
     } else if (arg === "--keep-worktree") {
       options.keepWorktree = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -55,6 +58,10 @@ export function parseUpdateArgs(argv) {
 
   if (options.keepWorktree && !options.rehearse) {
     throw new Error("Use --keep-worktree only with --rehearse.");
+  }
+
+  if (options.apply && options.rehearse) {
+    throw new Error("Use --apply and --rehearse as separate workflows.");
   }
 
   return options;
@@ -175,9 +182,12 @@ export function buildUpdatePlan({ currentVersion, options, release, cleanWorking
 
   const comparison = compareVersions(release.tag, currentVersion);
   const newer = comparison === null ? release.tag !== currentVersion && release.tag !== `v${currentVersion}` : comparison > 0;
-  const canFetchTag = Boolean(options.yes && newer && cleanWorkingTree && !options.rehearse);
+  const canFetchTag = Boolean(options.yes && newer && cleanWorkingTree && !options.rehearse && !options.apply);
   const canRehearse = Boolean(options.rehearse && options.yes && newer && cleanWorkingTree);
+  const canApply = Boolean(options.apply && options.yes && newer && cleanWorkingTree);
   const worktreePath = `/tmp/glyph-update-${safePathSegment(release.tag)}`;
+  const confirmedAction = options.apply ? "apply the update to the current checkout" : options.rehearse ? "create an update rehearsal worktree" : "fetch the update tag";
+  const skippedAction = options.apply ? "apply" : options.rehearse ? "rehearsal" : "tag fetch";
 
   return {
     currentVersion,
@@ -187,13 +197,14 @@ export function buildUpdatePlan({ currentVersion, options, release, cleanWorking
     comparison,
     newer,
     cleanWorkingTree,
-    mutates: canFetchTag || canRehearse,
+    mutates: canFetchTag || canRehearse || canApply,
     rehearses: Boolean(options.rehearse),
+    applies: Boolean(options.apply),
     keepWorktree: Boolean(options.keepWorktree),
     warnings: [
       ...(comparison === null ? [`Could not compare ${release.tag} to ${currentVersion} as semver; treating different tags as potentially newer.`] : []),
-      ...(!cleanWorkingTree && options.yes ? [`Working tree is not clean; refusing to ${options.rehearse ? "create an update rehearsal worktree" : "fetch the update tag"}.`] : []),
-      ...(!newer && options.yes ? [`Latest release is not newer than the current package version; no ${options.rehearse ? "rehearsal" : "tag fetch"} is needed.`] : [])
+      ...(!cleanWorkingTree && options.yes ? [`Working tree is not clean; refusing to ${confirmedAction}.`] : []),
+      ...(!newer && options.yes ? [`Latest release is not newer than the current package version; no ${skippedAction} is needed.`] : [])
     ],
     commands: {
       fetchTag: ["git", "fetch", source.gitUrl, "tag", release.tag],
@@ -219,6 +230,18 @@ export function buildRehearsalSteps(plan) {
   ];
 }
 
+export function buildApplySteps(plan) {
+  return [
+    { label: "Fetch release tag", command: plan.commands.fetchTag, cwd: null, mutates: true },
+    { label: "Check out release tag", command: plan.commands.checkout, cwd: null, mutates: true },
+    { label: "Install locked dependencies", command: plan.commands.install, cwd: null, mutates: true },
+    { label: "Run release checks", command: plan.commands.releaseCheck, cwd: null, mutates: false },
+    { label: "Review and apply remote D1 migrations intentionally", command: null, cwd: null, mutates: false },
+    { label: "Run deploy checks", command: plan.commands.deployCheck, cwd: null, mutates: false },
+    { label: "Deploy intentionally", command: plan.commands.deploy, cwd: null, mutates: true }
+  ];
+}
+
 export function formatUpdatePlan(plan) {
   const lines = [
     `Glyph manual update plan`,
@@ -230,7 +253,8 @@ export function formatUpdatePlan(plan) {
     plan.release.url ? `Release URL: ${plan.release.url}` : "Release URL: unavailable",
     `Update available: ${plan.newer ? "yes" : "no"}`,
     `Working tree clean: ${plan.cleanWorkingTree ? "yes" : "no"}`,
-    `Rehearsal mode: ${plan.rehearses ? "yes" : "no"}`
+    `Rehearsal mode: ${plan.rehearses ? "yes" : "no"}`,
+    `Apply mode: ${plan.applies ? "yes" : "no"}`
   ];
 
   if (plan.release.body) {
@@ -269,10 +293,26 @@ export function formatUpdatePlan(plan) {
           ""
         ]
       : []),
+    ...(plan.applies
+      ? [
+          "Apply mode:",
+          `1. Fetch the release tag: ${plan.commands.fetchTag.join(" ")}`,
+          `2. Check out the release tag in this checkout: ${plan.commands.checkout.join(" ")}`,
+          `3. Install locked dependencies: ${plan.commands.install.join(" ")}`,
+          `4. Run release checks: ${plan.commands.releaseCheck.join(" ")}`,
+          "5. Review release notes and migration files, then apply remote D1 migrations intentionally.",
+          `6. Run deploy checks: ${plan.commands.deployCheck.join(" ")}`,
+          `7. Deploy intentionally: ${plan.commands.deploy.join(" ")}`,
+          "Apply mode checks out the release tag locally and leaves deployment and migrations to the operator.",
+          ""
+        ]
+      : []),
     plan.mutates
       ? plan.rehearses
         ? "Confirmed rehearsal: this run will fetch the tag, create a temporary worktree, run local checks there, and clean up unless --keep-worktree is set. It will not change the current checkout, deploy, apply remote migrations, or mutate Cloudflare resources."
-        : "Confirmed mode: this run will fetch the validated release tag only. It will not check out code, install dependencies, deploy, or apply migrations."
+        : plan.applies
+          ? "Confirmed apply: this run will fetch the validated release tag and check it out in the current clean checkout. It will not install dependencies, deploy, apply remote migrations, store tokens, schedule checks, or mutate Cloudflare resources."
+          : "Confirmed mode: this run will fetch the validated release tag only. It will not check out code, install dependencies, deploy, or apply migrations."
       : "Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed."
   );
 
@@ -289,12 +329,15 @@ Usage:
   pnpm run update:glyph -- --yes
   pnpm run update:glyph -- --rehearse
   pnpm run update:glyph -- --rehearse --yes
+  pnpm run update:glyph -- --apply
+  pnpm run update:glyph -- --apply --yes
 
 Options:
   --source <url>      GitHub release source. Default: ${OFFICIAL_UPDATE_SOURCE_URL}.
   --channel <name>    stable uses latest release; beta uses newest release entry. Default: stable.
   --yes, -y           Fetch the validated release tag when an update is available and the tree is clean.
   --rehearse          Plan a temporary-worktree update rehearsal. With --yes, run it.
+  --apply             Plan applying a newer release to this checkout. With --yes, fetch and check out the tag.
   --keep-worktree     Keep the rehearsal worktree for inspection. Only valid with --rehearse.
   --help, -h          Show this help.
 
@@ -304,6 +347,10 @@ call the deployed admin UI.
 
 Rehearsal mode also defaults to a dry-run plan. Rehearsal execution requires --rehearse --yes,
 uses an isolated temporary git worktree, and does not change the current checkout.
+
+Apply mode also defaults to a dry-run plan. Apply execution requires --apply --yes, a clean
+working tree, and a newer release. It fetches and checks out the validated tag only; install,
+release checks, remote migrations, and deployment remain explicit operator steps.
 `;
 }
 
@@ -511,6 +558,12 @@ function runUpdateRehearsal(plan, rootDir) {
   }
 }
 
+function runUpdateApply(plan, rootDir) {
+  runCommand(plan.commands.fetchTag, rootDir, "Fetch release tag");
+  runCommand(plan.commands.checkout, rootDir, "Check out release tag");
+  console.log(`\nChecked out ${plan.release.tag}. Continue manually with install, release-check, migration review, deploy checks, and intentional deploy steps.`);
+}
+
 function listMigrationFiles(rootDir) {
   const migrationsDir = join(rootDir, "migrations");
   if (!existsSync(migrationsDir)) {
@@ -542,6 +595,14 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
         return plan.newer && !plan.cleanWorkingTree ? 1 : 0;
       }
       runUpdateRehearsal(plan, rootDir);
+      return 0;
+    }
+
+    if (options.apply) {
+      if (!plan.mutates) {
+        return plan.newer && !plan.cleanWorkingTree ? 1 : 0;
+      }
+      runUpdateApply(plan, rootDir);
       return 0;
     }
 

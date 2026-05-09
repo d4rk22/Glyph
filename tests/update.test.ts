@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildApplySteps,
   buildRehearsalSteps,
   buildUpdatePlan,
   compareVersions,
@@ -27,6 +28,7 @@ test("manual update argument parser defaults to official source and dry run", ()
     channel: "stable",
     yes: false,
     rehearse: false,
+    apply: false,
     keepWorktree: false,
     help: false
   });
@@ -36,16 +38,19 @@ test("manual update argument parser defaults to official source and dry run", ()
     channel: "beta",
     yes: true,
     rehearse: false,
+    apply: false,
     keepWorktree: false,
     help: false
   });
 
   assert.equal(parseUpdateArgs(["--rehearse"]).rehearse, true);
+  assert.equal(parseUpdateArgs(["--apply"]).apply, true);
   assert.equal(parseUpdateArgs(["--rehearse", "--keep-worktree"]).keepWorktree, true);
   assert.throws(() => parseUpdateArgs(["--source="]), /Update source cannot be empty/);
   assert.throws(() => parseUpdateArgs(["--channel", "nightly"]), /stable or beta/);
   assert.throws(() => parseUpdateArgs(["--source"]), /requires a value/);
   assert.throws(() => parseUpdateArgs(["--keep-worktree"]), /only with --rehearse/);
+  assert.throws(() => parseUpdateArgs(["--apply", "--rehearse"]), /separate workflows/);
 });
 
 test("manual update helper accepts only GitHub release sources", () => {
@@ -157,6 +162,84 @@ test("manual update rehearsal is a dry-run plan unless confirmed", () => {
   assert.deepEqual(dryRun.commands.worktreeRemove, ["git", "worktree", "remove", "--force", "/tmp/glyph-update-v0.2.0"]);
   assert.match(formatUpdatePlan(dryRun), /Update rehearsal:/);
   assert.match(formatUpdatePlan(dryRun), /Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed/);
+});
+
+test("manual update apply mode is a dry-run plan unless confirmed", () => {
+  const dryRun = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--apply"]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(dryRun.applies, true);
+  assert.equal(dryRun.mutates, false);
+  assert.match(formatUpdatePlan(dryRun), /Apply mode:/);
+  assert.match(formatUpdatePlan(dryRun), /Check out the release tag in this checkout/);
+  assert.match(formatUpdatePlan(dryRun), /Dry run: no git refs, files, deployments, migrations, or Cloudflare resources will be changed/);
+});
+
+test("manual update apply mode requires confirmation clean tree and newer release", () => {
+  const confirmed = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--apply", "--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(confirmed.mutates, true);
+  assert.match(formatUpdatePlan(confirmed), /Confirmed apply/);
+  assert.match(formatUpdatePlan(confirmed), /fetch the validated release tag and check it out/);
+  assert.match(formatUpdatePlan(confirmed), /will not install dependencies, deploy, apply remote migrations/);
+
+  const dirty = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--apply", "--yes"]),
+    release,
+    cleanWorkingTree: false
+  });
+
+  assert.equal(dirty.mutates, false);
+  assert.match(dirty.warnings.join("\n"), /refusing to apply the update to the current checkout/);
+
+  const current = buildUpdatePlan({
+    currentVersion: "0.2.0",
+    options: parseUpdateArgs(["--apply", "--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+
+  assert.equal(current.mutates, false);
+  assert.equal(current.newer, false);
+  assert.match(current.warnings.join("\n"), /no apply is needed/);
+});
+
+test("manual update apply steps include checkout and post-apply guidance", () => {
+  const plan = buildUpdatePlan({
+    currentVersion: "0.1.0",
+    options: parseUpdateArgs(["--apply", "--yes"]),
+    release,
+    cleanWorkingTree: true
+  });
+  const steps = buildApplySteps(plan);
+
+  assert.deepEqual(
+    steps.map((step) => step.label),
+    [
+      "Fetch release tag",
+      "Check out release tag",
+      "Install locked dependencies",
+      "Run release checks",
+      "Review and apply remote D1 migrations intentionally",
+      "Run deploy checks",
+      "Deploy intentionally"
+    ]
+  );
+  assert.equal(steps[1]?.command?.join(" "), "git checkout v0.2.0");
+  assert.equal(steps[4]?.command, null);
+  assert.match(formatUpdatePlan(plan), /pnpm install --frozen-lockfile/);
+  assert.match(formatUpdatePlan(plan), /pnpm run release:check/);
+  assert.match(formatUpdatePlan(plan), /Review release notes and migration files/);
 });
 
 test("manual update rehearsal requires confirmation and a clean tree", () => {

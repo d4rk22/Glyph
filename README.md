@@ -210,6 +210,12 @@ Phase 31 public support templates maintenance release is in place:
 - `v0.1.4` publishes the public issue/support templates through the GitHub release channel.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
 
+Phase 32 conservative local manual update apply mode is in place:
+
+- `pnpm run update:glyph -- --apply` prints a local source-update plan without changing the checkout.
+- `pnpm run update:glyph -- --apply --yes` requires a clean working tree and a newer validated release, then fetches and checks out the release tag.
+- Apply mode stays local-only; it does not install dependencies, deploy, apply remote migrations, store tokens, schedule checks, run from admin, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -420,6 +426,20 @@ pnpm run update:glyph -- --rehearse --yes
 Confirmed rehearsal mode requires a clean working tree and a newer selected release. It fetches the validated release tag, creates an isolated detached git worktree under `/tmp`, runs `pnpm install --frozen-lockfile` and `pnpm run release:check` inside that worktree, lists the target release's `migrations/*.sql` files, and removes the temporary worktree by default. Add `--keep-worktree` to keep the worktree for inspection; the helper prints the cleanup command.
 
 The rehearsal workflow prepares future opt-in automatic updates by proving that release checks can run away from the active checkout. It still does not check out code in the current tree, deploy Workers, apply remote migrations, publish npm packages, execute updates from admin, store GitHub tokens, schedule checks, or mutate Cloudflare resources.
+
+After rehearsing and reviewing a newer release, print the local apply plan:
+
+```sh
+pnpm run update:glyph -- --apply
+```
+
+To apply the source update to the current checkout, run:
+
+```sh
+pnpm run update:glyph -- --apply --yes
+```
+
+Confirmed apply mode refuses to continue unless the working tree is clean and the selected release is newer. When those checks pass, it fetches the validated release tag and checks out that tag in the current checkout. It does not install dependencies, deploy Workers, apply remote migrations, publish packages, execute from admin, store GitHub tokens, schedule checks, or mutate Cloudflare resources. After apply mode, run `pnpm install --frozen-lockfile`, `pnpm run release:check`, review and apply remote D1 migrations intentionally, run `pnpm run deploy:glyph -- --check`, and deploy intentionally with `pnpm run deploy:glyph -- --yes`.
 
 The protected `/admin` update-check result page mirrors this local workflow. It can display release metadata and recommended commands, but it remains read-only and never runs local update helpers from the Worker.
 

@@ -145,6 +145,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Local manual self-update can compare the package-backed version to the public release channel, print a safe operator update plan, and fetch a validated release tag only with explicit confirmation and a clean working tree.
 - Maintenance releases can bump the package-backed version, validate the release/update workflow, and publish GitHub release notes without npm publication, Worker deployment, remote migrations, or Cloudflare mutations.
 - Local update rehearsal can validate a newer release in an isolated temporary worktree with explicit confirmation, cleanup guidance, migration-file summaries, and no current-checkout, deployment, remote migration, or Cloudflare mutation.
+- Local manual update apply mode can move a clean checkout to a validated newer release tag with explicit confirmation while leaving install, checks, migrations, and deploy as operator-controlled steps.
 - Update rehearsal maintenance releases can keep the public release/update channel aligned with local rehearsal improvements while preserving the conservative source-only release model.
 - Admin update checks can guide operators toward local update rehearsal while remaining read-only and never executing commands, deploying, applying migrations, storing tokens, scheduling checks, or mutating Cloudflare resources.
 - Admin update rehearsal guidance maintenance releases can keep the public release/update channel aligned with protected admin guidance while preserving the conservative source-only release model.
@@ -181,3 +182,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 29. Publish the admin update rehearsal guidance maintenance release. Completed.
 30. Add public repository issue and support templates. Completed.
 31. Publish the public support templates maintenance release. Completed.
+32. Add conservative local manual update apply mode. Completed.
