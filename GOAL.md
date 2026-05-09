@@ -147,6 +147,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Local update rehearsal can validate a newer release in an isolated temporary worktree with explicit confirmation, cleanup guidance, migration-file summaries, and no current-checkout, deployment, remote migration, or Cloudflare mutation.
 - Update rehearsal maintenance releases can keep the public release/update channel aligned with local rehearsal improvements while preserving the conservative source-only release model.
 - Admin update checks can guide operators toward local update rehearsal while remaining read-only and never executing commands, deploying, applying migrations, storing tokens, scheduling checks, or mutating Cloudflare resources.
+- Admin update rehearsal guidance maintenance releases can keep the public release/update channel aligned with protected admin guidance while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -175,3 +176,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 26. Add conservative local update rehearsal for release updates. Completed.
 27. Publish the update rehearsal maintenance release. Completed.
 28. Add admin-facing guidance for local update rehearsal. Completed.
+29. Publish the admin update rehearsal guidance maintenance release. Completed.

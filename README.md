@@ -192,6 +192,12 @@ Phase 28 admin-facing update rehearsal guidance is in place:
 - Update result pages recommend `pnpm run update:glyph -- --rehearse --yes` only from a clean local checkout when the operator is ready to validate the release in a temporary worktree.
 - Admin update checks remain read-only; they do not execute local commands, deploy, apply migrations, store tokens, schedule checks, or mutate Cloudflare resources.
 
+Phase 29 admin update rehearsal guidance maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.3`.
+- `v0.1.3` publishes the protected admin update-check guidance through the public GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, token storage, scheduled check, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -343,7 +349,7 @@ Before tagging a release, update `package.json` with the next semver version and
 - New secrets, bindings, CORS, or custom-domain expectations.
 - Known limitations or rollback notes.
 
-Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.2`. Release titles should name the version, and release notes should include these sections when relevant:
+Release tags should use `vMAJOR.MINOR.PATCH`, for example `v0.1.3`. Release titles should name the version, and release notes should include these sections when relevant:
 
 - Highlights.
 - Migrations.
