@@ -254,6 +254,12 @@ Phase 38 scheduled update-check configuration guidance is in place:
 - The panel states that scheduled checks only fetch public GitHub release metadata and persist the read-only result in D1.
 - Scheduled checks still never deploy, apply migrations, check out code, mutate source, store GitHub tokens, execute local update helpers, create Cloudflare triggers, or mutate Cloudflare resources.
 
+Phase 39 scheduled update-check guidance maintenance release is in place:
+
+- The package-backed Glyph version is `0.1.8`.
+- `v0.1.8` publishes the clarified admin scheduled-check guidance through the GitHub release channel.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, trigger creation, token storage, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
