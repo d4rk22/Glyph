@@ -210,3 +210,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 44. Implement turnkey deploy v1. Completed.
 45. Publish the turnkey deploy v1 maintenance release. Completed.
 46. Improve turnkey resource discovery and recovery. Completed.
+47. Publish the turnkey discovery/recovery maintenance release. Completed.

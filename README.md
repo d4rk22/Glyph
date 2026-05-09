@@ -308,6 +308,13 @@ Phase 46 turnkey discovery and recovery is in place:
 - Recovery output now calls out common blockers: missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, placeholder D1 database IDs, already-existing buckets, invalid `PUBLIC_BASE_URL`, and direct/multipart credential or CORS follow-up.
 - Defaults remain non-mutating; resource creation, config writes, remote migrations, and deploy still require `--turnkey --yes`.
 
+Phase 47 turnkey discovery/recovery maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.2`.
+- `v0.2.2` publishes turnkey resource discovery and recovery improvements through the GitHub release channel.
+- The release highlights read-only D1/R2 discovery, D1 database ID extraction from Wrangler output, safe reuse of existing D1 databases and R2 buckets, and clearer recovery guidance for Wrangler auth, `CLOUDFLARE_API_TOKEN`, placeholder D1 IDs, already-existing resources, invalid public origins, and direct/multipart readiness.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, DNS/custom-domain creation, scheduled trigger automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
