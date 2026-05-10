@@ -524,6 +524,13 @@ Phase 78 real Cloudflare deploy rehearsal findings are in place:
 - No Cloudflare resources were created or mutated during the rehearsal. D1/R2 creation or reuse, real D1 database ID capture, remote migration application, Worker deploy, deployed URL capture, `/health`, `/admin`, `/` verification, first-admin passkey bootstrap, harmless upload/download smoke testing, direct/multipart secret setup, R2 CORS application, custom-domain attachment, and scheduled-trigger activation remain operator-owned proof steps after authentication is available.
 - No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, or sensitive deployment logs were committed.
 
+Phase 79 real Cloudflare rehearsal findings maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.8`.
+- `v0.3.8` publishes the sanitized real-account rehearsal findings through the GitHub release channel.
+- The release highlights the exercised `--cloudflare-rehearsal`, readiness, turnkey, rehearsal, preflight, secrets, custom-domain, scheduled-trigger, post-deploy verification, release-check, and update-helper paths; confirmed Wrangler availability; the authenticated-account blocker in this non-interactive environment; the `CLOUDFLARE_API_TOKEN` requirement for D1/R2 discovery; the local `pnpm` PATH/Corepack recovery finding for deploy `--check`; and operator-owned remaining proof steps.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

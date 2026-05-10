@@ -265,3 +265,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 76. Add real Cloudflare deploy rehearsal checklist and evidence capture. Completed.
 77. Publish the real Cloudflare deploy rehearsal maintenance release. Completed.
 78. Perform the real Cloudflare deploy rehearsal and capture sanitized findings. Completed.
+79. Publish the real Cloudflare rehearsal findings maintenance release. Completed.
