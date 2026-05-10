@@ -430,6 +430,13 @@ Phase 64 turnkey deploy rehearsal is in place:
 - The report summarizes local prerequisites, package version, Cloudflare auth, D1/R2 discovery or creation plans, Wrangler config readiness, placeholder D1 IDs, remote migration and deploy gates, direct/multipart secret and R2 CORS follow-up, custom-domain verification, scheduled-trigger setup, expected public/admin URLs, `/health` checks, and recovery steps.
 - The rehearsal makes the next recommended command clear for each blocked or manual item while preserving the no-D1/R2-creation, no-config-write, no-secret-storage, no-CORS-application, no-migration, no-deploy, no-DNS/custom-domain/scheduled-trigger, no-release, no-update, and no-Cloudflare-mutation safety boundary.
 
+Phase 65 turnkey deploy rehearsal maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.1`.
+- `v0.3.1` publishes the turnkey deploy rehearsal workflow through the GitHub release channel.
+- The release highlights the `--turnkey-rehearse` read-only operator report, fresh-checkout-to-deploy path summary, auth/token readiness, D1/R2 plans, placeholder D1 ID checks, migration/deploy gates, direct/multipart and R2 CORS follow-up, custom-domain and scheduled-trigger follow-up, URL and `/health` guidance, next-command recommendations, partial-setup recovery, and no-local-or-Cloudflare-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
