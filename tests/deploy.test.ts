@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   buildAuthReadinessLines,
+  buildCustomDomainSetupPlan,
+  buildCustomDomainWranglerConfig,
   buildDirectUploadReadinessLines,
   buildDirectUploadSetupPlan,
   buildDirectUploadSecretPlan,
@@ -54,6 +56,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     setup: false,
     turnkey: false,
     turnkeySecrets: false,
+    turnkeyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -72,6 +75,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     setup: false,
     turnkey: false,
     turnkeySecrets: false,
+    turnkeyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: true,
@@ -90,6 +94,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     setup: true,
     turnkey: false,
     turnkeySecrets: false,
+    turnkeyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -108,6 +113,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     setup: false,
     turnkey: true,
     turnkeySecrets: false,
+    turnkeyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -127,6 +133,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-secrets", "--yes", "--apply-cors"]).applyCors, true);
   assert.throws(() => parseArgs(["--turnkey-secrets", "--check"]), /turnkey-secrets by itself/);
   assert.throws(() => parseArgs(["--apply-cors"]), /only with --turnkey-secrets --yes/);
+  assert.equal(parseArgs(["--turnkey-domain", "--public-base-url", "https://files.example.com"]).turnkeyDomain, true);
+  assert.equal(parseArgs(["--turnkey-domain", "--yes", "--public-base-url", "https://files.example.com"]).yes, true);
+  assert.throws(() => parseArgs(["--turnkey-domain", "--check"]), /turnkey-domain by itself/);
+  assert.throws(() => parseArgs(["--turnkey-domain", "--apply-cors"]), /turnkey-domain by itself/);
   assert.equal(parseArgs(["--readiness"]).readiness, true);
   assert.equal(parseArgs(["--", "--readiness"]).readiness, true);
   assert.throws(() => parseArgs(["--readiness", "--yes"]), /read-only report mode/);
@@ -213,6 +223,7 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
   assert.match(output, /\[ready\] D1 database_id: non-placeholder/);
   assert.match(output, /\[ready\] R2 binding: FILES binds bucket glyph-files/);
   assert.match(output, /\[ready\] Scheduled triggers: Configured cron trigger/);
+  assert.match(output, /turnkey-domain/);
   assert.match(output, /\[manual\] Remote migrations: Readiness mode does not list or apply remote migrations/);
   assert.match(output, /\[manual\] R2 CORS recommendation: Allow browser PUT requests from https:\/\/files\.example\.com/);
   assert.match(output, /turnkey-secrets/);
@@ -220,6 +231,7 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
   assert.match(output, /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
   assert.doesNotMatch(output, /super-secret-value/);
   assert.match(output, /No secret storage, no CORS application, no remote migrations, no deploy/);
+  assert.match(output, /no local custom-domain config writes/);
 });
 
 test("readiness report flags placeholder D1 IDs and non-interactive auth blockers", () => {
@@ -362,6 +374,63 @@ test("turnkey follow-up output includes URLs, manual tasks, and partial setup re
   assert.match(lines.join("\n"), /Scheduled Worker triggers/);
   assert.match(lines.join("\n"), /Post-deploy check: verify https:\/\/files\.example\.com\/health/);
   assert.match(lines.join("\n"), /re-run --turnkey --yes with --reuse-resources/);
+});
+
+test("custom-domain setup plan validates origin route hints and manual follow-up", () => {
+  const config = JSON.stringify({
+    name: "glyph",
+    main: "src/index.ts",
+    vars: { APP_ENV: "production" },
+    routes: ["old.example.com/*"],
+    d1_databases: [
+      {
+        binding: "DB",
+        database_name: "glyph",
+        database_id: "real-database-id",
+        migrations_dir: "migrations"
+      }
+    ],
+    r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+  });
+  const plan = buildCustomDomainSetupPlan(
+    parseArgs(["--turnkey-domain", "--public-base-url", "https://files.example.com"]),
+    config
+  );
+  const output = plan.items.map((item) => `${item.label}: ${item.detail}`).join("\n");
+
+  assert.equal(plan.origin, "https://files.example.com");
+  assert.equal(plan.routePattern, "files.example.com/*");
+  assert.deepEqual(plan.routeHosts, ["old.example.com"]);
+  assert.deepEqual(plan.matchingRoutes, []);
+  assert.match(output, /origin-only https URL/);
+  assert.match(output, /No configured route host currently matches files\.example\.com/);
+  assert.match(output, /zone for files\.example\.com/);
+  assert.match(output, /certificate readiness/);
+  assert.match(output, /Passkeys are origin-bound/);
+  assert.match(output, /Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /Worker-mediated uploads remain available/);
+  assert.match(output, /never creates DNS records/);
+});
+
+test("custom-domain config suggestion is gated and local-only", () => {
+  const updated = buildCustomDomainWranglerConfig(
+    validWranglerConfig,
+    parseArgs(["--turnkey-domain", "--yes", "--public-base-url", "https://files.example.com"])
+  );
+  const parsed = JSON.parse(updated.configText);
+
+  assert.equal(updated.changed, true);
+  assert.equal(updated.error, null);
+  assert.equal(parsed.vars.PUBLIC_BASE_URL, "https://files.example.com");
+  assert.deepEqual(parsed.routes, [{ pattern: "files.example.com/*", custom_domain: true }]);
+  assert.equal(validateWranglerConfig(updated.configText, { requireDeployReady: true }).errors.length, 0);
+
+  const alreadyAligned = buildCustomDomainWranglerConfig(updated.configText, parseArgs(["--turnkey-domain", "--yes"]));
+  assert.equal(alreadyAligned.changed, false);
+
+  const invalid = buildCustomDomainWranglerConfig(validWranglerConfig, parseArgs(["--turnkey-domain"]));
+  assert.equal(invalid.changed, false);
+  assert.match(invalid.error ?? "", /PUBLIC_BASE_URL/);
 });
 
 test("direct upload secret plan prints commands without values", () => {

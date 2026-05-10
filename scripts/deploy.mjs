@@ -19,6 +19,7 @@ export function parseArgs(argv) {
     setup: false,
     turnkey: false,
     turnkeySecrets: false,
+    turnkeyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -45,6 +46,8 @@ export function parseArgs(argv) {
       options.turnkey = true;
     } else if (arg === "--turnkey-secrets") {
       options.turnkeySecrets = true;
+    } else if (arg === "--turnkey-domain") {
+      options.turnkeyDomain = true;
     } else if (arg === "--apply-cors") {
       options.applyCors = true;
     } else if (arg === "--readiness") {
@@ -99,15 +102,19 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
+  }
+
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.applyCors)) {
+    throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
   if (options.applyCors && (!options.turnkeySecrets || !options.yes)) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -453,6 +460,11 @@ export function buildTurnkeyPlan(options, configText = null) {
       detail: "After the basic deployment path is ready, run pnpm run deploy:glyph -- --turnkey-secrets to plan interactive Wrangler secret setup and reviewed R2 CORS application. Confirmed secret/CORS setup is separate from Worker deploy and remote migrations."
     },
     {
+      label: "Configure custom-domain readiness",
+      mutates: false,
+      detail: "For a custom domain, run pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com to review local PUBLIC_BASE_URL, route hints, passkey origin notes, R2 CORS alignment, and manual Cloudflare follow-up."
+    },
+    {
       label: "Run checks, migrations, dry-run, and deploy",
       mutates: true,
       detail: "With --yes and deploy-ready config, runs install, typecheck, tests, remote D1 migrations, Wrangler dry-run, and Wrangler deploy."
@@ -761,6 +773,91 @@ export function buildDirectUploadSetupPlan(options, configText = null, env = pro
   return { items, cors, secretPlan };
 }
 
+export function buildCustomDomainSetupPlan(options, configText = null) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const configuredPublicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const publicBaseUrl = options.publicBaseUrl ?? configuredPublicBaseUrl;
+  const validation = publicBaseUrl ? validatePublicBaseUrl(publicBaseUrl) : { url: null, error: "PUBLIC_BASE_URL or --public-base-url is required for guided custom-domain setup." };
+  const origin = validation.url?.origin ?? null;
+  const host = validation.url?.hostname.toLowerCase() ?? null;
+  const routePattern = host ? `${host}/*` : null;
+  const routeHosts = config ? wranglerRouteHosts(config) : [];
+  const workerName = typeof config?.name === "string" && config.name.length > 0 ? config.name : "glyph";
+  const matchingRoutes = host ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, host)) : [];
+  const cors = buildR2CorsRecommendation(configText, {
+    bucket: options.bucket,
+    publicBaseUrl: origin
+  });
+  const configUpdate = buildCustomDomainWranglerConfig(configText, options);
+  const items = [
+    {
+      label: "Validate custom-domain origin",
+      mutates: false,
+      detail: validation.error
+        ? validation.error
+        : `${origin} is an origin-only https URL suitable for generated links and passkey/WebAuthn registration.`
+    },
+    {
+      label: "Inspect Wrangler route configuration",
+      mutates: false,
+      detail: routeHosts.length > 0
+        ? `Configured route/custom-domain host(s): ${routeHosts.join(", ")}. ${matchingRoutes.length > 0 ? `At least one host matches ${host}.` : host ? `No configured route host currently matches ${host}.` : ""}`
+        : "No Wrangler route/custom-domain host is configured yet; attach the Worker manually in Cloudflare or review the local route suggestion."
+    },
+    {
+      label: "Review local Wrangler config suggestion",
+      command: routePattern ? ["pnpm", "run", "deploy:glyph", "--", "--turnkey-domain", "--yes", "--public-base-url", origin] : undefined,
+      mutates: Boolean(routePattern),
+      detail: routePattern
+        ? `With --yes, Glyph writes vars.PUBLIC_BASE_URL=${origin} and ensures a reviewed Wrangler route pattern ${routePattern} with custom_domain=true. It does not create DNS records, certificates, zones, or Cloudflare custom domains.`
+        : "No local config suggestion can be generated until a final https origin is supplied."
+    },
+    {
+      label: "Manual Cloudflare custom-domain steps",
+      mutates: false,
+      detail: host
+        ? `In Cloudflare, confirm the zone for ${host}, create or verify DNS for ${host}, attach Worker ${workerName} to ${routePattern}, wait for certificate readiness, then verify ${origin}/health and ${origin}/admin.`
+        : "Choose the final hostname, confirm its Cloudflare zone, create DNS, attach the Worker route/custom domain, and wait for certificate readiness."
+    },
+    {
+      label: "Passkey origin guidance",
+      mutates: false,
+      detail: origin
+        ? `Passkeys are origin-bound. Bootstrap or re-register the admin passkey from ${origin}/admin after the custom domain is live.`
+        : "Passkeys are origin-bound; bootstrap or re-register admin passkeys only on the final deployed origin."
+    },
+    {
+      label: "Align R2 CORS with custom-domain origin",
+      mutates: false,
+      detail: cors.summary
+    },
+    {
+      label: "Worker-mediated upload fallback",
+      mutates: false,
+      detail: "Worker-mediated uploads remain available even before custom-domain R2 CORS is configured for direct/multipart browser uploads."
+    },
+    {
+      label: "Safety boundary",
+      mutates: false,
+      detail: "This workflow never creates DNS records, zones, certificates, custom domains, scheduled triggers, GitHub releases, deploys Workers, applies remote migrations, stores secrets, executes updates, or mutates Cloudflare resources."
+    }
+  ];
+
+  return {
+    items,
+    origin,
+    host,
+    routePattern,
+    routeHosts,
+    matchingRoutes,
+    cors,
+    configUpdate,
+    validationError: validation.error
+  };
+}
+
 function readinessItem(status, label, detail) {
   return { status, label, detail };
 }
@@ -1006,6 +1103,13 @@ export function buildReadinessReport(options, context = {}) {
     );
     configItems.push(
       readinessItem(
+        "manual",
+        "Guided custom-domain setup",
+        "Run `pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com` to review PUBLIC_BASE_URL, Wrangler route hints, passkey origin guidance, R2 CORS alignment, and manual Cloudflare follow-up."
+      )
+    );
+    configItems.push(
+      readinessItem(
         cronTriggers.length > 0 ? "ready" : "optional",
         "Scheduled triggers",
         cronTriggers.length > 0 ? `Configured cron trigger(s): ${cronTriggers.join(", ")}.` : "none configured; scheduled update checks and maintenance stay inert until an operator adds a trigger."
@@ -1091,7 +1195,7 @@ export function buildReadinessReport(options, context = {}) {
       readinessItem(
         "ready",
         "Read-only report",
-        "No secret storage, no CORS application, no remote migrations, no deploy, no DNS/custom-domain/scheduled-trigger creation, no release publishing, no update execution, and no Cloudflare mutations."
+        "No secret storage, no CORS application, no remote migrations, no deploy, no DNS/custom-domain/scheduled-trigger creation, no release publishing, no update execution, no local custom-domain config writes, and no Cloudflare mutations."
       )
     ]
   });
@@ -1168,6 +1272,52 @@ export function buildTurnkeyWranglerConfig(configText, options) {
   };
 }
 
+export function buildCustomDomainWranglerConfig(configText, options) {
+  const originValue = options.publicBaseUrl
+    ?? (typeof parseWranglerConfig(configText ?? "")?.vars?.PUBLIC_BASE_URL === "string"
+      ? parseWranglerConfig(configText ?? "")?.vars?.PUBLIC_BASE_URL
+      : null);
+  const validation = originValue ? validatePublicBaseUrl(originValue) : { url: null, error: "PUBLIC_BASE_URL or --public-base-url is required." };
+  if (validation.error || !validation.url) {
+    return {
+      configText: normalizeConfigText(configText),
+      changed: false,
+      error: validation.error ?? "PUBLIC_BASE_URL or --public-base-url is required.",
+      routePattern: null
+    };
+  }
+
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const next = config && typeof config === "object" ? structuredClone(config) : {};
+  const routePattern = `${validation.url.hostname.toLowerCase()}/*`;
+
+  next.$schema ??= "node_modules/wrangler/config-schema.json";
+  next.name = typeof next.name === "string" && next.name.length > 0 ? next.name : "glyph";
+  next.main = typeof next.main === "string" && next.main.length > 0 ? next.main : "src/index.ts";
+  next.vars = next.vars && typeof next.vars === "object" && !Array.isArray(next.vars) ? next.vars : {};
+  next.vars.PUBLIC_BASE_URL = validation.url.origin;
+
+  const routeHosts = wranglerRouteHosts(next);
+  if (!routeHosts.some((routeHostValue) => routeHostMatches(routeHostValue, validation.url.hostname.toLowerCase()))) {
+    const routeEntry = { pattern: routePattern, custom_domain: true };
+    if (Array.isArray(next.routes)) {
+      next.routes = [...next.routes, routeEntry];
+    } else if (next.routes === undefined) {
+      next.routes = [routeEntry];
+    } else {
+      next.routes = [next.routes, routeEntry];
+    }
+  }
+
+  const output = `${JSON.stringify(next, null, 2)}\n`;
+  return {
+    configText: output,
+    changed: normalizeConfigText(configText) !== normalizeConfigText(output),
+    error: null,
+    routePattern
+  };
+}
+
 export function buildTurnkeyFollowUpLines(configText, options) {
   const config = configText ? parseWranglerConfig(configText) : null;
   const publicBaseUrl = options.publicBaseUrl
@@ -1223,6 +1373,8 @@ Usage:
   pnpm run deploy:glyph -- --turnkey --yes
   pnpm run deploy:glyph -- --turnkey-secrets
   pnpm run deploy:glyph -- --turnkey-secrets --yes
+  pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com
+  pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
   pnpm run deploy:glyph -- --yes
@@ -1231,6 +1383,7 @@ Options:
   --setup             Print a guided Cloudflare setup plan. With --yes, create D1/R2 resources.
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
+  --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
   --apply-cors        With --turnkey-secrets --yes, apply reviewed R2 CORS using Wrangler.
   --readiness         Print a consolidated read-only deployment readiness report.
   --check             Run validation, remote migration check, tests, and dry-run without deploying. Default.
@@ -1249,6 +1402,9 @@ Options:
 Custom domain readiness:
   Set vars.PUBLIC_BASE_URL in wrangler.jsonc to the deployed https:// origin when using a custom domain.
   The helper validates the URL shape and warns when it does not line up with Wrangler routes.
+  --turnkey-domain is a non-mutating plan by default. --turnkey-domain --yes may write reviewed
+  local wrangler.jsonc PUBLIC_BASE_URL and route hints only; it never creates DNS records, zones,
+  certificates, custom domains, deploys, applies migrations, stores secrets, or mutates Cloudflare resources.
 
 Scheduled update check readiness:
   Optional read-only scheduled update checks require a Wrangler cron trigger plus a valid update source
@@ -1284,6 +1440,7 @@ export function validateProject(rootDir, options) {
   const errors = [];
   const warnings = [];
   const requiredFiles = options.turnkey
+    || options.turnkeyDomain
     ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
     : ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
 
@@ -1592,6 +1749,23 @@ function printDirectUploadSetupPlan(plan) {
   }
 }
 
+function printCustomDomainSetupPlan(plan) {
+  printSetupPlan(plan.items);
+  console.log("\nCustom-domain details:");
+  if (plan.origin) {
+    console.log(`Final origin: ${plan.origin}`);
+    console.log(`Suggested Wrangler route pattern: ${plan.routePattern}`);
+  } else {
+    console.log("Final origin: not configured yet");
+  }
+  console.log(plan.routeHosts.length > 0 ? `Configured route hosts: ${plan.routeHosts.join(", ")}` : "Configured route hosts: none");
+  console.log(plan.matchingRoutes.length > 0 ? `Matching route hosts: ${plan.matchingRoutes.join(", ")}` : "Matching route hosts: none");
+  console.log("\nR2 CORS alignment:");
+  for (const line of plan.cors.lines) {
+    console.log(line);
+  }
+}
+
 function runSetupCommands(plan, rootDir) {
   for (const item of plan) {
     if (item.mutates && item.command) {
@@ -1628,6 +1802,43 @@ function runDirectUploadSetupCommands(plan, rootDir, options) {
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
+}
+
+function runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath) {
+  const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const plan = buildCustomDomainSetupPlan(effectiveOptions, configText);
+
+  console.log(effectiveOptions.yes
+    ? "Glyph custom-domain setup: explicitly confirmed local Wrangler config update only."
+    : "Glyph custom-domain setup plan: no local files, deployments, migrations, DNS, certificates, custom domains, or Cloudflare resources will be changed.");
+  if (configText) {
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+  } else {
+    console.log("Wrangler config: wrangler.jsonc will be generated only with --turnkey-domain --yes and a valid --public-base-url.");
+  }
+  printCustomDomainSetupPlan(plan);
+
+  if (!effectiveOptions.yes) {
+    console.log("\nCustom-domain setup plan complete. Re-run with --turnkey-domain --yes --public-base-url https://files.example.com only after reviewing the local config suggestion and Cloudflare manual steps.");
+    return 0;
+  }
+
+  if (plan.validationError || !plan.configUpdate.configText) {
+    console.error(`Error: ${plan.validationError ?? plan.configUpdate.error ?? "A valid custom-domain origin is required."}`);
+    return 1;
+  }
+
+  if (plan.configUpdate.changed) {
+    writeFileSync(wranglerPath, plan.configUpdate.configText);
+    console.log(`\nUpdated wrangler.jsonc with PUBLIC_BASE_URL ${plan.origin} and reviewed route hint ${plan.routePattern}.`);
+  } else {
+    console.log("\nwrangler.jsonc already matches the requested custom-domain configuration.");
+  }
+
+  console.log("Custom-domain local config update complete. Configure DNS/custom-domain attachment in Cloudflare, verify certificate readiness, align R2 CORS with the final origin, then run deploy readiness checks.");
+  return 0;
 }
 
 function printTurnkeyPlan(plan) {
@@ -1876,7 +2087,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -1898,6 +2109,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (effectiveOptions.turnkeySecrets) {
     return runDirectUploadSetup(effectiveOptions, rootDir, wranglerPath);
+  }
+
+  if (effectiveOptions.turnkeyDomain) {
+    return runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath);
   }
 
   if (effectiveOptions.setup) {
