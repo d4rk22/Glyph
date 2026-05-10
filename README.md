@@ -490,6 +490,12 @@ Phase 73 downloadable preflight checklist maintenance release is in place:
 - The release highlights the `--preflight --outdir ./deploy-notes` local markdown export workflow, predictable `glyph-preflight-checklist.md` filename, stdout-by-default behavior, no-overwrite safety unless `--yes` is supplied, no-secret-value output, local-only file creation, and no-Cloudflare-mutation safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 74 fresh-instance turnkey deploy validation is in place:
+
+- A fresh-checkout style validation pass exercised readiness, turnkey rehearsal, preflight stdout and file export, turnkey planning, setup guidance, direct/multipart secret and CORS planning, custom-domain guidance, scheduled-trigger guidance, post-deploy verification guidance, Wrangler dry-run, local D1 migration checks, release checks, and update-helper dry-runs.
+- The pass found and fixed one operator-facing wording issue: exported preflight checklist files now describe themselves as local deployment-note artifacts instead of saying no files were written.
+- The validation was intentionally non-mutating. Real Cloudflare D1/R2 creation or reuse, remote migration application, Worker deploy, secret prompts, R2 CORS application, DNS/custom-domain attachment, scheduled trigger activation, passkey bootstrap, and file upload were not performed in this environment.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -1142,6 +1148,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Worker-mediated uploads remain the compatibility fallback. Direct-to-R2 and multipart direct-to-R2 uploads require separate R2 S3-compatible credentials and bucket CORS.
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The turnkey deploy helper can guide a fresh checkout through resource discovery, resource creation or reuse, config binding updates, checks, migrations, dry-run, and deploy, but secrets, CORS, DNS, custom-domain attachment, scheduled trigger creation, and `/admin` bootstrap are still operator-owned.
+- The latest fresh-instance validation used non-mutating dry-run/planning paths in this environment; a real Cloudflare account pass is still the final proof for confirmed D1/R2 creation or reuse, remote migration application, Worker deploy, secret prompts, R2 CORS application, and first `/admin` passkey bootstrap.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
 - Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1, and the deploy helper only reports cron trigger readiness.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.

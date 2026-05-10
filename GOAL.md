@@ -184,6 +184,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Post-deploy verification maintenance releases can keep the public release/update channel aligned with deployed-origin verification while preserving the conservative source-only release model.
 - Turnkey deploy examples can give operators read-only command transcripts and recovery paths for fresh checkout, missing auth, D1/R2 reuse, placeholder D1 IDs, remote migration gates, Worker-mediated fallback, direct/multipart setup, custom domains, scheduled triggers, and post-deploy verification without mutating local files or Cloudflare resources.
 - Turnkey deploy examples maintenance releases can keep the public release/update channel aligned with operator transcript guidance while preserving the conservative source-only release model.
+- Fresh-instance turnkey deploy validation can exercise the documented operator path, fix small wording or next-command friction, and document what was proven through dry-run/planning versus what still requires a real Cloudflare account pass.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -257,3 +258,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 71. Publish the deploy preflight checklist maintenance release. Completed.
 72. Add downloadable preflight checklist output. Completed.
 73. Publish the downloadable preflight checklist maintenance release. Completed.
+74. Validate fresh-instance turnkey deploy and fix operator friction. Completed.

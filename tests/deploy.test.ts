@@ -46,6 +46,7 @@ import {
   formatReadinessReport,
   formatTurnkeyRehearsalReport,
   hasR2Bucket,
+  missingCommandMessage,
   nodeMajorVersion,
   parseArgs,
   parseD1DatabaseList,
@@ -237,6 +238,12 @@ test("deploy steps check by default and only mutate remotely with --yes", () => 
   assert.deepEqual(deploySteps.at(-2)?.command, ["pnpm", "wrangler", "deploy", "--dry-run", "--outdir", DEFAULT_DRY_RUN_OUTDIR]);
   assert.deepEqual(deploySteps.at(-1)?.command, ["pnpm", "wrangler", "deploy"]);
   assert.deepEqual(deploySteps[2].command, ["pnpm", "wrangler", "d1", "migrations", "apply", "prod", "--remote"]);
+});
+
+test("missing command guidance explains pnpm setup for deploy checks", () => {
+  assert.match(missingCommandMessage("pnpm"), /pnpm was not found on PATH/);
+  assert.match(missingCommandMessage("pnpm"), /corepack enable/);
+  assert.match(missingCommandMessage("wrangler"), /wrangler was not found on PATH/);
 });
 
 test("auth readiness reports token and non-interactive guidance", () => {
@@ -461,6 +468,7 @@ test("preflight checklist summarizes deploy gates as markdown without mutation o
   }));
 
   assert.match(output, /^# Glyph Deploy Preflight Checklist/);
+  assert.match(output, /No commands are executed and no files are written/);
   assert.match(output, /- \[ \] \[ready\] Local prerequisites and package version: Node v25\.0\.0, Glyph 9\.9\.9/);
   assert.match(output, /Cloudflare auth\/token readiness/);
   assert.match(output, /D1\/R2 binding and resource readiness/);
@@ -534,6 +542,9 @@ test("preflight checklist writes a local markdown file only when output is expli
 
     const written = readFileSync(filePath, "utf8");
     assert.match(written, /^# Glyph Deploy Preflight Checklist/);
+    assert.match(written, /saved as a local deployment-note artifact/);
+    assert.match(written, /writes only the requested local markdown artifact/);
+    assert.doesNotMatch(written, /No commands are executed and no files are written/);
     assert.match(written, /Next: `pnpm run deploy:glyph -- --check`/);
     assert.doesNotMatch(written, /hidden-token|hidden-secret/);
     assert.throws(() => writePreflightChecklistFile(markdown, options), /already exists/);

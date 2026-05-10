@@ -363,6 +363,14 @@ export function buildDeploySteps(options) {
   return steps;
 }
 
+export function missingCommandMessage(commandName) {
+  if (commandName === "pnpm") {
+    return "pnpm was not found on PATH. Enable Corepack (`corepack enable`) or install pnpm 11, then rerun the same Glyph deploy command.";
+  }
+
+  return `${commandName} was not found on PATH. Install it or adjust PATH, then rerun the same Glyph deploy command.`;
+}
+
 export function buildRemoteMigrationPlan(options) {
   return [
     `Remote migrations: ${options.yes ? "apply" : "list/check"} D1 migrations for database ${options.database}.`,
@@ -2700,16 +2708,22 @@ export function buildPreflightChecklist(options, context = {}) {
     ));
   }
 
+  const safetyDetail = options.outdirExplicit
+    ? "This checklist is read-only with respect to deployment and Cloudflare state. It writes only the requested local markdown artifact. It does not deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admin users, execute passkey flows, or mutate Cloudflare resources. Operators still own Cloudflare auth, secrets, reviewed R2 CORS, DNS/custom-domain attachment, scheduled trigger activation, remote migration application, deployment, and final origin verification."
+    : "This checklist is read-only and writes no files. It does not deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admin users, execute passkey flows, or mutate Cloudflare resources. Operators still own Cloudflare auth, secrets, reviewed R2 CORS, DNS/custom-domain attachment, scheduled trigger activation, remote migration application, deployment, and final origin verification.";
+
   items.push(preflightItem(
     "manual",
     "Safety boundary and operator-owned Cloudflare tasks",
-    "This checklist is read-only and writes no files. It does not deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admin users, execute passkey flows, or mutate Cloudflare resources. Operators still own Cloudflare auth, secrets, reviewed R2 CORS, DNS/custom-domain attachment, scheduled trigger activation, remote migration application, deployment, and final origin verification.",
+    safetyDetail,
     null
   ));
 
   return {
     title: "Glyph Deploy Preflight Checklist",
-    intro: "Read-only markdown checklist: copy into deployment notes if useful. No commands are executed and no files are written.",
+    intro: options.outdirExplicit
+      ? "Read-only markdown checklist saved as a local deployment-note artifact. No commands are executed, no secret values are printed, and no Cloudflare resources are changed."
+      : "Read-only markdown checklist: copy into deployment notes if useful. No commands are executed and no files are written.",
     items
   };
 }
@@ -3290,6 +3304,9 @@ function runStep(step, rootDir) {
   });
 
   if (result.error) {
+    if (result.error.code === "ENOENT") {
+      throw new Error(missingCommandMessage(step.command[0]));
+    }
     throw result.error;
   }
 
@@ -3630,6 +3647,9 @@ function extractD1DatabaseId(output) {
 function runRequiredStep(step, rootDir) {
   const result = runStepResult(step, rootDir);
   if (result.error) {
+    if (result.error.code === "ENOENT") {
+      throw new Error(missingCommandMessage(step.command[0]));
+    }
     throw result.error;
   }
   if (result.status !== 0) {
