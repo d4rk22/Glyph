@@ -560,6 +560,14 @@ Phase 83 authenticated proof-pass maintenance release is in place:
 - The release highlights the sanitized proof boundary, the `pnpm` PATH/Corepack blocker in this shell, local Wrangler availability through npm fallback commands, non-interactive `CLOUDFLARE_API_TOKEN` requirements, unauthenticated `wrangler whoami` status, D1/R2 discovery gating, D1 database ID recovery guidance, remote migration/deploy readiness boundaries, and improved auth-doctor npm fallback recovery output.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 84 pnpm recovery proof refresh is in place:
+
+- `pnpm` is now available locally on `PATH` and reports version `11.0.8`, matching the project package-manager declaration.
+- The documented `pnpm run deploy:glyph -- --auth-doctor` and `pnpm run deploy:glyph -- --readiness` paths now run through the normal pnpm workflow, and Wrangler is reachable through that path as version `4.88.0`.
+- The previous `pnpm` PATH/Corepack blocker is resolved for this environment. The remaining proof boundary is Cloudflare authentication: this non-interactive shell still has no `CLOUDFLARE_API_TOKEN`, `wrangler whoami` is unauthenticated, and D1/R2 discovery, real D1 database ID capture, remote migration checks, Worker deploy, deployed-origin verification, admin bootstrap, upload smoke testing, secrets, CORS, custom-domain attachment, and scheduled-trigger activation remain operator-owned.
+- The local `.pnpm-store/` cache directory is ignored so package-manager proof runs do not leave noisy untracked cache artifacts.
+- No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, sensitive deployment logs, or Cloudflare resources were committed or mutated.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

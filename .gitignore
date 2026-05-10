@@ -1,8 +1,8 @@
 node_modules/
+.pnpm-store/
 .wrangler/
 .dev.vars
 dist/
 coverage/
 *.local
 .DS_Store
-
