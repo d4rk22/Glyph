@@ -24,6 +24,7 @@ import {
   buildSecretPutCommand,
   buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
+  buildTurnkeyExamplesReport,
   buildTurnkeyPlan,
   buildTurnkeyRehearsalReport,
   buildTurnkeyWranglerConfig,
@@ -35,6 +36,7 @@ import {
   DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
   findD1DatabaseId,
+  formatTurnkeyExamplesReport,
   formatReadinessReport,
   formatTurnkeyRehearsalReport,
   hasR2Bucket,
@@ -71,6 +73,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyDomain: false,
     turnkeySchedule: false,
     turnkeyRehearse: false,
+    turnkeyExamples: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -94,6 +97,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyDomain: false,
     turnkeySchedule: false,
     turnkeyRehearse: false,
+    turnkeyExamples: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -117,6 +121,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyDomain: false,
     turnkeySchedule: false,
     turnkeyRehearse: false,
+    turnkeyExamples: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -140,6 +145,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyDomain: false,
     turnkeySchedule: false,
     turnkeyRehearse: false,
+    turnkeyExamples: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -173,6 +179,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-rehearse", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.throws(() => parseArgs(["--turnkey-rehearse", "--yes"]), /turnkey-rehearse by itself/);
   assert.throws(() => parseArgs(["--turnkey-rehearse", "--readiness"]), /turnkey-rehearse by itself/);
+  assert.equal(parseArgs(["--turnkey-examples"]).turnkeyExamples, true);
+  assert.equal(parseArgs(["--turnkey-examples", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
+  assert.throws(() => parseArgs(["--turnkey-examples", "--yes"]), /turnkey-examples by itself/);
+  assert.throws(() => parseArgs(["--turnkey-examples", "--turnkey"]), /turnkey-examples by itself/);
   assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
   assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
   assert.throws(() => parseArgs(["--verify-domain", "--turnkey-domain", "--public-base-url", "https://files.example.com"]), /turnkey-domain by itself|verify-domain by itself/);
@@ -364,6 +374,32 @@ test("turnkey rehearsal report summarizes the full operator path without mutatio
   assert.match(output, /Partial setup recovery/);
   assert.match(output, /No D1\/R2 creation, no local config writes/);
   assert.doesNotMatch(output, /secret-value/);
+});
+
+test("turnkey examples report prints recovery transcripts without mutation or secret values", () => {
+  const output = formatTurnkeyExamplesReport(buildTurnkeyExamplesReport(parseArgs(["--turnkey-examples", "--public-base-url", "https://files.example.com"]), {
+    configText: validWranglerConfig
+  }));
+
+  assert.match(output, /Glyph turnkey deploy examples/);
+  assert.match(output, /Fresh checkout to first deploy/);
+  assert.match(output, /\$ pnpm install --frozen-lockfile/);
+  assert.match(output, /\$ pnpm run deploy:glyph -- --turnkey-rehearse/);
+  assert.match(output, /\$ pnpm run deploy:glyph -- --turnkey --yes/);
+  assert.match(output, /Non-interactive Cloudflare auth recovery/);
+  assert.match(output, /CLOUDFLARE_API_TOKEN=<scoped-cloudflare-api-token>/);
+  assert.match(output, /Existing D1\/R2 resource reuse and placeholder recovery/);
+  assert.match(output, /--reuse-resources --d1-database-id <real-d1-database-id>/);
+  assert.match(output, /Remote migration and deploy gates/);
+  assert.match(output, /\$ pnpm run deploy:glyph -- --check/);
+  assert.match(output, /Worker-mediated fallback/);
+  assert.match(output, /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
+  assert.match(output, /Custom domain and passkey origin follow-up/);
+  assert.match(output, /turnkey-domain --public-base-url https:\/\/files\.example\.com/);
+  assert.match(output, /turnkey-schedule/);
+  assert.match(output, /verify-deploy --public-base-url https:\/\/files\.example\.com/);
+  assert.match(output, /never deploys Workers/);
+  assert.doesNotMatch(output, /actual-secret|sk_live|AKIA[0-9A-Z]+/);
 });
 
 test("remote migration plan keeps apply behind explicit confirmation", () => {

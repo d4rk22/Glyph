@@ -450,6 +450,12 @@ Phase 67 post-deploy verification maintenance release is in place:
 - The release highlights the `--verify-deploy` read-only verification workflow, workers.dev and custom-domain origin support, `/health`, `/admin`, and `/` response checks, expected public/admin URL reporting, passkey origin guidance, R2 CORS alignment, recovery guidance for invalid origins, wrong routes, non-Glyph responses, DNS/certificate issues, unavailable admin/upload surfaces, `PUBLIC_BASE_URL` mismatch, and the no-mutation safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 68 turnkey deploy transcripts and recovery examples are in place:
+
+- `pnpm run deploy:glyph -- --turnkey-examples` prints read-only command transcripts for common operator paths.
+- Examples cover fresh checkout to first deploy, missing non-interactive `CLOUDFLARE_API_TOKEN`, existing D1/R2 reuse, placeholder D1 database ID recovery, remote migration gates, Worker-mediated upload fallback, direct/multipart secret and R2 CORS follow-up, custom-domain setup and passkey origin notes, scheduled-trigger setup plus protected `/admin` opt-ins, and post-deploy `/health`, `/admin`, and `/` verification.
+- The examples do not run commands, print secret values, deploy Workers, apply migrations, set secrets, apply CORS, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -470,9 +476,12 @@ The committed `pnpm-lock.yaml` is the source of truth for dependency resolution.
 Preview the fresh-checkout turnkey deployment plan:
 
 ```sh
+pnpm run deploy:glyph -- --turnkey-examples
 pnpm run deploy:glyph -- --turnkey-rehearse
 pnpm run deploy:glyph -- --turnkey
 ```
+
+Use `--turnkey-examples` when you want copyable transcripts for common paths before running any real setup command. It is always read-only and covers missing auth, existing resource reuse, placeholder D1 IDs, remote migration gates, direct/multipart follow-up, custom domains, scheduled triggers, and post-deploy verification.
 
 Use `--turnkey-rehearse` first when you want one operator-facing report that covers the full fresh-checkout-to-deploy path without changing anything. The regular turnkey plan is also read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
 
@@ -875,6 +884,14 @@ pnpm run deploy:glyph -- --turnkey-rehearse
 
 Turnkey rehearsal is always read-only. It produces a single operator report that walks the full path from fresh checkout to deployed Glyph: local prerequisites and package version, Cloudflare auth/token readiness, D1/R2 discovery or creation plan, Wrangler config and placeholder D1 ID state, remote migration and deploy gates, direct/multipart secrets and R2 CORS follow-up, custom-domain setup/verification follow-up, scheduled-trigger and protected `/admin` opt-in follow-up, expected public/admin URLs, `/health` verification, and partial-setup recovery. Each blocked or manual item includes the next command to run, such as `--turnkey`, `--turnkey --yes`, `--turnkey-secrets`, `--turnkey-domain`, `--verify-domain`, `--verify-deploy`, or `--turnkey-schedule`.
 
+For copyable example transcripts instead of environment-specific status, run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-examples --public-base-url https://files.example.com
+```
+
+Examples mode is read-only. It prints a conservative sequence for first deploy, non-interactive auth recovery, D1/R2 reuse, placeholder D1 ID recovery, migration review, Worker-mediated fallback, direct/multipart setup, custom-domain setup and passkey origin, scheduled-trigger setup, and post-deploy verification. It uses placeholders such as `<scoped-cloudflare-api-token>` and `<real-d1-database-id>` and never prints or stores real secret values.
+
 For custom-domain setup planning, preview the guided domain plan:
 
 ```sh
@@ -1025,6 +1042,7 @@ The deploy helper also reports:
 - A reminder that scheduled maintenance also requires the scheduled maintenance setting enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 - Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
+- Turnkey command transcripts and recovery examples when run with `--turnkey-examples`.
 - Direct/multipart secret and CORS setup actions when run with `--turnkey-secrets`.
 - Custom-domain origin, route-hint, passkey origin, and R2 CORS alignment guidance when run with `--turnkey-domain`.
 - Custom-domain `/health`, expected `/admin`, route-hint, passkey origin, and R2 CORS alignment verification when run with `--verify-domain`.
