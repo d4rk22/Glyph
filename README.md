@@ -463,6 +463,12 @@ Phase 69 turnkey deploy examples maintenance release is in place:
 - The release highlights the `--turnkey-examples` read-only examples workflow, fresh-checkout-to-first-deploy transcripts, non-interactive `CLOUDFLARE_API_TOKEN` recovery, existing D1/R2 reuse, placeholder D1 database ID recovery, remote migration gates, Worker-mediated upload fallback, direct/multipart secret and R2 CORS follow-up, custom-domain/passkey origin guidance, scheduled-trigger plus protected `/admin` opt-in guidance, post-deploy verification examples, no-secret-value output, and the no-mutation safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 70 turnkey deploy preflight checklist is in place:
+
+- `pnpm run deploy:glyph -- --preflight` prints a concise, markdown-style deploy checklist suitable for copying into operator notes.
+- The checklist summarizes local prerequisites, package version, Cloudflare auth/token readiness, D1/R2 bindings and resources, placeholder D1 database ID state, remote migration gates, Worker-mediated fallback, direct/multipart secrets and R2 CORS, custom-domain/public origin alignment, scheduled-trigger/admin opt-ins, post-deploy `/health`, `/admin`, and `/` verification, recommended next commands, and operator-owned Cloudflare tasks.
+- Preflight mode is read-only: it does not write files, deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -485,10 +491,13 @@ Preview the fresh-checkout turnkey deployment plan:
 ```sh
 pnpm run deploy:glyph -- --turnkey-examples
 pnpm run deploy:glyph -- --turnkey-rehearse
+pnpm run deploy:glyph -- --preflight
 pnpm run deploy:glyph -- --turnkey
 ```
 
 Use `--turnkey-examples` when you want copyable transcripts for common paths before running any real setup command. It is always read-only and covers missing auth, existing resource reuse, placeholder D1 IDs, remote migration gates, direct/multipart follow-up, custom domains, scheduled triggers, and post-deploy verification.
+
+Use `--preflight` when you want a compact markdown checklist rather than the longer readiness or rehearsal reports. It is always read-only and includes status labels plus a recommended next command for blocked/manual items.
 
 Use `--turnkey-rehearse` first when you want one operator-facing report that covers the full fresh-checkout-to-deploy path without changing anything. The regular turnkey plan is also read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
 
@@ -875,6 +884,14 @@ pnpm run deploy:glyph -- --readiness
 
 Readiness mode is always read-only. It summarizes local prerequisites, package version, Cloudflare auth mode, Wrangler D1/R2 bindings, placeholder D1 IDs, `APP_ENV`, `PUBLIC_BASE_URL`, custom-domain route hints, scheduled trigger presence, configured D1/R2 names, remote migration gates, direct/multipart secret readiness, R2 CORS recommendations, Worker-mediated fallback, expected `/health` and `/admin` checks, and the safety boundary. It does not run Cloudflare discovery commands, store secrets, apply CORS, apply remote migrations, deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or mutate Cloudflare resources.
 
+For a compact preflight checklist you can copy into deployment notes, run:
+
+```sh
+pnpm run deploy:glyph -- --preflight --public-base-url https://files.example.com
+```
+
+Preflight mode is always read-only. It prints markdown-style unchecked checklist items for local prerequisites, Cloudflare auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback, direct/multipart secret and R2 CORS readiness, custom-domain/public origin alignment, scheduled-trigger/admin opt-ins, post-deploy `/health`, `/admin`, and `/` verification, recommended next commands, and operator-owned Cloudflare tasks. It never writes files, stores or prints secret values, runs Cloudflare discovery, applies migrations, deploys, sets secrets, applies R2 CORS, creates DNS/custom-domain/scheduled-trigger resources, publishes releases, executes updates, uploads files, creates admins, executes passkey flows, or mutates Cloudflare resources.
+
 After an intentional deploy, verify the deployed origin without uploading files or changing Cloudflare state:
 
 ```sh
@@ -1050,6 +1067,7 @@ The deploy helper also reports:
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 - Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
 - Turnkey command transcripts and recovery examples when run with `--turnkey-examples`.
+- Markdown-style deploy checklist items, recommended next commands, and operator-owned Cloudflare tasks when run with `--preflight`.
 - Direct/multipart secret and CORS setup actions when run with `--turnkey-secrets`.
 - Custom-domain origin, route-hint, passkey origin, and R2 CORS alignment guidance when run with `--turnkey-domain`.
 - Custom-domain `/health`, expected `/admin`, route-hint, passkey origin, and R2 CORS alignment verification when run with `--verify-domain`.

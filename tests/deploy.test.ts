@@ -14,6 +14,7 @@ import {
   buildDirectUploadSetupPlan,
   buildDirectUploadSecretPlan,
   buildPostDeployVerificationLines,
+  buildPreflightChecklist,
   buildR2CorsRecommendation,
   buildR2CorsSetCommand,
   buildReadinessReport,
@@ -37,6 +38,7 @@ import {
   DEFAULT_DRY_RUN_OUTDIR,
   findD1DatabaseId,
   formatTurnkeyExamplesReport,
+  formatPreflightChecklist,
   formatReadinessReport,
   formatTurnkeyRehearsalReport,
   hasR2Bucket,
@@ -74,6 +76,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     turnkeyExamples: false,
+    preflight: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -98,6 +101,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     turnkeyExamples: false,
+    preflight: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -122,6 +126,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     turnkeyExamples: false,
+    preflight: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -146,6 +151,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     turnkeyExamples: false,
+    preflight: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -183,6 +189,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-examples", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.throws(() => parseArgs(["--turnkey-examples", "--yes"]), /turnkey-examples by itself/);
   assert.throws(() => parseArgs(["--turnkey-examples", "--turnkey"]), /turnkey-examples by itself/);
+  assert.equal(parseArgs(["--preflight"]).preflight, true);
+  assert.equal(parseArgs(["--preflight", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
+  assert.throws(() => parseArgs(["--preflight", "--yes"]), /preflight by itself/);
+  assert.throws(() => parseArgs(["--preflight", "--turnkey"]), /preflight by itself/);
   assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
   assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
   assert.throws(() => parseArgs(["--verify-domain", "--turnkey-domain", "--public-base-url", "https://files.example.com"]), /turnkey-domain by itself|verify-domain by itself/);
@@ -400,6 +410,84 @@ test("turnkey examples report prints recovery transcripts without mutation or se
   assert.match(output, /verify-deploy --public-base-url https:\/\/files\.example\.com/);
   assert.match(output, /never deploys Workers/);
   assert.doesNotMatch(output, /actual-secret|sk_live|AKIA[0-9A-Z]+/);
+});
+
+test("preflight checklist summarizes deploy gates as markdown without mutation or secret values", () => {
+  const output = formatPreflightChecklist(buildPreflightChecklist(parseArgs(["--preflight", "--public-base-url", "https://files.example.com"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: false,
+    env: {
+      CLOUDFLARE_API_TOKEN: "super-secret-token",
+      R2_ACCOUNT_ID: "account-id",
+      R2_ACCESS_KEY_ID: "access-key-id",
+      R2_SECRET_ACCESS_KEY: "actual-secret-value"
+    },
+    packageJsonText: JSON.stringify({ version: "9.9.9", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": true,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: JSON.stringify({
+      name: "glyph",
+      main: "src/index.ts",
+      vars: { APP_ENV: "production", PUBLIC_BASE_URL: "https://files.example.com" },
+      routes: ["files.example.com/*"],
+      triggers: { crons: ["0 3 * * *"] },
+      d1_databases: [
+        {
+          binding: "DB",
+          database_name: "glyph",
+          database_id: "real-database-id",
+          migrations_dir: "migrations"
+        }
+      ],
+      r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+    })
+  }));
+
+  assert.match(output, /^# Glyph Deploy Preflight Checklist/);
+  assert.match(output, /- \[ \] \[ready\] Local prerequisites and package version: Node v25\.0\.0, Glyph 9\.9\.9/);
+  assert.match(output, /Cloudflare auth\/token readiness/);
+  assert.match(output, /D1\/R2 binding and resource readiness/);
+  assert.match(output, /Placeholder D1 database ID state/);
+  assert.match(output, /Remote migration review\/apply gate/);
+  assert.match(output, /Worker-mediated upload fallback status/);
+  assert.match(output, /Direct\/multipart secret and R2 CORS readiness/);
+  assert.match(output, /Custom-domain\/public origin alignment/);
+  assert.match(output, /Scheduled-trigger\/admin opt-in readiness/);
+  assert.match(output, /Post-deploy \/health, \/admin, and \/ verification/);
+  assert.match(output, /Next: `pnpm run deploy:glyph -- --check`/);
+  assert.match(output, /Next: `pnpm run deploy:glyph -- --verify-deploy --public-base-url https:\/\/files\.example\.com`/);
+  assert.match(output, /operator-owned Cloudflare tasks/);
+  assert.match(output, /does not deploy Workers/);
+  assert.doesNotMatch(output, /super-secret-token|actual-secret-value/);
+});
+
+test("preflight checklist flags blocked auth and placeholder D1 recovery", () => {
+  const output = formatPreflightChecklist(buildPreflightChecklist(parseArgs(["--preflight"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: false,
+    env: {},
+    packageJsonText: JSON.stringify({ version: "1.2.3", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": true,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000")
+  }));
+
+  assert.match(output, /\[blocked\] Cloudflare auth\/token readiness/);
+  assert.match(output, /Next: `export CLOUDFLARE_API_TOKEN=<scoped-cloudflare-api-token>`/);
+  assert.match(output, /\[blocked\] Placeholder D1 database ID state/);
+  assert.match(output, /--reuse-resources --d1-database-id <real-d1-database-id>/);
+  assert.match(output, /\[needs attention\] Direct\/multipart secret and R2 CORS readiness/);
+  assert.match(output, /No PUBLIC_BASE_URL or --public-base-url supplied/);
 });
 
 test("remote migration plan keeps apply behind explicit confirmation", () => {

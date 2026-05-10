@@ -24,6 +24,7 @@ export function parseArgs(argv) {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     turnkeyExamples: false,
+    preflight: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -60,6 +61,8 @@ export function parseArgs(argv) {
       options.turnkeyRehearse = true;
     } else if (arg === "--turnkey-examples") {
       options.turnkeyExamples = true;
+    } else if (arg === "--preflight") {
+      options.preflight = true;
     } else if (arg === "--verify-domain") {
       options.verifyDomain = true;
     } else if (arg === "--verify-deploy") {
@@ -118,31 +121,35 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
-  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-schedule by itself, or with --yes to write reviewed local cron trigger config.");
   }
 
-  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-rehearse by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-examples by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDeploy || options.applyCors)) {
+  if (options.preflight && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+    throw new Error("Use --preflight by itself with optional --public-base-url; it is a read-only checklist mode.");
+  }
+
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.applyCors)) {
+  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --verify-deploy by itself with optional --public-base-url; it is read-only.");
   }
 
@@ -150,7 +157,7 @@ export function parseArgs(argv) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -499,6 +506,11 @@ export function buildTurnkeyPlan(options, configText = null) {
       label: "Review turnkey examples",
       mutates: false,
       detail: "Run pnpm run deploy:glyph -- --turnkey-examples for read-only command transcripts covering fresh checkout, missing auth, resource reuse, placeholder D1 IDs, migrations, direct/multipart follow-up, custom domains, scheduled triggers, and post-deploy verification."
+    },
+    {
+      label: "Export deploy preflight checklist",
+      mutates: false,
+      detail: "Run pnpm run deploy:glyph -- --preflight to print a concise markdown checklist with readiness status, recommended next commands, and operator-owned Cloudflare tasks before deploying."
     },
     {
       label: "Verify deployed Glyph origin",
@@ -1854,6 +1866,7 @@ export function buildReadinessReport(options, context = {}) {
   localItems.push(readinessItem("manual", "Wrangler availability", "Run `pnpm wrangler --version`; turnkey confirmed mode checks this before Cloudflare operations."));
   localItems.push(readinessItem("manual", "Turnkey rehearsal", "Run `pnpm run deploy:glyph -- --turnkey-rehearse` for one end-to-end read-only operator report before mutating local config or Cloudflare resources."));
   localItems.push(readinessItem("manual", "Turnkey examples", "Run `pnpm run deploy:glyph -- --turnkey-examples` for read-only command transcripts and recovery examples."));
+  localItems.push(readinessItem("manual", "Preflight checklist", "Run `pnpm run deploy:glyph -- --preflight` for a concise markdown deploy checklist with recommended next commands and operator-owned Cloudflare tasks."));
   sections.push({ title: "Local prerequisites", items: localItems });
 
   sections.push({
@@ -2131,6 +2144,7 @@ export function buildTurnkeyExamplesReport(options, context = {}) {
             ["pnpm", "install", "--frozen-lockfile"],
             ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
             ["pnpm", "run", "deploy:glyph", "--", "--turnkey-rehearse"],
+            ["pnpm", "run", "deploy:glyph", "--", "--preflight"],
             ["pnpm", "run", "deploy:glyph", "--", "--turnkey"]
           ]
         ),
@@ -2493,6 +2507,223 @@ export function formatTurnkeyRehearsalReport(report) {
   return lines.join("\n").trimEnd();
 }
 
+function markdownInline(value) {
+  return String(value ?? "")
+    .replaceAll("`", "'")
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function markdownCommand(parts) {
+  return `\`${parts.map((part) => markdownInline(part)).join(" ")}\``;
+}
+
+function preflightItem(status, label, detail, nextCommand = null) {
+  return { status, label, detail, nextCommand };
+}
+
+export function buildPreflightChecklist(options, context = {}) {
+  const env = context.env ?? process.env;
+  const isInteractive = context.isInteractive ?? Boolean(process.stdout.isTTY);
+  const nodeVersion = context.nodeVersion ?? process.version;
+  const projectFiles = context.projectFiles ?? {};
+  const packageInfo = safePackageVersion(context.packageJsonText ?? null);
+  const configText = context.configText ?? null;
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const auth = readinessAuthStatus(env, isInteractive);
+  const missingFiles = missingReadinessFiles(projectFiles);
+  const nodeMajor = nodeMajorVersion(nodeVersion);
+  const dbBinding = Array.isArray(config?.d1_databases)
+    ? config.d1_databases.find((binding) => binding?.binding === "DB")
+    : null;
+  const r2Binding = Array.isArray(config?.r2_buckets)
+    ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
+    : null;
+  const databaseId = typeof dbBinding?.database_id === "string" ? dbBinding.database_id.trim() : "";
+  const hasRealDatabaseId = databaseId.length > 0 && databaseId !== PLACEHOLDER_D1_DATABASE_ID;
+  const configuredPublicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const publicBaseUrl = options.publicBaseUrl ?? configuredPublicBaseUrl;
+  const publicBaseValidation = publicBaseUrl ? validatePublicBaseUrl(publicBaseUrl) : { url: null, error: null };
+  const publicOrigin = publicBaseValidation.url?.origin ?? null;
+  const routeHosts = config ? wranglerRouteHosts(config) : [];
+  const publicHost = publicBaseValidation.url?.hostname.toLowerCase() ?? null;
+  const matchingRouteHosts = publicHost ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, publicHost)) : [];
+  const directSecretPlan = buildDirectUploadSecretPlan(env);
+  const missingDirectSecrets = directSecretPlan.filter((secret) => secret.required && !secret.present);
+  const optionalBucketSecret = directSecretPlan.find((secret) => secret.name === "R2_BUCKET_NAME");
+  const cors = buildR2CorsRecommendation(configText, { bucket: options.bucket, publicBaseUrl: options.publicBaseUrl });
+  const scheduleReadiness = buildScheduledTriggerReadiness(configText);
+  const discovery = readinessDiscoveryDetail(options, auth);
+  const configValidation = configText && config ? validateWranglerConfig(configText, { requireDeployReady: true }) : null;
+  const items = [];
+
+  const localProblems = [];
+  if (nodeMajor < 22) {
+    localProblems.push(`${nodeVersion} is below Node.js 22+`);
+  }
+  if (packageInfo.error) {
+    localProblems.push(packageInfo.error);
+  }
+  if (!packageInfo.packageManager?.startsWith("pnpm@")) {
+    localProblems.push("packageManager should declare pnpm");
+  }
+  if (missingFiles.length > 0) {
+    localProblems.push(`missing ${missingFiles.join(", ")}`);
+  }
+  items.push(preflightItem(
+    localProblems.length === 0 ? "ready" : "blocked",
+    "Local prerequisites and package version",
+    localProblems.length === 0
+      ? `Node ${markdownInline(nodeVersion)}, Glyph ${markdownInline(packageInfo.version ?? "unknown")}, pnpm lockfile, Wrangler config, migrations, and source files are present.`
+      : localProblems.join("; "),
+    localProblems.length === 0
+      ? ["pnpm", "install", "--frozen-lockfile"]
+      : ["pnpm", "run", "deploy:glyph", "--", "--readiness"]
+  ));
+
+  items.push(preflightItem(
+    auth.status,
+    "Cloudflare auth/token readiness",
+    auth.status === "ready"
+      ? "CLOUDFLARE_API_TOKEN is set in this shell; verify the token has Workers, D1, R2, and migration permissions. The token value is not printed."
+      : auth.detail,
+    auth.status === "ready"
+      ? ["pnpm", "wrangler", "whoami"]
+      : auth.status === "manual"
+        ? ["pnpm", "wrangler", "login"]
+        : ["export", "CLOUDFLARE_API_TOKEN=<scoped-cloudflare-api-token>"]
+  ));
+
+  items.push(preflightItem(
+    dbBinding && r2Binding ? discovery.status : "needs attention",
+    "D1/R2 binding and resource readiness",
+    dbBinding && r2Binding
+      ? `DB binding references ${markdownInline(dbBinding.database_name ?? options.database)} and FILES binding references ${markdownInline(r2Binding.bucket_name ?? options.bucket)}. ${discovery.detail}`
+      : `Expected DB binding for D1 ${markdownInline(options.database)} and FILES binding for R2 bucket ${markdownInline(options.bucket)}.`,
+    dbBinding && r2Binding
+      ? ["pnpm", "run", "deploy:glyph", "--", "--turnkey"]
+      : ["pnpm", "run", "deploy:glyph", "--", "--turnkey"]
+  ));
+
+  items.push(preflightItem(
+    hasRealDatabaseId ? "ready" : "blocked",
+    "Placeholder D1 database ID state",
+    hasRealDatabaseId
+      ? "A non-placeholder D1 database_id is configured."
+      : databaseId === PLACEHOLDER_D1_DATABASE_ID
+        ? "wrangler.jsonc still contains the placeholder D1 database_id."
+        : "D1 database_id is missing or wrangler.jsonc could not be parsed.",
+    hasRealDatabaseId
+      ? null
+      : ["pnpm", "run", "deploy:glyph", "--", "--turnkey", "--yes", "--reuse-resources", "--d1-database-id", "<real-d1-database-id>"]
+  ));
+
+  items.push(preflightItem(
+    "manual",
+    "Remote migration review/apply gate",
+    `Remote D1 migrations are reviewed with --check and applied only by an explicit confirmed deploy path for database ${markdownInline(options.database)}.`,
+    ["pnpm", "run", "deploy:glyph", "--", "--check"]
+  ));
+
+  items.push(preflightItem(
+    "ready",
+    "Worker-mediated upload fallback status",
+    "Worker-mediated uploads remain available before direct/multipart secrets and R2 CORS are ready.",
+    null
+  ));
+
+  items.push(preflightItem(
+    missingDirectSecrets.length === 0 && cors.origin ? "manual" : "needs attention",
+    "Direct/multipart secret and R2 CORS readiness",
+    missingDirectSecrets.length === 0
+      ? `Required direct/multipart secret names are present in this shell; verify matching Wrangler secrets exist. ${optionalBucketSecret?.present ? "R2_BUCKET_NAME is present." : "R2_BUCKET_NAME is optional when it matches the FILES bucket."} ${cors.summary}`
+      : `${missingDirectSecrets.map((secret) => secret.name).join(", ")} not detected in this shell. ${cors.summary}`,
+    ["pnpm", "run", "deploy:glyph", "--", "--turnkey-secrets"]
+  ));
+
+  items.push(preflightItem(
+    publicBaseValidation.error ? "blocked" : publicOrigin ? (matchingRouteHosts.length > 0 ? "ready" : "manual") : "optional",
+    "Custom-domain/public origin alignment",
+    publicBaseValidation.error
+      ? publicBaseValidation.error
+      : publicOrigin
+        ? `Final origin ${markdownInline(publicOrigin)}; route hint(s): ${routeHosts.length > 0 ? routeHosts.map(markdownInline).join(", ") : "none configured"}. ${matchingRouteHosts.length > 0 ? "At least one route hint matches." : "Cloudflare DNS/custom-domain attachment remains operator-owned."}`
+        : "No PUBLIC_BASE_URL or --public-base-url supplied; use the workers.dev URL printed by deploy or configure a final custom-domain origin.",
+    ["pnpm", "run", "deploy:glyph", "--", "--turnkey-domain", "--public-base-url", publicOrigin ?? "https://files.example.com"]
+  ));
+
+  items.push(preflightItem(
+    scheduleReadiness.status === "configured" ? "manual" : scheduleReadiness.status === "inconsistent" ? "needs attention" : "optional",
+    "Scheduled-trigger/admin opt-in readiness",
+    `${scheduleReadiness.detail} Read-only update checks and storage/R2 maintenance also require protected /admin opt-ins after deploy.`,
+    ["pnpm", "run", "deploy:glyph", "--", "--turnkey-schedule"]
+  ));
+
+  const postDeployDetail = [
+    ...buildPostDeployVerificationLines(configText),
+    "Expected checks: /health, /admin, and / without uploading files, creating admins, or executing passkey flows."
+  ].join(" ");
+  items.push(preflightItem(
+    "manual",
+    "Post-deploy /health, /admin, and / verification",
+    postDeployDetail,
+    ["pnpm", "run", "deploy:glyph", "--", "--verify-deploy", "--public-base-url", publicOrigin ?? "https://files.example.com"]
+  ));
+
+  if (configValidation?.errors.length) {
+    items.push(preflightItem(
+      "blocked",
+      "Wrangler config validation",
+      configValidation.errors.join(" "),
+      ["pnpm", "run", "deploy:glyph", "--", "--readiness"]
+    ));
+  }
+
+  if (configValidation?.warnings.length) {
+    items.push(preflightItem(
+      "needs attention",
+      "Wrangler config warnings",
+      configValidation.warnings.join(" "),
+      ["pnpm", "run", "deploy:glyph", "--", "--readiness"]
+    ));
+  }
+
+  items.push(preflightItem(
+    "manual",
+    "Safety boundary and operator-owned Cloudflare tasks",
+    "This checklist is read-only and writes no files. It does not deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admin users, execute passkey flows, or mutate Cloudflare resources. Operators still own Cloudflare auth, secrets, reviewed R2 CORS, DNS/custom-domain attachment, scheduled trigger activation, remote migration application, deployment, and final origin verification.",
+    null
+  ));
+
+  return {
+    title: "Glyph Deploy Preflight Checklist",
+    intro: "Read-only markdown checklist: copy into deployment notes if useful. No commands are executed and no files are written.",
+    items
+  };
+}
+
+export function formatPreflightChecklist(checklist) {
+  const lines = [
+    `# ${markdownInline(checklist.title)}`,
+    "",
+    markdownInline(checklist.intro),
+    ""
+  ];
+
+  for (const item of checklist.items) {
+    lines.push(`- [ ] [${markdownInline(item.status)}] ${markdownInline(item.label)}: ${markdownInline(item.detail)}`);
+    if (item.nextCommand) {
+      lines.push(`  Next: ${markdownCommand(item.nextCommand)}`);
+    }
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 export function formatReadinessReport(report) {
   const lines = [
     report.title,
@@ -2662,6 +2893,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey
   pnpm run deploy:glyph -- --turnkey-rehearse
   pnpm run deploy:glyph -- --turnkey-examples
+  pnpm run deploy:glyph -- --preflight
   pnpm run deploy:glyph -- --turnkey --yes
   pnpm run deploy:glyph -- --turnkey-secrets
   pnpm run deploy:glyph -- --turnkey-secrets --yes
@@ -2680,6 +2912,7 @@ Options:
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --turnkey-rehearse  Print one end-to-end read-only operator rehearsal report.
   --turnkey-examples  Print read-only deploy transcripts and recovery command examples.
+  --preflight         Print a read-only markdown deploy preflight checklist.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
   --turnkey-schedule  Print or write guided local Wrangler cron trigger config for optional scheduled work.
@@ -2736,6 +2969,10 @@ Turnkey safety:
   --turnkey-examples is always non-mutating. It prints command transcripts for fresh checkout, auth
   recovery, existing resource reuse, placeholder D1 IDs, migration gates, direct/multipart follow-up,
   custom domains, scheduled triggers, and post-deploy verification without running those commands.
+  --preflight is always non-mutating. It prints a concise markdown checklist covering local
+  prerequisites, auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback,
+  direct/multipart secrets and CORS, custom domains, scheduled triggers, post-deploy verification,
+  next commands, and operator-owned Cloudflare tasks without writing files or running checks.
   --turnkey is a non-mutating plan by default. --turnkey --yes may create D1/R2 resources, write local
   wrangler.jsonc binding values, apply remote D1 migrations, and deploy. It never stores secrets, creates
   DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases.
@@ -2761,6 +2998,7 @@ export function validateProject(rootDir, options) {
     || options.turnkeyDomain
     || options.turnkeySchedule
     || options.turnkeyRehearse
+    || options.preflight
     || options.verifyDomain
     || options.verifyDeploy
     ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
@@ -3572,10 +3810,16 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
     return 0;
   }
 
+  if (options.preflight) {
+    const checklist = buildPreflightChecklist(options, collectReadinessContext(rootDir, process.env));
+    console.log(formatPreflightChecklist(checklist));
+    return 0;
+  }
+
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.preflight || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
