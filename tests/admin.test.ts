@@ -472,7 +472,7 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /Pending 1/);
   assert.match(body, /action="\/admin\/maintenance\/r2-cleanup"/);
   assert.match(body, /aria-label="Self-update"/);
-  assert.match(body, /Current 0\.3\.4/);
+  assert.match(body, /Current 0\.3\.5/);
   assert.match(body, /Source Not configured/);
   assert.match(body, /Official public update source/);
   assert.match(body, /https:\/\/github\.com\/d4rk22\/Glyph/);
@@ -1618,7 +1618,7 @@ test("admin update check fetches release metadata without mutating deploy state"
       assert.match(body, /A newer release is available: v0\.10\.0/);
       assert.match(body, /Glyph 0\.10\.0/);
       assert.match(body, /Current<\/span>/);
-      assert.match(body, /0\.3\.4/);
+      assert.match(body, /0\.3\.5/);
       assert.match(body, /Latest<\/span>/);
       assert.match(body, /v0\.10\.0/);
       assert.match(body, /aria-label="Release notes"/);

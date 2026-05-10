@@ -483,6 +483,13 @@ Phase 72 downloadable preflight checklist output is in place:
 - Existing checklist files are not overwritten unless the operator reruns with `--preflight --outdir ./deploy-notes --yes` after reviewing the current file.
 - The file output keeps the same no-secret-value and no-Cloudflare-mutation safety boundary as stdout preflight mode.
 
+Phase 73 downloadable preflight checklist maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.5`.
+- `v0.3.5` publishes the downloadable preflight checklist workflow through the GitHub release channel.
+- The release highlights the `--preflight --outdir ./deploy-notes` local markdown export workflow, predictable `glyph-preflight-checklist.md` filename, stdout-by-default behavior, no-overwrite safety unless `--yes` is supplied, no-secret-value output, local-only file creation, and no-Cloudflare-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

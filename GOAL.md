@@ -256,3 +256,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 70. Add turnkey deploy preflight checklist export. Completed.
 71. Publish the deploy preflight checklist maintenance release. Completed.
 72. Add downloadable preflight checklist output. Completed.
+73. Publish the downloadable preflight checklist maintenance release. Completed.
