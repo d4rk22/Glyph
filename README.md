@@ -545,6 +545,14 @@ Phase 81 Cloudflare auth doctor maintenance release is in place:
 - The release highlights the `--auth-doctor` read-only diagnostic, Wrangler version reporting, local project Wrangler fallback when `pnpm` is missing from `PATH`, shell interactivity messaging, redacted token presence checks, `wrangler whoami` status, D1/R2 discovery gating, token capability guidance, recovery paths, Cloudflare token docs link, and readiness/turnkey/rehearsal/examples/cloudflare-rehearsal integration.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 82 authenticated Cloudflare proof pass is in place:
+
+- The proof pass started with the documented `pnpm run deploy:glyph -- --auth-doctor` command. In this shell, `pnpm` is still missing from `PATH`, so the command stops before the helper runs.
+- Running the auth doctor through `npm run deploy:glyph -- --auth-doctor` confirms Wrangler is available through the local project dependency, but the shell is non-interactive, `CLOUDFLARE_API_TOKEN` is not present, and `wrangler whoami` is unauthenticated.
+- Because auth is unavailable, D1/R2 discovery, real D1 database ID capture, remote migration checks against Cloudflare, Worker deploy, deployed-origin verification, first-admin bootstrap, upload smoke testing, direct/multipart secret setup, R2 CORS application, custom-domain attachment, and scheduled-trigger activation remain operator-owned proof steps.
+- The deploy helper now gives more useful fallback commands when local Wrangler is available but `pnpm` is missing, including `npm exec wrangler -- login`, `npm exec wrangler -- d1 list --json`, and `npm run deploy:glyph -- --readiness`.
+- No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, sensitive deployment logs, or Cloudflare resources were committed or mutated.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

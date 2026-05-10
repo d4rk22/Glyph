@@ -398,6 +398,9 @@ test("auth doctor distinguishes missing pnpm from local Wrangler availability", 
   assert.match(output, /\[needs attention\] Wrangler availability: Wrangler is available via the local project dependency \(wrangler 4\.88\.0\), but pnpm was not found on PATH/);
   assert.match(output, /Enable Corepack or install pnpm/);
   assert.match(output, /\[blocked\] Discovery gate/);
+  assert.match(output, /npm exec wrangler -- login/);
+  assert.match(output, /npm run deploy:glyph -- --auth-doctor/);
+  assert.match(output, /npm exec wrangler -- d1 list --json/);
 });
 
 test("readiness report summarizes deploy state without mutating guidance", () => {

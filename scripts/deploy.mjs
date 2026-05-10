@@ -1946,6 +1946,15 @@ export function buildAuthDoctorReport(options, context = {}) {
   const versionItem = classifyWranglerVersion(context.wranglerVersionResult, context.wranglerVersionFallbackResult);
   const whoamiItem = classifyWhoami(context.whoamiResult, hasToken);
   const discoveryAllowed = canAttemptDiscovery(versionItem, whoamiItem, hasToken);
+  const pnpmMissingWithLocalWrangler = versionItem.status === "needs attention" && /pnpm was not found on PATH/iu.test(versionItem.detail);
+  const wranglerLoginCommand = pnpmMissingWithLocalWrangler ? "`npm exec wrangler -- login`" : "`pnpm wrangler login`";
+  const authDoctorCommand = pnpmMissingWithLocalWrangler ? "`npm run deploy:glyph -- --auth-doctor`" : "`pnpm run deploy:glyph -- --auth-doctor`";
+  const wranglerWhoamiCommand = pnpmMissingWithLocalWrangler ? "`npm exec wrangler -- whoami`" : "`pnpm wrangler whoami`";
+  const wranglerD1ListCommand = pnpmMissingWithLocalWrangler ? "`npm exec wrangler -- d1 list --json`" : "`pnpm wrangler d1 list --json`";
+  const wranglerR2ListCommand = pnpmMissingWithLocalWrangler ? "`npm exec wrangler -- r2 bucket list`" : "`pnpm wrangler r2 bucket list`";
+  const readinessCommand = pnpmMissingWithLocalWrangler ? "`npm run deploy:glyph -- --readiness`" : "`pnpm run deploy:glyph -- --readiness`";
+  const turnkeyRehearseCommand = pnpmMissingWithLocalWrangler ? "`npm run deploy:glyph -- --turnkey-rehearse`" : "`pnpm run deploy:glyph -- --turnkey-rehearse`";
+  const turnkeyCommand = pnpmMissingWithLocalWrangler ? "`npm run deploy:glyph -- --turnkey`" : "`pnpm run deploy:glyph -- --turnkey`";
   const sections = [
     {
       title: "Wrangler and environment",
@@ -1955,7 +1964,7 @@ export function buildAuthDoctorReport(options, context = {}) {
           "manual",
           "Shell mode",
           isInteractive
-            ? "Interactive terminal detected. Local operators may use `pnpm wrangler login`, while CI should still use CLOUDFLARE_API_TOKEN."
+            ? `Interactive terminal detected. Local operators may use ${wranglerLoginCommand}, while CI should still use CLOUDFLARE_API_TOKEN.`
             : "Non-interactive shell detected. Use CLOUDFLARE_API_TOKEN for Wrangler commands that inspect or change Cloudflare resources."
         )
       ]
@@ -2001,10 +2010,10 @@ export function buildAuthDoctorReport(options, context = {}) {
     {
       title: "Recovery paths",
       items: [
-        readinessItem("manual", "Local interactive login", "Run `pnpm wrangler login`, then `pnpm run deploy:glyph -- --auth-doctor` again."),
-        readinessItem("manual", "CI or non-interactive use", "Set CLOUDFLARE_API_TOKEN through the CI secret store or shell environment, then rerun the auth doctor. Never commit the token."),
-        readinessItem("manual", "Expired or insufficient token", "Rotate or adjust the scoped token for the target account, then retry `pnpm wrangler whoami`, `pnpm wrangler d1 list --json`, and `pnpm wrangler r2 bucket list`."),
-        readinessItem("manual", "Next deploy checks", "After auth is healthy, run `pnpm run deploy:glyph -- --readiness`, `pnpm run deploy:glyph -- --turnkey-rehearse`, and the non-mutating `pnpm run deploy:glyph -- --turnkey` plan.")
+        readinessItem("manual", "Local interactive login", `Run ${wranglerLoginCommand}, then ${authDoctorCommand} again.`),
+        readinessItem("manual", "CI or non-interactive use", `Set CLOUDFLARE_API_TOKEN through the CI secret store or shell environment, then rerun the auth doctor. Never commit the token.${pnpmMissingWithLocalWrangler ? " This shell can use npm run commands until Corepack/pnpm is repaired." : ""}`),
+        readinessItem("manual", "Expired or insufficient token", `Rotate or adjust the scoped token for the target account, then retry ${wranglerWhoamiCommand}, ${wranglerD1ListCommand}, and ${wranglerR2ListCommand}.`),
+        readinessItem("manual", "Next deploy checks", `After auth is healthy, run ${readinessCommand}, ${turnkeyRehearseCommand}, and the non-mutating ${turnkeyCommand} plan.`)
       ]
     },
     {

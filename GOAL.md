@@ -189,6 +189,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Real Cloudflare deploy rehearsal findings can document sanitized proof results, including when a non-interactive environment blocks at Wrangler auth and leaves D1/R2 creation, remote migrations, Worker deploy, deployed-origin checks, admin bootstrap, upload smoke testing, secrets, CORS, custom domains, and scheduled triggers operator-owned.
 - Cloudflare auth/token readiness doctor can diagnose Wrangler availability, interactive versus non-interactive shell mode, redacted token presence, `wrangler whoami`, D1/R2 discovery gating, token capability guidance, and recovery paths without printing secrets or mutating Cloudflare resources.
 - Cloudflare auth doctor maintenance releases can keep the public release/update channel aligned with auth/token diagnostics while preserving the conservative source-only release model.
+- Authenticated Cloudflare proof passes can exercise auth-doctor, readiness, turnkey rehearsal, and deploy-helper paths as far as the current environment allows, document sanitized findings, and improve recovery wording without committing secrets or mutating Cloudflare resources by default.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -270,3 +271,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 79. Publish the real Cloudflare rehearsal findings maintenance release. Completed.
 80. Add Cloudflare auth/token readiness doctor for turnkey deploy. Completed.
 81. Publish the Cloudflare auth doctor maintenance release. Completed.
+82. Run authenticated Cloudflare deploy proof pass and fix remaining auth/deploy friction. Completed.
