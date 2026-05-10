@@ -253,3 +253,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 68. Add turnkey deploy transcript and recovery examples. Completed.
 69. Publish the turnkey deploy examples maintenance release. Completed.
 70. Add turnkey deploy preflight checklist export. Completed.
+71. Publish the deploy preflight checklist maintenance release. Completed.

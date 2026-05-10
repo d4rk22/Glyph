@@ -469,6 +469,13 @@ Phase 70 turnkey deploy preflight checklist is in place:
 - The checklist summarizes local prerequisites, package version, Cloudflare auth/token readiness, D1/R2 bindings and resources, placeholder D1 database ID state, remote migration gates, Worker-mediated fallback, direct/multipart secrets and R2 CORS, custom-domain/public origin alignment, scheduled-trigger/admin opt-ins, post-deploy `/health`, `/admin`, and `/` verification, recommended next commands, and operator-owned Cloudflare tasks.
 - Preflight mode is read-only: it does not write files, deploy Workers, apply remote migrations, set secrets, apply R2 CORS, create DNS records, create zones, issue certificates, create or attach custom domains, create scheduled triggers through the Cloudflare API, publish releases, execute updates, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
 
+Phase 71 deploy preflight checklist maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.4`.
+- `v0.3.4` publishes the deploy preflight checklist workflow through the GitHub release channel.
+- The release highlights the `--preflight` read-only markdown checklist, prerequisite and version summary, auth/token readiness, D1/R2 readiness, placeholder D1 ID reporting, migration gate reminders, Worker-mediated fallback, direct/multipart secret and R2 CORS readiness, custom-domain/public origin alignment, scheduled-trigger/admin opt-in readiness, post-deploy verification guidance, recommended next commands, no-secret-value output, and no-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
