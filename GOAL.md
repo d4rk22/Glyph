@@ -262,3 +262,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 74. Validate fresh-instance turnkey deploy and fix operator friction. Completed.
 75. Publish the fresh-instance deploy validation maintenance release. Completed.
 76. Add real Cloudflare deploy rehearsal checklist and evidence capture. Completed.
+77. Publish the real Cloudflare deploy rehearsal maintenance release. Completed.

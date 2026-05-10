@@ -509,6 +509,13 @@ Phase 76 real Cloudflare deploy rehearsal checklist is in place:
 - The checklist covers Cloudflare auth, D1/R2 creation or reuse, real D1 database ID capture, Wrangler config review, remote migration gates, Worker deploy, deployed URL capture, `/health`, `/admin`, `/` checks, first-admin passkey bootstrap, optional upload/download smoke testing, direct/multipart secrets, R2 CORS, optional custom domains, optional scheduled triggers, rollback notes, and sanitized evidence capture.
 - The helper does not run commands, write files, store secrets, create resources, apply migrations, deploy Workers, apply CORS, create DNS/custom domains/scheduled triggers, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
 
+Phase 77 real Cloudflare deploy rehearsal maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.7`.
+- `v0.3.7` publishes the real Cloudflare deploy rehearsal checklist through the GitHub release channel.
+- The release highlights the real-account proof-pass checklist, auth/token confirmation, D1/R2 creation or reuse, real D1 database ID capture, Wrangler config guidance, remote migration gates, Worker deploy and URL capture, `/health`, `/admin`, and `/` verification, first-admin passkey bootstrap guidance, optional upload/download smoke testing, direct/multipart secrets, R2 CORS, custom-domain and scheduled-trigger follow-up, rollback/recovery notes, sanitized evidence capture, and the no-mutation/no-secret-storage safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
