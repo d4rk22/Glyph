@@ -404,6 +404,13 @@ Phase 60 custom-domain readiness troubleshooting is in place:
 - `--verify-domain`, `--turnkey-domain`, and `--readiness` now share clearer troubleshooting guidance for invalid origins, missing route hints, route mismatches, DNS/custom-domain attachment gaps, certificate/TLS failures, non-Glyph health responses, passkey origin changes, and R2 CORS origin alignment.
 - Troubleshooting remains read-only guidance. It does not create DNS records, zones, certificates, custom domains, scheduled triggers, deployments, migrations, secrets, updates, R2 CORS rules, or Cloudflare resources.
 
+Phase 61 custom-domain troubleshooting maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.9`.
+- `v0.2.9` publishes the custom-domain troubleshooting improvements through the GitHub release channel.
+- The release highlights the shared read-only troubleshooting guidance across `--verify-domain`, `--turnkey-domain`, and `--readiness`; invalid `PUBLIC_BASE_URL` handling; route-hint mismatch recovery; DNS/custom-domain attachment and certificate/TLS guidance; non-Glyph `/health` detection; passkey origin guidance; and R2 CORS origin alignment for direct/multipart uploads.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
