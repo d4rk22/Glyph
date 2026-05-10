@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildAuthReadinessLines,
   buildCustomDomainSetupPlan,
+  buildCustomDomainTroubleshootingLines,
   buildCustomDomainVerificationPlan,
   buildCustomDomainVerificationRecoveryLines,
   buildCustomDomainWranglerConfig,
@@ -423,6 +424,8 @@ test("custom-domain setup plan validates origin route hints and manual follow-up
   assert.match(output, /Passkeys are origin-bound/);
   assert.match(output, /Allow browser PUT requests from https:\/\/files\.example\.com/);
   assert.match(output, /--verify-domain/);
+  assert.match(output, /Troubleshoot custom-domain readiness/);
+  assert.match(output, /Passkey origin/);
   assert.match(output, /Worker-mediated uploads remain available/);
   assert.match(output, /never creates DNS records/);
 });
@@ -463,6 +466,8 @@ test("custom-domain verification plan reports route health passkey CORS and reco
   assert.match(output, /Expected admin URL: https:\/\/files\.example\.com\/admin/);
   assert.match(output, /Passkeys are origin-bound/);
   assert.match(output, /Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /R2 CORS: direct and multipart uploads require AllowedOrigins/);
+  assert.match(output, /Passkey origin: passkeys registered on workers\.dev/);
   assert.match(output, /read-only/);
 
   const mismatchPlan = buildCustomDomainVerificationPlan(
@@ -480,6 +485,7 @@ test("custom-domain verification plan reports route health passkey CORS and reco
   assert.match(mismatchOutput, /needs attention Compare Wrangler route hints/);
   assert.match(mismatchOutput, /Route mismatch/);
   assert.match(mismatchOutput, /HTTPS certificate is active/);
+  assert.match(mismatchOutput, /Health blocked/);
 });
 
 test("custom-domain verification recovery lines cover common operator issues", () => {
@@ -498,6 +504,33 @@ test("custom-domain verification recovery lines cover common operator issues", (
   assert.match(lines, /origin-only https URL/);
   assert.match(lines, /No origin/);
   assert.match(lines, /networked terminal/);
+  assert.match(lines, /Safety boundary/);
+});
+
+test("custom-domain troubleshooting covers origin route health passkey and CORS issues", () => {
+  const lines = buildCustomDomainTroubleshootingLines({
+    validationError: null,
+    origin: "https://files.example.com",
+    host: "files.example.com",
+    configuredPublicBaseUrl: "https://old.example.com",
+    suppliedPublicBaseUrl: "https://files.example.com",
+    routeHosts: ["old.example.com"],
+    matchingRoutes: [],
+    health: {
+      status: "needs attention",
+      ok: false,
+      detail: "https://files.example.com/health responded, but the body did not look like Glyph health JSON.",
+      recovery: "Confirm the custom domain is attached to this Glyph Worker, not another Worker or origin."
+    }
+  }).join("\n");
+
+  assert.match(lines, /PUBLIC_BASE_URL mismatch/);
+  assert.match(lines, /Route mismatch/);
+  assert.match(lines, /Health mismatch/);
+  assert.match(lines, /another Worker/);
+  assert.match(lines, /Passkey origin/);
+  assert.match(lines, /AllowedOrigins to include exactly https:\/\/files\.example\.com/);
+  assert.match(lines, /Safety boundary/);
 });
 
 test("custom-domain health check maps success and failure results", async () => {
@@ -533,6 +566,7 @@ test("custom-domain health check maps success and failure results", async () => 
   );
   assert.equal(httpError.status, "blocked");
   assert.match(httpError.detail, /HTTP 525/);
+  assert.match(httpError.recovery, /certificate is issued and active/);
 
   const fetchError = await checkCustomDomainHealth(
     "https://files.example.com",
@@ -543,6 +577,16 @@ test("custom-domain health check maps success and failure results", async () => 
   );
   assert.equal(fetchError.status, "blocked");
   assert.match(fetchError.recovery, /DNS is propagated/);
+
+  const tlsError = await checkCustomDomainHealth(
+    "https://files.example.com",
+    async () => {
+      throw new Error("TLS certificate expired");
+    },
+    { timeoutMs: 1 }
+  );
+  assert.equal(tlsError.status, "blocked");
+  assert.match(tlsError.recovery, /HTTPS certificate/);
 });
 
 test("custom-domain config suggestion is gated and local-only", () => {

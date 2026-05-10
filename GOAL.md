@@ -172,6 +172,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Guided custom-domain setup planning can validate the final public origin, inspect Wrangler route hints, print manual Cloudflare DNS/domain/certificate/passkey steps, align R2 CORS guidance with the final origin, and write only reviewed local config hints with explicit confirmation while leaving Cloudflare DNS/custom-domain mutations operator-owned.
 - Custom-domain verification can read a configured or supplied final origin, compare local route hints, check `/health` when network access is available, report the expected `/admin` URL and passkey origin boundary, align R2 CORS guidance, and print recovery steps without mutating local files or Cloudflare resources.
 - Custom-domain verification maintenance releases can keep the public release/update channel aligned with read-only domain verification while preserving the conservative source-only release model.
+- Custom-domain troubleshooting can explain invalid origins, route-hint gaps, DNS/custom-domain attachment, certificate/TLS problems, non-Glyph health responses, passkey origin changes, and R2 CORS origin alignment without mutating Cloudflare resources.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -231,3 +232,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 57. Publish the guided custom-domain setup maintenance release. Completed.
 58. Add custom-domain verification checks for turnkey deploy. Completed.
 59. Publish the custom-domain verification maintenance release. Completed.
+60. Add custom-domain readiness troubleshooting docs and checks. Completed.

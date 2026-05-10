@@ -399,6 +399,11 @@ Phase 59 custom-domain verification maintenance release is in place:
 - The release highlights the read-only `--verify-domain` workflow, `PUBLIC_BASE_URL` origin validation, Wrangler route-hint comparison, custom-domain `/health` checking, expected `/admin` reporting, passkey origin guidance, R2 CORS alignment, recovery guidance for DNS/certificate/Worker/route mismatches, and readiness/turnkey/domain integration.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 60 custom-domain readiness troubleshooting is in place:
+
+- `--verify-domain`, `--turnkey-domain`, and `--readiness` now share clearer troubleshooting guidance for invalid origins, missing route hints, route mismatches, DNS/custom-domain attachment gaps, certificate/TLS failures, non-Glyph health responses, passkey origin changes, and R2 CORS origin alignment.
+- Troubleshooting remains read-only guidance. It does not create DNS records, zones, certificates, custom domains, scheduled triggers, deployments, migrations, secrets, updates, R2 CORS rules, or Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -544,6 +549,15 @@ pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example
 ```
 
 The verification workflow is read-only. It validates the origin, compares local Wrangler route hints, checks `https://files.example.com/health` when network access is available, reports `https://files.example.com/admin`, reminds you that passkeys are bound to that exact origin, and repeats the R2 CORS allowed-origin guidance for direct/multipart uploads. If the domain is not ready yet, it prints recovery guidance for DNS/custom-domain attachment, certificate/HTTPS failures, Worker health failures, missing route hints, route mismatches, and `PUBLIC_BASE_URL` alignment.
+
+Custom-domain troubleshooting checks these common readiness problems:
+
+- `PUBLIC_BASE_URL` must be an origin-only `https://` URL, with no path, query string, or fragment.
+- Local Wrangler route/custom-domain hints should point at the same host as `PUBLIC_BASE_URL`; missing hints are acceptable only when the Worker attachment is managed manually in Cloudflare.
+- DNS, Worker custom-domain attachment, and certificate readiness must all be complete before `/health` can pass on the final origin.
+- `/health` should return Glyph health JSON. If another body responds, the domain may point at another Worker, an origin server, or a stale deployment.
+- Passkeys are origin-bound. Passkeys registered on workers.dev or an old custom domain will not authenticate on the new custom-domain origin.
+- Direct and multipart browser uploads need R2 CORS `AllowedOrigins` to include the final Glyph origin exactly and `ExposeHeaders` to include `ETag`.
 
 After deploy, verify the deployed origin before sharing links: open `/health` and confirm the JSON response is ok, then open `/admin` on the same origin to bootstrap or sign in. If `PUBLIC_BASE_URL` is configured, the deploy helper prints the exact public and admin URLs. Otherwise, use the workers.dev or custom-domain URL printed by Wrangler deploy.
 
@@ -819,6 +833,8 @@ pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example
 ```
 
 This validates the final origin, compares local Wrangler route hints, checks `/health` from the custom-domain origin when network access is available, reports the expected `/admin` URL, repeats passkey origin guidance, and confirms the R2 CORS recommendation matches the final origin. It does not deploy, apply migrations, write config, apply CORS, create DNS/custom-domain resources, or mutate Cloudflare resources.
+
+The troubleshooting output is intentionally explicit. It calls out invalid `PUBLIC_BASE_URL` values, missing or mismatched route hints, likely DNS/custom-domain attachment gaps, certificate/TLS failures, non-Glyph `/health` responses, reachable-origin mismatches, passkeys registered on the wrong origin, and direct/multipart R2 CORS origin drift. These checks are guidance only and never mutate Cloudflare resources.
 
 For direct-to-R2 or multipart upload setup after the basic Worker/D1/R2 path is ready, preview the guided secret/CORS plan:
 

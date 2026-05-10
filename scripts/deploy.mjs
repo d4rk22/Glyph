@@ -803,6 +803,22 @@ export function buildCustomDomainSetupPlan(options, configText = null) {
     publicBaseUrl: origin
   });
   const configUpdate = buildCustomDomainWranglerConfig(configText, options);
+  const troubleshooting = buildCustomDomainTroubleshootingLines({
+    validationError: validation.error,
+    origin,
+    host,
+    configuredPublicBaseUrl,
+    suppliedPublicBaseUrl: options.publicBaseUrl,
+    routeHosts,
+    matchingRoutes,
+    health: {
+      status: "manual",
+      ok: false,
+      detail: origin ? `Health check should be verified at ${origin}/health after Cloudflare attachment.` : "Health check waits for the final origin.",
+      recovery: origin ? "After DNS/custom-domain attachment and certificate readiness, run --verify-domain from a networked terminal." : null
+    },
+    cors
+  });
   const items = [
     {
       label: "Validate custom-domain origin",
@@ -854,6 +870,11 @@ export function buildCustomDomainSetupPlan(options, configText = null) {
       detail: cors.summary
     },
     {
+      label: "Troubleshoot custom-domain readiness",
+      mutates: false,
+      detail: troubleshooting.join(" ")
+    },
+    {
       label: "Worker-mediated upload fallback",
       mutates: false,
       detail: "Worker-mediated uploads remain available even before custom-domain R2 CORS is configured for direct/multipart browser uploads."
@@ -873,6 +894,7 @@ export function buildCustomDomainSetupPlan(options, configText = null) {
     routeHosts,
     matchingRoutes,
     cors,
+    troubleshooting,
     configUpdate,
     validationError: validation.error
   };
@@ -902,6 +924,17 @@ export function buildCustomDomainVerificationPlan(options, configText = null, he
   const cors = buildR2CorsRecommendation(configText, {
     bucket: options.bucket,
     publicBaseUrl: origin
+  });
+  const troubleshooting = buildCustomDomainTroubleshootingLines({
+    validationError: validation.error,
+    origin,
+    host,
+    configuredPublicBaseUrl,
+    suppliedPublicBaseUrl: options.publicBaseUrl,
+    routeHosts,
+    matchingRoutes,
+    health,
+    cors
   });
   const items = [
     {
@@ -938,14 +971,7 @@ export function buildCustomDomainVerificationPlan(options, configText = null, he
     {
       label: "Recovery guidance",
       status: "manual",
-      detail: buildCustomDomainVerificationRecoveryLines({
-        validationError: validation.error,
-        origin,
-        host,
-        routeHosts,
-        matchingRoutes,
-        health
-      }).join(" ")
+      detail: troubleshooting.join(" ")
     },
     {
       label: "Safety boundary",
@@ -962,31 +988,62 @@ export function buildCustomDomainVerificationPlan(options, configText = null, he
     matchingRoutes,
     health,
     cors,
+    troubleshooting,
     validationError: validation.error
   };
 }
 
 export function buildCustomDomainVerificationRecoveryLines(context) {
+  return buildCustomDomainTroubleshootingLines(context);
+}
+
+export function buildCustomDomainTroubleshootingLines(context) {
   const lines = [];
+  const routeHosts = Array.isArray(context.routeHosts) ? context.routeHosts : [];
+  const matchingRoutes = Array.isArray(context.matchingRoutes) ? context.matchingRoutes : [];
+  const configuredResult = context.configuredPublicBaseUrl ? validatePublicBaseUrl(context.configuredPublicBaseUrl) : { url: null, error: null };
+  const configuredOrigin = configuredResult.url?.origin ?? null;
+
   if (context.validationError) {
     lines.push(`Invalid origin: ${context.validationError} Use an origin-only https URL such as https://files.example.com.`);
+  }
+  if (context.configuredPublicBaseUrl && configuredResult.error) {
+    lines.push(`Configured PUBLIC_BASE_URL is invalid: ${configuredResult.error} Fix wrangler.jsonc before relying on generated links or passkeys.`);
+  }
+  if (context.origin && configuredOrigin && configuredOrigin !== context.origin) {
+    lines.push(`PUBLIC_BASE_URL mismatch: wrangler.jsonc is ${configuredOrigin}, but this check is using ${context.origin}. Align the configured value, reachable origin, passkey origin, and R2 CORS origin before switching traffic.`);
+  }
+  if (context.suppliedPublicBaseUrl && context.configuredPublicBaseUrl && context.origin && configuredOrigin && configuredOrigin === context.origin) {
+    lines.push(`PUBLIC_BASE_URL alignment: supplied origin and wrangler.jsonc both resolve to ${context.origin}.`);
   }
   if (!context.origin) {
     lines.push("No origin: set vars.PUBLIC_BASE_URL in wrangler.jsonc or pass --public-base-url.");
   }
-  if (context.origin && context.routeHosts.length === 0) {
+  if (context.origin && routeHosts.length === 0) {
     lines.push("Missing route hints: add a reviewed Wrangler route/custom-domain hint or verify the Worker attachment manually in Cloudflare.");
   }
-  if (context.origin && context.routeHosts.length > 0 && context.matchingRoutes.length === 0) {
-    lines.push(`Route mismatch: align PUBLIC_BASE_URL host ${context.host} with Wrangler route/custom-domain host(s): ${context.routeHosts.join(", ")}.`);
+  if (context.origin && routeHosts.length > 0 && matchingRoutes.length === 0) {
+    lines.push(`Route mismatch: align PUBLIC_BASE_URL host ${context.host} with Wrangler route/custom-domain host(s): ${routeHosts.join(", ")}.`);
+  }
+  if (context.origin && routeHosts.length > 0 && matchingRoutes.length > 0) {
+    lines.push(`Route hints: at least one local Wrangler route/custom-domain hint matches ${context.host}.`);
   }
   if (context.health?.recovery) {
     lines.push(context.health.recovery);
   }
+  if (context.health?.status === "blocked") {
+    lines.push(`Health blocked: ${context.health.detail} Check DNS propagation, Cloudflare custom-domain attachment, certificate readiness, Worker deployment, and whether the route points at this Glyph Worker.`);
+  } else if (context.health?.status === "needs attention") {
+    lines.push(`Health mismatch: ${context.health.detail} The domain may be routed to another Worker, an origin server, or a stale deployment.`);
+  } else if (context.health?.status === "ready") {
+    lines.push("Health ready: /health responded as Glyph from the configured custom-domain origin.");
+  }
   if (context.origin) {
     lines.push(`Verify the reachable origin is exactly ${context.origin}; generated links and passkeys should use the same origin.`);
-    lines.push("If direct or multipart uploads are enabled, ensure R2 CORS allows browser PUT requests from this origin and exposes ETag.");
+    lines.push(`Passkey origin: passkeys registered on workers.dev or another hostname will not authenticate on ${context.origin}; bootstrap or re-register from ${context.origin}/admin after the domain is live.`);
+    lines.push(`R2 CORS: direct and multipart uploads require AllowedOrigins to include exactly ${context.origin} and ExposeHeaders to include ETag; update CORS after moving from workers.dev or another custom domain.`);
   }
+  lines.push("Safety boundary: troubleshooting is read-only and never creates DNS records, zones, certificates, custom domains, routes, scheduled triggers, deployments, migrations, secrets, updates, R2 CORS rules, or Cloudflare resources.");
   return [...new Set(lines)];
 }
 
@@ -1026,11 +1083,16 @@ export async function checkCustomDomainHealth(origin, fetchImpl = globalThis.fet
     }
 
     if (!response.ok) {
+      const recovery = response.status === 525 || response.status === 526
+        ? "Confirm the Cloudflare custom-domain certificate is issued and active, then retry after HTTPS is healthy."
+        : response.status === 404
+          ? "Confirm the custom-domain route points at the Glyph Worker and that /health is served by the deployed Worker."
+          : "Confirm DNS/custom-domain attachment points to the Glyph Worker and that the Worker is deployed.";
       return {
         status: "blocked",
         ok: false,
         detail: `${origin}/health returned HTTP ${response.status}.`,
-        recovery: "Confirm DNS/custom-domain attachment points to the Glyph Worker and that the Worker is deployed."
+        recovery
       };
     }
 
@@ -1052,13 +1114,19 @@ export async function checkCustomDomainHealth(origin, fetchImpl = globalThis.fet
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const aborted = error instanceof Error && error.name === "AbortError";
+    const certificateLike = /cert|certificate|tls|ssl|handshake|525|526/iu.test(message);
+    const dnsLike = /dns|enotfound|getaddrinfo|name not resolved|eai_again/iu.test(message);
     return {
       status: "blocked",
       ok: false,
       detail: aborted ? `${origin}/health timed out after ${timeoutMs}ms.` : `${origin}/health could not be reached: ${message}`,
       recovery: aborted
         ? "Confirm DNS/custom-domain attachment and Worker deployment, then retry from a network with access to the domain."
-        : "Confirm DNS is propagated, HTTPS certificate is active, the custom domain is attached to the Worker, and the Worker is deployed."
+        : certificateLike
+          ? "Confirm the HTTPS certificate is issued and active for the custom domain, then retry after TLS is healthy."
+          : dnsLike
+            ? "Confirm DNS is propagated and the custom domain is attached to the Worker in Cloudflare."
+            : "Confirm DNS is propagated, HTTPS certificate is active, the custom domain is attached to the Worker, and the Worker is deployed."
     };
   } finally {
     clearTimeout(timeout);
@@ -1248,7 +1316,11 @@ export function buildReadinessReport(options, context = {}) {
       ? config.r2_buckets.find((binding) => binding?.binding === "FILES")
       : null;
     const publicBaseUrl = typeof config.vars?.PUBLIC_BASE_URL === "string" ? config.vars.PUBLIC_BASE_URL.trim() : "";
+    const publicBaseResult = publicBaseUrl ? validatePublicBaseUrl(publicBaseUrl) : { url: null, error: null };
+    const publicBaseOrigin = publicBaseResult.url?.origin ?? null;
+    const publicBaseHost = publicBaseResult.url?.hostname.toLowerCase() ?? null;
     const routeHosts = wranglerRouteHosts(config);
+    const matchingRouteHosts = publicBaseHost ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, publicBaseHost)) : [];
     const cronTriggers = wranglerCronTriggers(config);
 
     configItems.push(readinessItem("ready", "wrangler.jsonc", "present and parseable."));
@@ -1290,7 +1362,6 @@ export function buildReadinessReport(options, context = {}) {
       )
     );
     if (publicBaseUrl) {
-      const publicBaseResult = validatePublicBaseUrl(publicBaseUrl);
       configItems.push(
         readinessItem(
           publicBaseResult.error ? "blocked" : "ready",
@@ -1320,6 +1391,28 @@ export function buildReadinessReport(options, context = {}) {
         "manual",
         "Custom-domain verification",
         "After manual DNS/custom-domain attachment, run `pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com` to validate the final origin, compare route hints, check /health, report /admin, and confirm R2 CORS alignment."
+      )
+    );
+    configItems.push(
+      readinessItem(
+        "manual",
+        "Custom-domain troubleshooting",
+        buildCustomDomainTroubleshootingLines({
+          validationError: publicBaseResult.error,
+          origin: publicBaseOrigin,
+          host: publicBaseHost,
+          configuredPublicBaseUrl: publicBaseUrl || null,
+          suppliedPublicBaseUrl: options.publicBaseUrl,
+          routeHosts,
+          matchingRoutes: matchingRouteHosts,
+          health: {
+            status: "manual",
+            ok: false,
+            detail: publicBaseUrl ? "Readiness mode does not fetch /health." : "No custom-domain origin is configured yet.",
+            recovery: "Run --verify-domain after manual Cloudflare attachment to check DNS, HTTPS, Worker health, passkey origin, and R2 CORS alignment."
+          },
+          cors
+        }).join(" ")
       )
     );
     configItems.push(
