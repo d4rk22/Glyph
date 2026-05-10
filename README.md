@@ -392,6 +392,13 @@ Phase 58 custom-domain verification checks are in place:
 - Recovery output covers invalid origins, missing or mismatched route hints, DNS/custom-domain attachment gaps, certificate/HTTPS failures, Worker health failures, and `PUBLIC_BASE_URL` versus reachable-origin mismatches.
 - The workflow never creates DNS records, zones, certificates, custom domains, scheduled triggers, releases, deploys Workers, applies migrations, stores secrets, executes updates, applies R2 CORS, or mutates Cloudflare resources.
 
+Phase 59 custom-domain verification maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.8`.
+- `v0.2.8` publishes the custom-domain verification workflow through the GitHub release channel.
+- The release highlights the read-only `--verify-domain` workflow, `PUBLIC_BASE_URL` origin validation, Wrangler route-hint comparison, custom-domain `/health` checking, expected `/admin` reporting, passkey origin guidance, R2 CORS alignment, recovery guidance for DNS/certificate/Worker/route mismatches, and readiness/turnkey/domain integration.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
