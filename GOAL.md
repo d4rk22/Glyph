@@ -226,3 +226,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 54. Add confirmed turnkey secret setup and R2 CORS setup support. Completed.
 55. Publish the confirmed turnkey secret setup and R2 CORS maintenance release. Completed.
 56. Add guided custom-domain setup planning for turnkey deploy. Completed.
+57. Publish the guided custom-domain setup maintenance release. Completed.

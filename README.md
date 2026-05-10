@@ -378,6 +378,13 @@ Phase 56 guided custom-domain setup planning is in place:
 - `pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.example.com` writes reviewed local `wrangler.jsonc` `PUBLIC_BASE_URL` and route hints only; it does not deploy, apply migrations, create DNS records, create zones, issue certificates, attach custom domains, store secrets, or mutate Cloudflare resources.
 - Readiness and turnkey output now point operators to the guided domain workflow when a final custom-domain origin is desired.
 
+Phase 57 guided custom-domain setup maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.7`.
+- `v0.2.7` publishes the guided custom-domain setup workflow through the GitHub release channel.
+- The release highlights the `--turnkey-domain` planning workflow, confirmed local-only `--turnkey-domain --yes` config update path, `PUBLIC_BASE_URL` origin validation, Wrangler route hint reporting, manual Cloudflare DNS/custom-domain/certificate guidance, passkey origin guidance, R2 CORS alignment, and readiness/turnkey integration.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
