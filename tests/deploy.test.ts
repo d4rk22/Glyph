@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  buildAuthDoctorReport,
   buildAuthReadinessLines,
   buildCloudflareRehearsalChecklist,
   buildCustomDomainSetupPlan,
@@ -43,6 +44,7 @@ import {
   PREFLIGHT_CHECKLIST_FILENAME,
   findD1DatabaseId,
   formatCloudflareRehearsalChecklist,
+  formatAuthDoctorReport,
   formatTurnkeyExamplesReport,
   formatPreflightChecklist,
   formatReadinessReport,
@@ -87,6 +89,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyExamples: false,
     preflight: false,
     cloudflareRehearsal: false,
+    authDoctor: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -114,6 +117,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyExamples: false,
     preflight: false,
     cloudflareRehearsal: false,
+    authDoctor: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -141,6 +145,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyExamples: false,
     preflight: false,
     cloudflareRehearsal: false,
+    authDoctor: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -168,6 +173,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyExamples: false,
     preflight: false,
     cloudflareRehearsal: false,
+    authDoctor: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -210,6 +216,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--cloudflare-rehearsal", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.throws(() => parseArgs(["--cloudflare-rehearsal", "--yes"]), /cloudflare-rehearsal by itself/);
   assert.throws(() => parseArgs(["--cloudflare-rehearsal", "--outdir", "./deploy-notes"]), /cloudflare-rehearsal by itself/);
+  assert.equal(parseArgs(["--auth-doctor"]).authDoctor, true);
+  assert.equal(parseArgs(["--auth-doctor", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]).database, "glyph-prod");
+  assert.throws(() => parseArgs(["--auth-doctor", "--yes"]), /auth-doctor by itself/);
+  assert.throws(() => parseArgs(["--auth-doctor", "--readiness"]), /auth-doctor by itself/);
   assert.equal(parseArgs(["--preflight"]).preflight, true);
   assert.equal(parseArgs(["--preflight", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.equal(parseArgs(["--preflight", "--outdir", "./deploy-notes"]).outdirExplicit, true);
@@ -269,6 +279,125 @@ test("auth readiness reports token and non-interactive guidance", () => {
     buildAuthReadinessLines({ CLOUDFLARE_API_TOKEN: "token" }, { isInteractive: false }).join("\n"),
     /manage Workers, manage D1, manage R2/
   );
+});
+
+test("auth doctor reports token state discovery gating and redacts sensitive output", () => {
+  const output = formatAuthDoctorReport(buildAuthDoctorReport(parseArgs(["--auth-doctor", "--database", "glyph-prod", "--bucket", "glyph-prod-files"]), {
+    isInteractive: false,
+    env: {
+      CLOUDFLARE_API_TOKEN: "super-secret-token-value"
+    },
+    wranglerVersionResult: {
+      command: ["pnpm", "wrangler", "--version"],
+      status: 0,
+      stdout: "wrangler 4.88.0\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    },
+    whoamiResult: {
+      command: ["pnpm", "wrangler", "whoami"],
+      status: 0,
+      stdout: "authenticated account id private-account-id\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    },
+    d1ListResult: {
+      command: ["pnpm", "wrangler", "d1", "list", "--json"],
+      status: 0,
+      stdout: "[{\"name\":\"glyph-prod\",\"uuid\":\"private-database-id\"}]",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    },
+    r2ListResult: {
+      command: ["pnpm", "wrangler", "r2", "bucket", "list"],
+      status: 1,
+      stdout: "",
+      stderr: "permission denied for hidden-bucket-id",
+      errorCode: null,
+      errorMessage: null
+    }
+  }));
+
+  assert.match(output, /Glyph Cloudflare auth doctor/);
+  assert.match(output, /\[ready\] Wrangler availability: Wrangler version check succeeded: wrangler 4\.88\.0/);
+  assert.match(output, /\[manual\] Shell mode: Non-interactive shell detected/);
+  assert.match(output, /\[ready\] CLOUDFLARE_API_TOKEN: present in this shell; value redacted/);
+  assert.match(output, /\[ready\] Wrangler whoami: Wrangler whoami succeeded/);
+  assert.match(output, /Auth appears sufficient to try read-only discovery for D1 glyph-prod and R2 bucket glyph-prod-files/);
+  assert.match(output, /\[ready\] D1 database discovery: Read-only discovery command succeeded/);
+  assert.match(output, /\[needs attention\] R2 bucket discovery: Discovery command failed/);
+  assert.match(output, /Recommended token capabilities/);
+  assert.match(output, /Cloudflare API token docs linked from README/);
+  assert.match(output, /No Cloudflare resources are created/);
+  assert.doesNotMatch(output, /super-secret-token-value|private-account-id|private-database-id|hidden-bucket-id/);
+});
+
+test("auth doctor blocks discovery when Wrangler auth is unavailable", () => {
+  const output = formatAuthDoctorReport(buildAuthDoctorReport(parseArgs(["--auth-doctor"]), {
+    isInteractive: true,
+    env: {},
+    wranglerVersionResult: {
+      command: ["pnpm", "wrangler", "--version"],
+      status: 0,
+      stdout: "wrangler 4.88.0\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    },
+    whoamiResult: {
+      command: ["pnpm", "wrangler", "whoami"],
+      status: 0,
+      stdout: "You are not authenticated. Run wrangler login.\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    }
+  }));
+
+  assert.match(output, /\[manual\] CLOUDFLARE_API_TOKEN: not detected; local interactive login may work/);
+  assert.match(output, /\[blocked\] Wrangler whoami: Wrangler is not authenticated/);
+  assert.match(output, /\[blocked\] Discovery gate: Discovery is gated until Wrangler is available and auth succeeds/);
+  assert.match(output, /\[blocked\] D1 database discovery: Skipped until Wrangler is available/);
+  assert.match(output, /pnpm wrangler login/);
+  assert.match(output, /Never commit the token/);
+});
+
+test("auth doctor distinguishes missing pnpm from local Wrangler availability", () => {
+  const output = formatAuthDoctorReport(buildAuthDoctorReport(parseArgs(["--auth-doctor"]), {
+    isInteractive: false,
+    env: {},
+    wranglerVersionResult: {
+      command: ["pnpm", "wrangler", "--version"],
+      status: null,
+      stdout: "",
+      stderr: "",
+      errorCode: "ENOENT",
+      errorMessage: "spawn pnpm ENOENT"
+    },
+    wranglerVersionFallbackResult: {
+      command: ["./node_modules/.bin/wrangler", "--version"],
+      status: 0,
+      stdout: "wrangler 4.88.0\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    },
+    whoamiResult: {
+      command: ["./node_modules/.bin/wrangler", "whoami"],
+      status: 0,
+      stdout: "You are not authenticated. Run wrangler login.\n",
+      stderr: "",
+      errorCode: null,
+      errorMessage: null
+    }
+  }));
+
+  assert.match(output, /\[needs attention\] Wrangler availability: Wrangler is available via the local project dependency \(wrangler 4\.88\.0\), but pnpm was not found on PATH/);
+  assert.match(output, /Enable Corepack or install pnpm/);
+  assert.match(output, /\[blocked\] Discovery gate/);
 });
 
 test("readiness report summarizes deploy state without mutating guidance", () => {

@@ -27,6 +27,7 @@ export function parseArgs(argv) {
     turnkeyExamples: false,
     preflight: false,
     cloudflareRehearsal: false,
+    authDoctor: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -68,6 +69,8 @@ export function parseArgs(argv) {
       options.preflight = true;
     } else if (arg === "--cloudflare-rehearsal") {
       options.cloudflareRehearsal = true;
+    } else if (arg === "--auth-doctor") {
+      options.authDoctor = true;
     } else if (arg === "--verify-domain") {
       options.verifyDomain = true;
     } else if (arg === "--verify-deploy") {
@@ -128,27 +131,27 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
-  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-schedule by itself, or with --yes to write reviewed local cron trigger config.");
   }
 
-  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-rehearse by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-examples by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.preflight && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.preflight && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --preflight by itself with optional --public-base-url; it is a read-only checklist mode.");
   }
 
@@ -156,15 +159,19 @@ export function parseArgs(argv) {
     throw new Error("Use --preflight --yes only with --outdir to overwrite an existing local checklist file.");
   }
 
-  if (options.cloudflareRehearsal && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness || options.outdirExplicit)) {
+  if (options.cloudflareRehearsal && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness || options.outdirExplicit)) {
     throw new Error("Use --cloudflare-rehearsal by itself with optional --public-base-url; it is a read-only real-account checklist mode.");
   }
 
-  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDeploy || options.applyCors)) {
+  if (options.authDoctor && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness || options.outdirExplicit)) {
+    throw new Error("Use --auth-doctor by itself; it is a read-only Cloudflare auth/token diagnostic.");
+  }
+
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.applyCors)) {
+  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --verify-deploy by itself with optional --public-base-url; it is read-only.");
   }
 
@@ -172,7 +179,7 @@ export function parseArgs(argv) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.authDoctor || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -473,12 +480,13 @@ export function buildTurnkeyPlan(options, configText = null) {
     {
       label: "Verify local prerequisites",
       mutates: false,
-      detail: "Checks Node.js, pnpm, Wrangler, project files, Wrangler authentication, and CLOUDFLARE_API_TOKEN readiness before any deploy action.",
+      detail: "Checks Node.js, pnpm, Wrangler, project files, Wrangler authentication, and CLOUDFLARE_API_TOKEN readiness before any deploy action. Run pnpm run deploy:glyph -- --auth-doctor for a focused auth/token diagnostic when Cloudflare discovery is blocked.",
       commands: [
         ["node", "--version"],
         ["pnpm", "--version"],
         ["pnpm", "wrangler", "--version"],
-        ["pnpm", "wrangler", "whoami"]
+        ["pnpm", "wrangler", "whoami"],
+        ["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"]
       ]
     },
     {
@@ -1808,6 +1816,230 @@ function readinessDiscoveryDetail(options, authStatus) {
   };
 }
 
+function commandOutput(result = {}) {
+  return `${result.stdout ?? ""}\n${result.stderr ?? ""}\n${result.errorMessage ?? ""}`.trim();
+}
+
+function commandSucceeded(result = {}) {
+  return result.status === 0 && !result.errorCode && !result.errorMessage;
+}
+
+function outputLooksUnauthenticated(output) {
+  return /not authenticated|not logged in|wrangler login|please log in|please login|authentication required|expired token|invalid token/iu.test(output);
+}
+
+function runReadOnlyCommand(command, rootDir, env = process.env) {
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd: rootDir,
+    encoding: "utf8",
+    env,
+    timeout: 15000
+  });
+
+  return {
+    command,
+    status: result.status ?? null,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    errorCode: result.error?.code ?? null,
+    errorMessage: result.error?.message ?? null
+  };
+}
+
+function classifyWranglerVersion(result, fallbackResult = null) {
+  if (!result) {
+    return readinessItem("blocked", "Wrangler availability", "Wrangler version was not checked.");
+  }
+
+  if (result.errorCode === "ENOENT") {
+    if (fallbackResult && commandSucceeded(fallbackResult)) {
+      const version = (fallbackResult.stdout || fallbackResult.stderr || "").trim().split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? "version output present";
+      return readinessItem("needs attention", "Wrangler availability", `Wrangler is available via the local project dependency (${version}), but pnpm was not found on PATH. Enable Corepack or install pnpm before running documented deploy commands.`);
+    }
+    return readinessItem("blocked", "Wrangler availability", missingCommandMessage(result.command?.[0] ?? "pnpm"));
+  }
+
+  if (!commandSucceeded(result)) {
+    return readinessItem("blocked", "Wrangler availability", "Wrangler version check failed. Run `pnpm wrangler --version` locally and confirm Corepack/pnpm are available.");
+  }
+
+  const version = (result.stdout || result.stderr || "").trim().split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? "version output present";
+  return readinessItem("ready", "Wrangler availability", `Wrangler version check succeeded: ${version}.`);
+}
+
+function classifyWhoami(result, hasToken) {
+  if (!result) {
+    return readinessItem("blocked", "Wrangler whoami", "Wrangler whoami was not checked.");
+  }
+
+  if (result.errorCode === "ENOENT") {
+    return readinessItem("blocked", "Wrangler whoami", missingCommandMessage(result.command?.[0] ?? "pnpm"));
+  }
+
+  const output = commandOutput(result);
+  if (commandSucceeded(result) && !outputLooksUnauthenticated(output)) {
+    return readinessItem("ready", "Wrangler whoami", "Wrangler whoami succeeded. Account identity output is intentionally not repeated by the auth doctor.");
+  }
+
+  if (hasToken) {
+    return readinessItem("needs attention", "Wrangler whoami", "CLOUDFLARE_API_TOKEN is present but Wrangler whoami did not succeed. The token may be expired, malformed, missing scope, or targeting the wrong account.");
+  }
+
+  return readinessItem("blocked", "Wrangler whoami", "Wrangler is not authenticated for this shell. Use `pnpm wrangler login` locally or set CLOUDFLARE_API_TOKEN for non-interactive runs.");
+}
+
+function canAttemptDiscovery(wranglerVersionItem, whoamiItem, hasToken) {
+  return wranglerVersionItem.status !== "blocked" && (whoamiItem.status === "ready" || hasToken);
+}
+
+function classifyDiscoveryResult(label, result, canRun) {
+  if (!canRun) {
+    return readinessItem("blocked", label, "Skipped until Wrangler is available and Cloudflare auth succeeds. No D1/R2 discovery command was run.");
+  }
+
+  if (!result) {
+    return readinessItem("blocked", label, "Discovery result is missing. Re-run `pnpm run deploy:glyph -- --auth-doctor` from the project checkout.");
+  }
+
+  if (commandSucceeded(result)) {
+    return readinessItem("ready", label, "Read-only discovery command succeeded. Resource names and IDs are not repeated here; review the Wrangler command output locally if needed.");
+  }
+
+  const output = commandOutput(result);
+  if (outputLooksUnauthenticated(output)) {
+    return readinessItem("blocked", label, "Discovery failed because Wrangler auth is missing or expired. Login locally or set a scoped CLOUDFLARE_API_TOKEN.");
+  }
+
+  return readinessItem("needs attention", label, "Discovery command failed. This usually means the token is missing D1/R2 permissions, targets the wrong account, or Cloudflare access is unavailable from this shell.");
+}
+
+export function collectAuthDoctorContext(rootDir, env = process.env) {
+  const localWranglerPath = join(rootDir, "node_modules", ".bin", process.platform === "win32" ? "wrangler.cmd" : "wrangler");
+  const wranglerVersionResult = runReadOnlyCommand(["pnpm", "wrangler", "--version"], rootDir, env);
+  const wranglerVersionFallbackResult = wranglerVersionResult.errorCode === "ENOENT" && existsSync(localWranglerPath)
+    ? runReadOnlyCommand([localWranglerPath, "--version"], rootDir, env)
+    : null;
+  const wranglerCommand = wranglerVersionResult.errorCode === "ENOENT" && existsSync(localWranglerPath)
+    ? [localWranglerPath]
+    : ["pnpm", "wrangler"];
+  const whoamiResult = runReadOnlyCommand([...wranglerCommand, "whoami"], rootDir, env);
+  const hasToken = typeof env.CLOUDFLARE_API_TOKEN === "string" && env.CLOUDFLARE_API_TOKEN.trim().length > 0;
+  const versionItem = classifyWranglerVersion(wranglerVersionResult, wranglerVersionFallbackResult);
+  const whoamiItem = classifyWhoami(whoamiResult, hasToken);
+  const shouldDiscover = canAttemptDiscovery(versionItem, whoamiItem, hasToken);
+
+  return {
+    env,
+    isInteractive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    wranglerVersionResult,
+    wranglerVersionFallbackResult,
+    whoamiResult,
+    d1ListResult: shouldDiscover ? runReadOnlyCommand([...wranglerCommand, "d1", "list", "--json"], rootDir, env) : null,
+    r2ListResult: shouldDiscover ? runReadOnlyCommand([...wranglerCommand, "r2", "bucket", "list"], rootDir, env) : null
+  };
+}
+
+export function buildAuthDoctorReport(options, context = {}) {
+  const env = context.env ?? process.env;
+  const isInteractive = context.isInteractive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const hasToken = typeof env.CLOUDFLARE_API_TOKEN === "string" && env.CLOUDFLARE_API_TOKEN.trim().length > 0;
+  const versionItem = classifyWranglerVersion(context.wranglerVersionResult, context.wranglerVersionFallbackResult);
+  const whoamiItem = classifyWhoami(context.whoamiResult, hasToken);
+  const discoveryAllowed = canAttemptDiscovery(versionItem, whoamiItem, hasToken);
+  const sections = [
+    {
+      title: "Wrangler and environment",
+      items: [
+        versionItem,
+        readinessItem(
+          "manual",
+          "Shell mode",
+          isInteractive
+            ? "Interactive terminal detected. Local operators may use `pnpm wrangler login`, while CI should still use CLOUDFLARE_API_TOKEN."
+            : "Non-interactive shell detected. Use CLOUDFLARE_API_TOKEN for Wrangler commands that inspect or change Cloudflare resources."
+        )
+      ]
+    },
+    {
+      title: "Token and login",
+      items: [
+        readinessItem(
+          hasToken ? "ready" : isInteractive ? "manual" : "blocked",
+          "CLOUDFLARE_API_TOKEN",
+          hasToken
+            ? "present in this shell; value redacted and never printed."
+            : isInteractive
+              ? "not detected; local interactive login may work, but CI/non-interactive runs need a scoped token."
+              : "not detected; non-interactive Cloudflare discovery is blocked until a scoped token is provided."
+        ),
+        whoamiItem
+      ]
+    },
+    {
+      title: "Read-only D1/R2 discovery",
+      items: [
+        readinessItem(
+          discoveryAllowed ? "manual" : "blocked",
+          "Discovery gate",
+          discoveryAllowed
+            ? `Auth appears sufficient to try read-only discovery for D1 ${options.database} and R2 bucket ${options.bucket}.`
+            : "Discovery is gated until Wrangler is available and auth succeeds; no resource creation or mutation is attempted."
+        ),
+        classifyDiscoveryResult("D1 database discovery", context.d1ListResult, discoveryAllowed),
+        classifyDiscoveryResult("R2 bucket discovery", context.r2ListResult, discoveryAllowed)
+      ]
+    },
+    {
+      title: "Recommended token capabilities",
+      items: [
+        readinessItem("manual", "Least-privilege target", "Create a Cloudflare API token scoped to the intended account and resources; keep values in the operator environment or CI secret store, not in the repository."),
+        readinessItem("manual", "Core setup and deploy", "Token capabilities should cover Workers deploy/config for Glyph, D1 database list/create/migration operations, R2 bucket list/create/object operations, and Worker secret writes when using direct/multipart setup."),
+        readinessItem("manual", "Optional operations", "Add route/custom-domain or R2 bucket/CORS administration only when the operator chooses those workflows. Keep DNS/custom-domain creation and scheduled-trigger activation operator-owned."),
+        readinessItem("manual", "Docs", "See the Cloudflare API token docs linked from README for the latest permission names before creating or rotating a token.")
+      ]
+    },
+    {
+      title: "Recovery paths",
+      items: [
+        readinessItem("manual", "Local interactive login", "Run `pnpm wrangler login`, then `pnpm run deploy:glyph -- --auth-doctor` again."),
+        readinessItem("manual", "CI or non-interactive use", "Set CLOUDFLARE_API_TOKEN through the CI secret store or shell environment, then rerun the auth doctor. Never commit the token."),
+        readinessItem("manual", "Expired or insufficient token", "Rotate or adjust the scoped token for the target account, then retry `pnpm wrangler whoami`, `pnpm wrangler d1 list --json`, and `pnpm wrangler r2 bucket list`."),
+        readinessItem("manual", "Next deploy checks", "After auth is healthy, run `pnpm run deploy:glyph -- --readiness`, `pnpm run deploy:glyph -- --turnkey-rehearse`, and the non-mutating `pnpm run deploy:glyph -- --turnkey` plan.")
+      ]
+    },
+    {
+      title: "Safety boundary",
+      items: [
+        readinessItem(
+          "ready",
+          "Read-only auth doctor",
+          "No Cloudflare resources are created, no Worker is deployed, no migrations are applied, no secrets are set, no R2 CORS is applied, no DNS/custom-domain/scheduled-trigger resources are created, no uploads/admin/passkey flows run, and no token values are printed."
+        )
+      ]
+    }
+  ];
+
+  return { title: "Glyph Cloudflare auth doctor", sections };
+}
+
+export function formatAuthDoctorReport(report) {
+  const lines = [
+    report.title,
+    "Read-only diagnostic: this report checks auth readiness without creating resources, deploying, applying migrations, setting secrets, or printing token values.",
+    ""
+  ];
+
+  for (const section of report.sections) {
+    lines.push(section.title);
+    for (const item of section.items) {
+      lines.push(`- [${item.status}] ${item.label}: ${item.detail}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 export function collectReadinessContext(rootDir, env = process.env) {
   const packageJsonPath = join(rootDir, "package.json");
   const wranglerPath = join(rootDir, "wrangler.jsonc");
@@ -1887,6 +2119,7 @@ export function buildReadinessReport(options, context = {}) {
   );
   localItems.push(readinessItem("manual", "pnpm availability", "Run `pnpm --version`; turnkey confirmed mode checks this before mutating anything."));
   localItems.push(readinessItem("manual", "Wrangler availability", "Run `pnpm wrangler --version`; turnkey confirmed mode checks this before Cloudflare operations."));
+  localItems.push(readinessItem("manual", "Cloudflare auth doctor", "Run `pnpm run deploy:glyph -- --auth-doctor` for a focused read-only check of Wrangler, shell interactivity, CLOUDFLARE_API_TOKEN presence, whoami, and D1/R2 discovery gating."));
   localItems.push(readinessItem("manual", "Turnkey rehearsal", "Run `pnpm run deploy:glyph -- --turnkey-rehearse` for one end-to-end read-only operator report before mutating local config or Cloudflare resources."));
   localItems.push(readinessItem("manual", "Turnkey examples", "Run `pnpm run deploy:glyph -- --turnkey-examples` for read-only command transcripts and recovery examples."));
   localItems.push(readinessItem("manual", "Preflight checklist", "Run `pnpm run deploy:glyph -- --preflight` for a concise markdown deploy checklist with recommended next commands and operator-owned Cloudflare tasks."));
@@ -1902,6 +2135,11 @@ export function buildReadinessReport(options, context = {}) {
         auth.status === "ready"
           ? "Non-interactive checks can use CLOUDFLARE_API_TOKEN; interactive Wrangler login is still acceptable for local operator workflows."
           : "CI, Codex, and other non-interactive shells need CLOUDFLARE_API_TOKEN; local terminals may use `pnpm wrangler login`."
+      ),
+      readinessItem(
+        "manual",
+        "Auth doctor",
+        "Run `pnpm run deploy:glyph -- --auth-doctor` to verify Wrangler availability, token presence without printing it, whoami, and read-only D1/R2 discovery gating before confirmed deploy."
       )
     ]
   });
@@ -2174,6 +2412,7 @@ export function buildCloudflareRehearsalChecklist(options, context = {}) {
             [
               ["pnpm", "install", "--frozen-lockfile"],
               ["git", "status", "--short"],
+              ["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"],
               ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
               ["pnpm", "run", "deploy:glyph", "--", "--turnkey-rehearse"],
               ["pnpm", "run", "deploy:glyph", "--", "--preflight"]
@@ -2183,7 +2422,10 @@ export function buildCloudflareRehearsalChecklist(options, context = {}) {
             "Confirm Cloudflare authentication",
             "Use Wrangler login in an interactive terminal or CLOUDFLARE_API_TOKEN in non-interactive environments.",
             "Record auth method and target account identity only. Never paste API tokens, secret values, or private account details into committed notes.",
-            [["pnpm", "wrangler", "whoami"]]
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"],
+              ["pnpm", "wrangler", "whoami"]
+            ]
           )
         ]
       },
@@ -2347,6 +2589,7 @@ export function buildTurnkeyExamplesReport(options, context = {}) {
           "Start with locked dependencies and read-only reports so the operator sees prerequisites, auth, D1/R2 plans, config state, migration gates, and follow-up before mutation.",
           [
             ["pnpm", "install", "--frozen-lockfile"],
+            ["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"],
             ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
             ["pnpm", "run", "deploy:glyph", "--", "--turnkey-rehearse"],
             ["pnpm", "run", "deploy:glyph", "--", "--preflight"],
@@ -2371,6 +2614,7 @@ export function buildTurnkeyExamplesReport(options, context = {}) {
           "CI, Codex, and other non-interactive shells need CLOUDFLARE_API_TOKEN before Wrangler can inspect D1/R2 or deploy. Use a scoped token value outside source control; the helper does not print or store it.",
           [
             ["export", "CLOUDFLARE_API_TOKEN=<scoped-cloudflare-api-token>"],
+            ["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"],
             ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
             ["pnpm", "run", "deploy:glyph", "--", "--turnkey"]
           ]
@@ -2589,6 +2833,7 @@ export function buildTurnkeyRehearsalReport(options, context = {}) {
     title: "Cloudflare auth and resource plan",
     items: [
       readinessItem(auth.status, "Cloudflare auth", auth.detail),
+      readinessItem("manual", "Auth doctor", `If auth or token scope is unclear, run ${commandText(["pnpm", "run", "deploy:glyph", "--", "--auth-doctor"])} before attempting D1/R2 discovery or confirmed deploy.`),
       readinessItem(discovery.status, "D1/R2 discovery", `${discovery.detail} Next command: ${commandText(["pnpm", "run", "deploy:glyph", "--", "--turnkey"])} for a non-mutating plan, then ${commandText(["pnpm", "run", "deploy:glyph", "--", "--turnkey", "--yes"])} only when ready.`),
       readinessItem(
         dbBinding ? "ready" : "manual",
@@ -3123,6 +3368,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey-rehearse
   pnpm run deploy:glyph -- --turnkey-examples
   pnpm run deploy:glyph -- --cloudflare-rehearsal
+  pnpm run deploy:glyph -- --auth-doctor
   pnpm run deploy:glyph -- --preflight
   pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes
   pnpm run deploy:glyph -- --turnkey --yes
@@ -3145,6 +3391,7 @@ Options:
   --turnkey-examples  Print read-only deploy transcripts and recovery command examples.
   --cloudflare-rehearsal
                       Print a read-only real Cloudflare account rehearsal checklist and evidence guide.
+  --auth-doctor       Run a read-only Cloudflare auth/token diagnostic without printing token values.
   --preflight         Print a read-only markdown deploy preflight checklist.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
@@ -3197,6 +3444,11 @@ Scheduled maintenance readiness:
   never creates triggers or mutates Cloudflare resources.
 
 Turnkey safety:
+  --auth-doctor is always non-mutating. It checks Wrangler availability, shell interactivity,
+  CLOUDFLARE_API_TOKEN presence without printing the value, Wrangler whoami, and read-only D1/R2
+  discovery gating. It does not create resources, deploy, apply migrations, set secrets, apply CORS,
+  create DNS/custom-domain/scheduled-trigger resources, upload files, create admins, execute passkeys,
+  or mutate Cloudflare resources.
   --turnkey-rehearse is always non-mutating. It summarizes prerequisites, auth, resource discovery or
   creation plans, Wrangler config, remote migration and deploy gates, direct/multipart secret and CORS
   follow-up, custom-domain verification, scheduled-trigger setup, expected URLs, and recovery steps.
@@ -3230,7 +3482,7 @@ Direct/multipart setup safety:
 Readiness safety:
   --readiness is always non-mutating. It does not store secrets, apply R2 CORS, apply remote migrations,
   deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or
-  mutate Cloudflare resources.
+  mutate Cloudflare resources. Run --auth-doctor when the readiness report shows auth or token blockers.
 `;
 }
 
@@ -3241,6 +3493,7 @@ export function validateProject(rootDir, options) {
     || options.turnkeyDomain
     || options.turnkeySchedule
     || options.turnkeyRehearse
+    || options.authDoctor
     || options.preflight
     || options.verifyDomain
     || options.verifyDeploy
@@ -4065,6 +4318,12 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
     return 0;
   }
 
+  if (options.authDoctor) {
+    const report = buildAuthDoctorReport(options, collectAuthDoctorContext(rootDir, process.env));
+    console.log(formatAuthDoctorReport(report));
+    return 0;
+  }
+
   if (options.preflight) {
     const checklist = buildPreflightChecklist(options, collectReadinessContext(rootDir, process.env));
     const markdown = formatPreflightChecklist(checklist);
@@ -4080,7 +4339,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.preflight || effectiveOptions.cloudflareRehearsal || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.preflight || effectiveOptions.cloudflareRehearsal || effectiveOptions.authDoctor || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {

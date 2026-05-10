@@ -531,6 +531,13 @@ Phase 79 real Cloudflare rehearsal findings maintenance release is in place:
 - The release highlights the exercised `--cloudflare-rehearsal`, readiness, turnkey, rehearsal, preflight, secrets, custom-domain, scheduled-trigger, post-deploy verification, release-check, and update-helper paths; confirmed Wrangler availability; the authenticated-account blocker in this non-interactive environment; the `CLOUDFLARE_API_TOKEN` requirement for D1/R2 discovery; the local `pnpm` PATH/Corepack recovery finding for deploy `--check`; and operator-owned remaining proof steps.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 80 Cloudflare auth/token readiness doctor is in place:
+
+- `pnpm run deploy:glyph -- --auth-doctor` runs a focused read-only diagnostic for real-account deploy blockers around Wrangler auth and token setup.
+- The auth doctor reports Wrangler availability/version, interactive versus non-interactive shell mode, whether `CLOUDFLARE_API_TOKEN` is present without printing its value, whether `wrangler whoami` succeeds, and whether read-only D1/R2 discovery can run.
+- Recovery output covers local `pnpm wrangler login`, CI/non-interactive token use, missing/expired/insufficient tokens, token value redaction, and avoiding committed tokens or private Cloudflare details.
+- The workflow does not create resources, deploy Workers, apply migrations, set secrets, apply R2 CORS, create DNS/custom-domain/scheduled-trigger resources, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -552,11 +559,14 @@ Preview the fresh-checkout turnkey deployment plan:
 
 ```sh
 pnpm run deploy:glyph -- --turnkey-examples
+pnpm run deploy:glyph -- --auth-doctor
 pnpm run deploy:glyph -- --turnkey-rehearse
 pnpm run deploy:glyph -- --cloudflare-rehearsal
 pnpm run deploy:glyph -- --preflight
 pnpm run deploy:glyph -- --turnkey
 ```
+
+Use `--auth-doctor` when deployment planning is blocked by Wrangler login or token questions. It checks Wrangler version, shell interactivity, token presence without printing the value, `wrangler whoami`, and read-only D1/R2 discovery gating. It never creates resources, deploys, applies migrations, sets secrets, applies CORS, uploads files, creates admins, executes passkey flows, or mutates Cloudflare resources.
 
 Use `--turnkey-examples` when you want copyable transcripts for common paths before running any real setup command. It is always read-only and covers missing auth, existing resource reuse, placeholder D1 IDs, remote migration gates, direct/multipart follow-up, custom domains, scheduled triggers, and post-deploy verification.
 
@@ -575,6 +585,8 @@ Turnkey mode verifies local prerequisites and Wrangler auth, creates or reuses t
 Confirmed turnkey mode first runs read-only discovery with `pnpm wrangler d1 list --json` and `pnpm wrangler r2 bucket list`. If the requested D1 database exists, Glyph reuses the discovered database ID. If the requested R2 bucket exists, Glyph reuses it instead of attempting to recreate it. When discovery cannot find a D1 ID, the helper prints the exact recovery path: run `pnpm wrangler d1 list --json`, copy the ID, and re-run with `--turnkey --yes --reuse-resources --d1-database-id <real-id>`.
 
 For local terminal use, Wrangler can use `pnpm wrangler login`. In CI, Codex, or any other non-interactive shell, set `CLOUDFLARE_API_TOKEN` before running deploy checks that inspect remote D1/R2 resources. The token should target the intended Cloudflare account and allow the needed Worker, D1, R2, and D1 migration actions. Glyph prints token/auth readiness before remote checks and recovery guidance if Wrangler reports missing auth or insufficient scope.
+
+For token creation or rotation, consult Cloudflare's API token documentation for the current permission names: <https://developers.cloudflare.com/fundamentals/api/get-started/create-token/>. For Glyph setup, use conservative least-privilege tokens scoped to the intended account and resources. The token typically needs enough access for Workers deploy/config, D1 list/create/migration operations, R2 bucket/object operations, and Worker secret writes when direct/multipart upload setup is used. Add route/custom-domain or R2 bucket/CORS administration only for operator workflows that actually need them. Never place token values in `wrangler.jsonc`, `.env.example`, `.dev.vars.example`, README snippets, issues, or committed files.
 
 Remote D1 migrations stay behind an explicit gate. `pnpm run deploy:glyph -- --check` lists/checks remote migrations only. `pnpm run deploy:glyph -- --yes` or `pnpm run deploy:glyph -- --turnkey --yes` applies remote migrations before deploy, after local checks and the Wrangler dry-run.
 

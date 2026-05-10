@@ -187,6 +187,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Fresh-instance turnkey deploy validation can exercise the documented operator path, fix small wording or next-command friction, and document what was proven through dry-run/planning versus what still requires a real Cloudflare account pass.
 - Real Cloudflare deploy rehearsal checklists can guide a sanitized operator-owned proof pass for auth, D1/R2 resources, migrations, deploy, URL checks, admin bootstrap, upload smoke tests, optional direct/multipart/custom-domain/scheduled setup, rollback notes, and evidence capture without mutating resources by default.
 - Real Cloudflare deploy rehearsal findings can document sanitized proof results, including when a non-interactive environment blocks at Wrangler auth and leaves D1/R2 creation, remote migrations, Worker deploy, deployed-origin checks, admin bootstrap, upload smoke testing, secrets, CORS, custom domains, and scheduled triggers operator-owned.
+- Cloudflare auth/token readiness doctor can diagnose Wrangler availability, interactive versus non-interactive shell mode, redacted token presence, `wrangler whoami`, D1/R2 discovery gating, token capability guidance, and recovery paths without printing secrets or mutating Cloudflare resources.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -266,3 +267,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 77. Publish the real Cloudflare deploy rehearsal maintenance release. Completed.
 78. Perform the real Cloudflare deploy rehearsal and capture sanitized findings. Completed.
 79. Publish the real Cloudflare rehearsal findings maintenance release. Completed.
+80. Add Cloudflare auth/token readiness doctor for turnkey deploy. Completed.
