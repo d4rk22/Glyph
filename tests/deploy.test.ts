@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -36,6 +39,7 @@ import {
   classifyWranglerFailure,
   DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
+  PREFLIGHT_CHECKLIST_FILENAME,
   findD1DatabaseId,
   formatTurnkeyExamplesReport,
   formatPreflightChecklist,
@@ -46,8 +50,10 @@ import {
   parseArgs,
   parseD1DatabaseList,
   parseR2BucketList,
+  preflightChecklistFilePath,
   summarizeDeploymentTarget,
-  validateWranglerConfig
+  validateWranglerConfig,
+  writePreflightChecklistFile
 } from "../scripts/deploy.mjs";
 
 const validWranglerConfig = JSON.stringify({
@@ -88,6 +94,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     bucket: DEFAULT_BUCKET_NAME,
     publicBaseUrl: null,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
+    outdirExplicit: false,
     help: false
   });
 
@@ -113,6 +120,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     bucket: DEFAULT_BUCKET_NAME,
     publicBaseUrl: null,
     outdir: "/tmp/out",
+    outdirExplicit: true,
     help: false
   });
 
@@ -138,6 +146,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     bucket: "prod-files",
     publicBaseUrl: null,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
+    outdirExplicit: false,
     help: false
   });
 
@@ -163,6 +172,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     bucket: DEFAULT_BUCKET_NAME,
     publicBaseUrl: "https://files.example.com",
     outdir: DEFAULT_DRY_RUN_OUTDIR,
+    outdirExplicit: false,
     help: false
   });
 
@@ -191,7 +201,9 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.throws(() => parseArgs(["--turnkey-examples", "--turnkey"]), /turnkey-examples by itself/);
   assert.equal(parseArgs(["--preflight"]).preflight, true);
   assert.equal(parseArgs(["--preflight", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
-  assert.throws(() => parseArgs(["--preflight", "--yes"]), /preflight by itself/);
+  assert.equal(parseArgs(["--preflight", "--outdir", "./deploy-notes"]).outdirExplicit, true);
+  assert.equal(parseArgs(["--preflight", "--outdir", "./deploy-notes", "--yes"]).yes, true);
+  assert.throws(() => parseArgs(["--preflight", "--yes"]), /only with --outdir/);
   assert.throws(() => parseArgs(["--preflight", "--turnkey"]), /preflight by itself/);
   assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
   assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
@@ -488,6 +500,54 @@ test("preflight checklist flags blocked auth and placeholder D1 recovery", () =>
   assert.match(output, /--reuse-resources --d1-database-id <real-d1-database-id>/);
   assert.match(output, /\[needs attention\] Direct\/multipart secret and R2 CORS readiness/);
   assert.match(output, /No PUBLIC_BASE_URL or --public-base-url supplied/);
+});
+
+test("preflight checklist writes a local markdown file only when output is explicit", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "glyph-preflight-"));
+  try {
+    const outputDir = join(tempDir, "deploy-notes");
+    const options = parseArgs(["--preflight", "--outdir", outputDir, "--public-base-url", "https://files.example.com"]);
+    const markdown = formatPreflightChecklist(buildPreflightChecklist(options, {
+      nodeVersion: "v25.0.0",
+      isInteractive: false,
+      env: {
+        CLOUDFLARE_API_TOKEN: "hidden-token",
+        R2_SECRET_ACCESS_KEY: "hidden-secret"
+      },
+      packageJsonText: JSON.stringify({ version: "9.9.9", packageManager: "pnpm@11.0.8" }),
+      projectFiles: {
+        "package.json": true,
+        "pnpm-lock.yaml": true,
+        "wrangler.jsonc": true,
+        migrations: true,
+        "src/index.ts": true
+      },
+      configText: validWranglerConfig
+    }));
+
+    const filePath = preflightChecklistFilePath(options);
+    assert.equal(filePath, join(outputDir, PREFLIGHT_CHECKLIST_FILENAME));
+    assert.equal(existsSync(filePath), false);
+
+    const writtenPath = writePreflightChecklistFile(markdown, options);
+    assert.equal(writtenPath, filePath);
+
+    const written = readFileSync(filePath, "utf8");
+    assert.match(written, /^# Glyph Deploy Preflight Checklist/);
+    assert.match(written, /Next: `pnpm run deploy:glyph -- --check`/);
+    assert.doesNotMatch(written, /hidden-token|hidden-secret/);
+    assert.throws(() => writePreflightChecklistFile(markdown, options), /already exists/);
+
+    writeFileSync(filePath, "old checklist\n");
+    writePreflightChecklistFile(markdown, parseArgs(["--preflight", "--outdir", outputDir, "--yes"]));
+    assert.match(readFileSync(filePath, "utf8"), /^# Glyph Deploy Preflight Checklist/);
+
+    const stdoutOptions = parseArgs(["--preflight"]);
+    assert.equal(stdoutOptions.outdirExplicit, false);
+    assert.equal(preflightChecklistFilePath(stdoutOptions), join(DEFAULT_DRY_RUN_OUTDIR, PREFLIGHT_CHECKLIST_FILENAME));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("remote migration plan keeps apply behind explicit confirmation", () => {

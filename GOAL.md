@@ -179,6 +179,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Turnkey deploy rehearsal can give operators one read-only fresh-checkout-to-deploy report covering prerequisites, Cloudflare auth, D1/R2 plans, Wrangler config, placeholder D1 IDs, migration and deploy gates, direct/multipart secrets and R2 CORS, custom-domain verification, scheduled-trigger/admin opt-ins, URLs, and recovery steps without mutating local files or Cloudflare resources.
 - Turnkey deploy rehearsal maintenance releases can keep the public release/update channel aligned with the end-to-end operator report while preserving the conservative source-only release model.
 - Turnkey deploy preflight checklists can give operators a concise, markdown-style, read-only checklist covering prerequisites, auth, D1/R2 readiness, placeholder IDs, migration gates, upload-mode fallback, direct/multipart CORS/secrets, custom domains, scheduled triggers, post-deploy verification, next commands, and operator-owned Cloudflare tasks.
+- Downloadable preflight checklist output can save the same checklist as an explicit local markdown artifact while keeping stdout as the non-mutating default, refusing accidental overwrites, avoiding secret values, and preserving the no-Cloudflare-mutation safety boundary.
 - General post-deploy verification can validate a deployed workers.dev or custom-domain Glyph origin by checking `/health`, `/admin`, and `/`, reporting URLs, passkey origin guidance, R2 CORS alignment, and recovery steps without uploading files, executing passkey flows, or mutating Cloudflare resources.
 - Post-deploy verification maintenance releases can keep the public release/update channel aligned with deployed-origin verification while preserving the conservative source-only release model.
 - Turnkey deploy examples can give operators read-only command transcripts and recovery paths for fresh checkout, missing auth, D1/R2 reuse, placeholder D1 IDs, remote migration gates, Worker-mediated fallback, direct/multipart setup, custom domains, scheduled triggers, and post-deploy verification without mutating local files or Cloudflare resources.
@@ -254,3 +255,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 69. Publish the turnkey deploy examples maintenance release. Completed.
 70. Add turnkey deploy preflight checklist export. Completed.
 71. Publish the deploy preflight checklist maintenance release. Completed.
+72. Add downloadable preflight checklist output. Completed.

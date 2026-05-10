@@ -476,6 +476,13 @@ Phase 71 deploy preflight checklist maintenance release is in place:
 - The release highlights the `--preflight` read-only markdown checklist, prerequisite and version summary, auth/token readiness, D1/R2 readiness, placeholder D1 ID reporting, migration gate reminders, Worker-mediated fallback, direct/multipart secret and R2 CORS readiness, custom-domain/public origin alignment, scheduled-trigger/admin opt-in readiness, post-deploy verification guidance, recommended next commands, no-secret-value output, and no-mutation safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 72 downloadable preflight checklist output is in place:
+
+- `pnpm run deploy:glyph -- --preflight` still prints the checklist to stdout and writes no files by default.
+- `pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes` writes `./deploy-notes/glyph-preflight-checklist.md` as an explicit local-only artifact for deployment notes.
+- Existing checklist files are not overwritten unless the operator reruns with `--preflight --outdir ./deploy-notes --yes` after reviewing the current file.
+- The file output keeps the same no-secret-value and no-Cloudflare-mutation safety boundary as stdout preflight mode.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -897,7 +904,19 @@ For a compact preflight checklist you can copy into deployment notes, run:
 pnpm run deploy:glyph -- --preflight --public-base-url https://files.example.com
 ```
 
-Preflight mode is always read-only. It prints markdown-style unchecked checklist items for local prerequisites, Cloudflare auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback, direct/multipart secret and R2 CORS readiness, custom-domain/public origin alignment, scheduled-trigger/admin opt-ins, post-deploy `/health`, `/admin`, and `/` verification, recommended next commands, and operator-owned Cloudflare tasks. It never writes files, stores or prints secret values, runs Cloudflare discovery, applies migrations, deploys, sets secrets, applies R2 CORS, creates DNS/custom-domain/scheduled-trigger resources, publishes releases, executes updates, uploads files, creates admins, executes passkey flows, or mutates Cloudflare resources.
+Preflight mode is always read-only with respect to Cloudflare and deployment state. It prints markdown-style unchecked checklist items for local prerequisites, Cloudflare auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback, direct/multipart secret and R2 CORS readiness, custom-domain/public origin alignment, scheduled-trigger/admin opt-ins, post-deploy `/health`, `/admin`, and `/` verification, recommended next commands, and operator-owned Cloudflare tasks. By default it writes no files, stores or prints no secret values, runs no Cloudflare discovery, applies no migrations, deploys nothing, sets no secrets, applies no R2 CORS, creates no DNS/custom-domain/scheduled-trigger resources, publishes no releases, executes no updates, uploads no files, creates no admins, executes no passkey flows, and mutates no Cloudflare resources.
+
+To save the same checklist as a local markdown artifact, pass an explicit output directory:
+
+```sh
+pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes
+```
+
+The helper writes `glyph-preflight-checklist.md` inside that directory and creates the local directory if needed. It refuses to overwrite an existing checklist unless you add `--yes` after reviewing the current file:
+
+```sh
+pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes --yes
+```
 
 After an intentional deploy, verify the deployed origin without uploading files or changing Cloudflare state:
 

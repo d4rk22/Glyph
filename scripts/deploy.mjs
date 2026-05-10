@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const DEFAULT_DATABASE_NAME = "glyph";
 export const DEFAULT_BUCKET_NAME = "glyph-files";
 export const DEFAULT_DRY_RUN_OUTDIR = "/tmp/glyph-deploy-dry-run";
+export const PREFLIGHT_CHECKLIST_FILENAME = "glyph-preflight-checklist.md";
 export const PLACEHOLDER_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 export const DIRECT_UPLOAD_SECRET_NAMES = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
 export const OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES = ["R2_BUCKET_NAME"];
@@ -36,6 +37,7 @@ export function parseArgs(argv) {
     bucket: DEFAULT_BUCKET_NAME,
     publicBaseUrl: null,
     outdir: DEFAULT_DRY_RUN_OUTDIR,
+    outdirExplicit: false,
     help: false
   };
 
@@ -99,9 +101,11 @@ export function parseArgs(argv) {
       options.publicBaseUrl = arg.slice("--public-base-url=".length);
     } else if (arg === "--outdir") {
       options.outdir = requireValue(argv, index, arg);
+      options.outdirExplicit = true;
       index += 1;
     } else if (arg.startsWith("--outdir=")) {
       options.outdir = arg.slice("--outdir=".length);
+      options.outdirExplicit = true;
     } else if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else {
@@ -141,8 +145,12 @@ export function parseArgs(argv) {
     throw new Error("Use --turnkey-examples by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.preflight && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.preflight && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --preflight by itself with optional --public-base-url; it is a read-only checklist mode.");
+  }
+
+  if (options.preflight && options.yes && !options.outdirExplicit) {
+    throw new Error("Use --preflight --yes only with --outdir to overwrite an existing local checklist file.");
   }
 
   if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDeploy || options.applyCors)) {
@@ -2724,6 +2732,24 @@ export function formatPreflightChecklist(checklist) {
   return lines.join("\n").trimEnd();
 }
 
+export function preflightChecklistFilePath(options, rootDir = process.cwd()) {
+  const outputDir = resolve(rootDir, options.outdir);
+  return join(outputDir, PREFLIGHT_CHECKLIST_FILENAME);
+}
+
+export function writePreflightChecklistFile(markdown, options, rootDir = process.cwd()) {
+  const outputDir = resolve(rootDir, options.outdir);
+  const filePath = join(outputDir, PREFLIGHT_CHECKLIST_FILENAME);
+
+  if (existsSync(filePath) && !options.yes) {
+    throw new Error(`${filePath} already exists. Re-run with --preflight --outdir ${options.outdir} --yes only after reviewing the existing checklist.`);
+  }
+
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(filePath, `${markdown}\n`);
+  return filePath;
+}
+
 export function formatReadinessReport(report) {
   const lines = [
     report.title,
@@ -2894,6 +2920,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey-rehearse
   pnpm run deploy:glyph -- --turnkey-examples
   pnpm run deploy:glyph -- --preflight
+  pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes
   pnpm run deploy:glyph -- --turnkey --yes
   pnpm run deploy:glyph -- --turnkey-secrets
   pnpm run deploy:glyph -- --turnkey-secrets --yes
@@ -2930,7 +2957,8 @@ Options:
   --bucket <name>     R2 bucket name to create during --setup --yes. Default: glyph-files.
   --public-base-url <url>
                       Optional deployed https:// origin to write into wrangler.jsonc during --turnkey --yes.
-  --outdir <path>     Wrangler dry-run output directory. Default: /tmp/glyph-deploy-dry-run.
+  --outdir <path>     Wrangler dry-run output directory, or preflight checklist output directory with --preflight.
+                      Default dry-run path: /tmp/glyph-deploy-dry-run.
   --help, -h          Show this help.
 
 Custom domain readiness:
@@ -2973,6 +3001,9 @@ Turnkey safety:
   prerequisites, auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback,
   direct/multipart secrets and CORS, custom domains, scheduled triggers, post-deploy verification,
   next commands, and operator-owned Cloudflare tasks without writing files or running checks.
+  --preflight --outdir ./deploy-notes writes the same checklist to ./deploy-notes/glyph-preflight-checklist.md.
+  It creates only the requested local directory/file. It refuses to overwrite an existing checklist unless
+  --yes is also supplied after reviewing the file.
   --turnkey is a non-mutating plan by default. --turnkey --yes may create D1/R2 resources, write local
   wrangler.jsonc binding values, apply remote D1 migrations, and deploy. It never stores secrets, creates
   DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases.
@@ -3812,7 +3843,13 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (options.preflight) {
     const checklist = buildPreflightChecklist(options, collectReadinessContext(rootDir, process.env));
-    console.log(formatPreflightChecklist(checklist));
+    const markdown = formatPreflightChecklist(checklist);
+    if (options.outdirExplicit) {
+      const filePath = writePreflightChecklistFile(markdown, options, rootDir);
+      console.log(`Preflight checklist written to ${filePath}`);
+    } else {
+      console.log(markdown);
+    }
     return 0;
   }
 
