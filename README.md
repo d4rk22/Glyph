@@ -417,6 +417,13 @@ Phase 62 guided scheduled-trigger setup planning is in place:
 - `pnpm run deploy:glyph -- --turnkey-schedule --yes` writes only reviewed local `wrangler.jsonc` `triggers.crons` config; it does not deploy, apply migrations, enable admin settings, create Cloudflare scheduled triggers through the API, or mutate Cloudflare resources.
 - The guidance explains the difference between read-only scheduled update checks and scheduled storage/R2 maintenance, and reminds operators that both scheduled paths also require protected `/admin` opt-in settings after intentional deploy.
 
+Phase 63 scheduled-trigger setup planning maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.0`.
+- `v0.3.0` publishes the guided scheduled-trigger setup workflow through the GitHub release channel.
+- The release highlights the `--turnkey-schedule` planning workflow, confirmed local-only `--turnkey-schedule --yes` config update path, conservative `triggers.crons` suggestion, read-only update-check versus storage/R2 maintenance guidance, protected `/admin` opt-in reminders, readiness/turnkey integration, and no-Cloudflare-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
