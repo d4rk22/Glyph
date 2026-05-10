@@ -538,6 +538,13 @@ Phase 80 Cloudflare auth/token readiness doctor is in place:
 - Recovery output covers local `pnpm wrangler login`, CI/non-interactive token use, missing/expired/insufficient tokens, token value redaction, and avoiding committed tokens or private Cloudflare details.
 - The workflow does not create resources, deploy Workers, apply migrations, set secrets, apply R2 CORS, create DNS/custom-domain/scheduled-trigger resources, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
 
+Phase 81 Cloudflare auth doctor maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.9`.
+- `v0.3.9` publishes the Cloudflare auth/token readiness doctor through the GitHub release channel.
+- The release highlights the `--auth-doctor` read-only diagnostic, Wrangler version reporting, local project Wrangler fallback when `pnpm` is missing from `PATH`, shell interactivity messaging, redacted token presence checks, `wrangler whoami` status, D1/R2 discovery gating, token capability guidance, recovery paths, Cloudflare token docs link, and readiness/turnkey/rehearsal/examples/cloudflare-rehearsal integration.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
