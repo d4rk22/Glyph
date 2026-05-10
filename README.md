@@ -358,6 +358,13 @@ Phase 53 consolidated deploy readiness report maintenance release is in place:
 - The release also notes deploy/update helper support for documented `pnpm run ... -- --flag` commands and JSONC parsing hardening for wildcard Wrangler route strings.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS/custom-domain creation, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 54 confirmed direct/multipart setup support is in place:
+
+- `pnpm run deploy:glyph -- --turnkey-secrets` prints a non-mutating direct/multipart setup plan for required Wrangler secrets, optional `R2_BUCKET_NAME`, R2 CORS, and Worker-mediated fallback.
+- `pnpm run deploy:glyph -- --turnkey-secrets --yes` runs `wrangler secret put` interactively for required direct/multipart secrets only; secret values are never printed or stored by Glyph.
+- `pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors` additionally applies the reviewed R2 CORS recommendation with Wrangler when `PUBLIC_BASE_URL` or `--public-base-url` provides the final origin.
+- CORS application remains explicitly gated and separate from Worker deploy, remote migrations, DNS/custom-domain setup, scheduled triggers, releases, and update execution.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -442,7 +449,19 @@ pnpm wrangler secret put R2_SECRET_ACCESS_KEY
 pnpm wrangler secret put R2_BUCKET_NAME
 ```
 
-`R2_BUCKET_NAME` is optional when the presigned-upload bucket name matches the `FILES` binding bucket. The deploy helper prints these commands as guidance only; it does not set secrets or echo values.
+`R2_BUCKET_NAME` is optional when the presigned-upload bucket name matches the `FILES` binding bucket. The deploy helper prints these commands in readiness/setup output. For a guided interactive setup plan, run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-secrets
+```
+
+The plan is non-mutating by default. To set the required deployed Wrangler secrets interactively, run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-secrets --yes
+```
+
+Wrangler prompts for values; Glyph does not print, store, or commit secret values. The optional `R2_BUCKET_NAME` override is shown as a manual command and is not run automatically.
 
 For direct/multipart uploads, configure R2 bucket CORS for the final Glyph origin. With `PUBLIC_BASE_URL = https://files.example.com`, the recommended rule is:
 
@@ -458,7 +477,13 @@ For direct/multipart uploads, configure R2 bucket CORS for the final Glyph origi
 ]
 ```
 
-Apply the CORS rule in the Cloudflare dashboard or API after reviewing it. The deploy helper does not apply CORS automatically in this phase because CORS setup should remain operator-owned until the Cloudflare path is boring and safely testable.
+Apply the CORS rule in the Cloudflare dashboard or API after reviewing it, or ask the deploy helper to apply the reviewed recommendation with Wrangler:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url https://files.example.com
+```
+
+`--apply-cors` is accepted only with `--turnkey-secrets --yes`, and it requires a final origin from `PUBLIC_BASE_URL` or `--public-base-url`. This command writes the reviewed CORS JSON to a temporary file, runs `pnpm wrangler r2 bucket cors set <bucket> --file <tmp-file> --force`, and removes the temporary file. It does not deploy the Worker, apply remote D1 migrations, store secrets, create DNS/custom domains, create scheduled triggers, publish releases, execute updates, or mutate unrelated Cloudflare resources.
 
 For a custom domain, configure Cloudflare so the Worker is reachable at the desired `https://` origin, then set `vars.PUBLIC_BASE_URL` in `wrangler.jsonc` to that exact origin, for example `https://files.example.com`. Keep it origin-only: no path, query string, or fragment. Generated short links use this value, and passkeys registered for `/admin` are bound to that origin. If direct-to-R2 or multipart uploads are enabled, the R2 bucket CORS allowed origin must match the deployed Glyph origin.
 
@@ -715,6 +740,20 @@ pnpm run deploy:glyph -- --readiness
 
 Readiness mode is always read-only. It summarizes local prerequisites, package version, Cloudflare auth mode, Wrangler D1/R2 bindings, placeholder D1 IDs, `APP_ENV`, `PUBLIC_BASE_URL`, custom-domain route hints, scheduled trigger presence, configured D1/R2 names, remote migration gates, direct/multipart secret readiness, R2 CORS recommendations, Worker-mediated fallback, expected `/health` and `/admin` checks, and the safety boundary. It does not run Cloudflare discovery commands, store secrets, apply CORS, apply remote migrations, deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or mutate Cloudflare resources.
 
+For direct-to-R2 or multipart upload setup after the basic Worker/D1/R2 path is ready, preview the guided secret/CORS plan:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-secrets
+```
+
+Confirmed direct/multipart setup is separate from deployment:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-secrets --yes
+```
+
+That command runs `wrangler secret put` interactively for required direct/multipart secrets. Add `--apply-cors` only after reviewing the printed recommendation and only when `PUBLIC_BASE_URL` or `--public-base-url` points at the final deployed origin. Worker-mediated uploads remain the fallback until those pieces are confirmed ready.
+
 For the fewest first-deploy steps, start with turnkey mode:
 
 ```sh
@@ -743,6 +782,8 @@ pnpm run deploy:glyph -- --turnkey --yes --reuse-resources --d1-database-id <rea
 ```
 
 Turnkey mode does not store secrets in source-controlled files. It also does not create DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases. Direct-to-R2 credentials, bucket CORS, custom-domain attachment, scheduled triggers, and first `/admin` passkey bootstrap remain operator-owned follow-up steps.
+
+Turnkey output points operators to `pnpm run deploy:glyph -- --turnkey-secrets` for direct/multipart upload secret and CORS setup. That workflow can set required Wrangler secrets interactively with `--yes` and can apply reviewed R2 CORS only with `--yes --apply-cors`; it does not deploy Workers or apply migrations.
 
 Turnkey recovery output includes common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, and direct/multipart upload credential or CORS readiness. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
 
@@ -802,6 +843,7 @@ The deploy helper also reports:
 - A reminder that scheduled maintenance also requires the scheduled maintenance setting enabled in `/admin`.
 - Guided setup actions and manual follow-up steps when run with `--setup`.
 - Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
+- Direct/multipart secret and CORS setup actions when run with `--turnkey-secrets`.
 - Consolidated status labels and operator-owned follow-up when run with `--readiness`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
@@ -817,8 +859,8 @@ Before deploying without turnkey mode, make sure these Cloudflare pieces already
 - Optional custom-domain routing is configured in Cloudflare or Wrangler so the Worker answers on that origin.
 - Optional read-only scheduled update-check trigger is configured if periodic release notices are desired; the `/admin` setting and update source must also be configured after deploy.
 - Optional scheduled maintenance trigger is configured if periodic storage-cap enforcement and R2 cleanup retry are desired; the `/admin` maintenance setting must also be enabled after deploy.
-- Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`.
-- R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads.
+- Direct-to-R2 and multipart upload secrets are configured if those modes will be used: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME`. Use `--turnkey-secrets` to plan or set required secrets interactively.
+- R2 bucket CORS permits browser `PUT` requests from the deployed Glyph origin and exposes `ETag` for multipart uploads. Use `--turnkey-secrets --yes --apply-cors` only after reviewing the generated CORS recommendation.
 - `/admin` bootstrap is completed from the deployed origin after first deploy.
 
 Custom-domain setup is still manual:

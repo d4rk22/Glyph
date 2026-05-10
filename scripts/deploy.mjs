@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -17,6 +18,8 @@ export function parseArgs(argv) {
     check: false,
     setup: false,
     turnkey: false,
+    turnkeySecrets: false,
+    applyCors: false,
     readiness: false,
     skipInstall: false,
     reuseResources: false,
@@ -40,6 +43,10 @@ export function parseArgs(argv) {
       options.setup = true;
     } else if (arg === "--turnkey") {
       options.turnkey = true;
+    } else if (arg === "--turnkey-secrets") {
+      options.turnkeySecrets = true;
+    } else if (arg === "--apply-cors") {
+      options.applyCors = true;
     } else if (arg === "--readiness") {
       options.readiness = true;
     } else if (arg === "--skip-install") {
@@ -92,7 +99,15 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey)) {
+    throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
+  }
+
+  if (options.applyCors && (!options.turnkeySecrets || !options.yes)) {
+    throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
+  }
+
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -433,6 +448,11 @@ export function buildTurnkeyPlan(options, configText = null) {
         : "Validates bindings, request-origin fallback, custom-domain route hints, scheduled trigger readiness, remote migration gates, and direct/multipart credential plus R2 CORS guidance."
     },
     {
+      label: "Configure direct/multipart upload readiness",
+      mutates: false,
+      detail: "After the basic deployment path is ready, run pnpm run deploy:glyph -- --turnkey-secrets to plan interactive Wrangler secret setup and reviewed R2 CORS application. Confirmed secret/CORS setup is separate from Worker deploy and remote migrations."
+    },
+    {
       label: "Run checks, migrations, dry-run, and deploy",
       mutates: true,
       detail: "With --yes and deploy-ready config, runs install, typecheck, tests, remote D1 migrations, Wrangler dry-run, and Wrangler deploy."
@@ -556,6 +576,14 @@ export function buildSecretPutCommand(secretName) {
   return ["pnpm", "wrangler", "secret", "put", secretName];
 }
 
+export function buildR2CorsSetCommand(bucketName, filePath, options = {}) {
+  const command = ["pnpm", "wrangler", "r2", "bucket", "cors", "set", bucketName, "--file", filePath];
+  if (options.force) {
+    command.push("--force");
+  }
+  return command;
+}
+
 export function buildDirectUploadSecretPlan(env = process.env) {
   return [...DIRECT_UPLOAD_SECRET_NAMES, ...OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES].map((name) => ({
     name,
@@ -631,7 +659,7 @@ export function buildR2CorsRecommendation(configText = null, options = {}) {
       "Expose headers: ETag",
       "Suggested CORS JSON:",
       corsJson,
-      "Apply CORS in the Cloudflare dashboard or API after reviewing it; the deploy helper does not apply CORS automatically.",
+      "Apply CORS in the Cloudflare dashboard/API, or re-run --turnkey-secrets --yes --apply-cors after reviewing it; the deploy helper does not apply CORS automatically.",
       "Worker-mediated uploads remain the fallback until direct/multipart secrets and R2 CORS are ready."
     ]
   };
@@ -673,6 +701,64 @@ export function buildDirectUploadReadinessLines(configText = null, env = process
   lines.push("Safety gate: this helper only prints secret and CORS guidance; it does not set secrets, echo secret values, or apply CORS automatically.");
 
   return lines;
+}
+
+export function buildDirectUploadSetupPlan(options, configText = null, env = process.env) {
+  const secretPlan = buildDirectUploadSecretPlan(env);
+  const requiredSecrets = secretPlan.filter((secret) => secret.required);
+  const optionalSecrets = secretPlan.filter((secret) => !secret.required);
+  const cors = buildR2CorsRecommendation(configText, {
+    bucket: options.bucket,
+    publicBaseUrl: options.publicBaseUrl
+  });
+  const items = [
+    {
+      label: "Review direct/multipart secret requirements",
+      mutates: false,
+      detail: `Required deployed Wrangler secrets: ${DIRECT_UPLOAD_SECRET_NAMES.join(", ")}. Optional deployed secret: ${OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES.join(", ")}. Values are entered through Wrangler or Cloudflare and must not be committed.`
+    },
+    ...requiredSecrets.map((secret) => ({
+      label: `Set required Wrangler secret ${secret.name}`,
+      command: secret.command,
+      mutates: true,
+      detail: `${secret.present ? "A local environment hint is present, but the deployed Worker still needs the Wrangler secret." : "No local environment hint was detected; Wrangler will prompt for the value interactively."} The command never prints or stores the secret value in source-controlled files.`
+    })),
+    ...optionalSecrets.map((secret) => ({
+      label: `Optionally set Wrangler secret ${secret.name}`,
+      command: secret.command,
+      mutates: false,
+      detail: `${secret.name} is optional when the presigned-upload bucket matches the FILES binding bucket. Run this manually only if the deployed secret should override the binding bucket.`
+    })),
+    {
+      label: "Review R2 CORS recommendation",
+      mutates: false,
+      detail: cors.summary
+    },
+    {
+      label: options.applyCors ? "Apply reviewed R2 CORS" : "Prepare R2 CORS application",
+      command: cors.corsJson
+        ? buildR2CorsSetCommand(cors.bucketName, "<generated-cors-json-file>", { force: options.applyCors })
+        : undefined,
+      mutates: Boolean(options.applyCors && cors.corsJson),
+      detail: cors.corsJson
+        ? options.applyCors
+          ? `With --yes --apply-cors, Glyph writes the reviewed CORS JSON to a temporary file and runs Wrangler against bucket ${cors.bucketName}.`
+          : `Review the generated CORS JSON, then re-run with --turnkey-secrets --yes --apply-cors to apply it with Wrangler or apply it manually in Cloudflare.`
+        : "CORS cannot be applied until PUBLIC_BASE_URL or --public-base-url provides the final origin."
+    },
+    {
+      label: "Worker-mediated upload fallback",
+      mutates: false,
+      detail: "Worker-mediated uploads remain the safe fallback until required Wrangler secrets and R2 CORS are confirmed ready."
+    },
+    {
+      label: "Safety boundary",
+      mutates: false,
+      detail: "This workflow never stores secret values, echoes secret values, deploys Workers, applies remote migrations, creates DNS/custom domains, creates scheduled triggers, publishes releases, executes updates, or mutates unrelated Cloudflare resources."
+    }
+  ];
+
+  return { items, cors, secretPlan };
 }
 
 function readinessItem(status, label, detail) {
@@ -985,6 +1071,11 @@ export function buildReadinessReport(options, context = {}) {
         "R2 CORS recommendation",
         cors.summary
       ),
+      readinessItem(
+        "manual",
+        "Guided direct/multipart setup",
+        "Run `pnpm run deploy:glyph -- --turnkey-secrets` to review interactive Wrangler secret prompts and optional reviewed R2 CORS application. Use `--yes` only when ready to set secrets; add `--apply-cors` only after reviewing the generated CORS rule."
+      ),
       readinessItem("ready", "Worker-mediated fallback", "Worker-mediated uploads remain available until direct/multipart secrets and R2 CORS are ready.")
     ]
   });
@@ -1130,6 +1221,8 @@ Usage:
   pnpm run deploy:glyph -- --setup --yes
   pnpm run deploy:glyph -- --turnkey
   pnpm run deploy:glyph -- --turnkey --yes
+  pnpm run deploy:glyph -- --turnkey-secrets
+  pnpm run deploy:glyph -- --turnkey-secrets --yes
   pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
   pnpm run deploy:glyph -- --yes
@@ -1137,6 +1230,8 @@ Usage:
 Options:
   --setup             Print a guided Cloudflare setup plan. With --yes, create D1/R2 resources.
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
+  --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
+  --apply-cors        With --turnkey-secrets --yes, apply reviewed R2 CORS using Wrangler.
   --readiness         Print a consolidated read-only deployment readiness report.
   --check             Run validation, remote migration check, tests, and dry-run without deploying. Default.
   --yes, -y           Apply remote D1 migrations and deploy after checks pass.
@@ -1170,6 +1265,13 @@ Turnkey safety:
   --turnkey is a non-mutating plan by default. --turnkey --yes may create D1/R2 resources, write local
   wrangler.jsonc binding values, apply remote D1 migrations, and deploy. It never stores secrets, creates
   DNS records, zones, certificates, custom domains, scheduled triggers, or GitHub releases.
+
+Direct/multipart setup safety:
+  --turnkey-secrets is a non-mutating plan by default. --turnkey-secrets --yes runs Wrangler secret put
+  interactively for required direct/multipart secrets. --apply-cors must be added explicitly to apply the
+  reviewed R2 CORS recommendation. This flow never prints or stores secret values, deploys Workers,
+  applies remote migrations, creates DNS/custom domains, scheduled triggers, or unrelated Cloudflare
+  resources.
 
 Readiness safety:
   --readiness is always non-mutating. It does not store secrets, apply R2 CORS, apply remote migrations,
@@ -1482,11 +1584,49 @@ function printSetupPlan(plan) {
   }
 }
 
+function printDirectUploadSetupPlan(plan) {
+  printSetupPlan(plan.items);
+  console.log("\nR2 CORS details:");
+  for (const line of plan.cors.lines) {
+    console.log(line);
+  }
+}
+
 function runSetupCommands(plan, rootDir) {
   for (const item of plan) {
     if (item.mutates && item.command) {
       runStep(item, rootDir);
     }
+  }
+}
+
+function runDirectUploadSetupCommands(plan, rootDir, options) {
+  const requiredSecretItems = plan.items.filter((item) => item.mutates && item.command && item.label.startsWith("Set required Wrangler secret"));
+  for (const item of requiredSecretItems) {
+    runStep(item, rootDir);
+  }
+
+  if (!options.applyCors) {
+    return;
+  }
+
+  if (!plan.cors.corsJson) {
+    throw new Error("R2 CORS cannot be applied until PUBLIC_BASE_URL or --public-base-url provides the final deployed origin.");
+  }
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "glyph-r2-cors-"));
+  const corsPath = join(tmpDir, "cors.json");
+  try {
+    writeFileSync(corsPath, `${plan.cors.corsJson}\n`);
+    runStep(
+      {
+        label: "Apply reviewed R2 CORS",
+        command: buildR2CorsSetCommand(plan.cors.bucketName, corsPath, { force: true })
+      },
+      rootDir
+    );
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
@@ -1678,6 +1818,48 @@ function runTurnkey(effectiveOptions, rootDir, wranglerPath) {
   return 0;
 }
 
+function runDirectUploadSetup(effectiveOptions, rootDir, wranglerPath) {
+  const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const plan = buildDirectUploadSetupPlan(effectiveOptions, configText, process.env);
+
+  console.log(effectiveOptions.yes
+    ? "Glyph direct/multipart setup: explicitly confirmed interactive Wrangler secret setup."
+    : "Glyph direct/multipart setup plan: no secrets, CORS, deployments, migrations, or Cloudflare resources will be changed.");
+  if (effectiveOptions.applyCors) {
+    console.log("R2 CORS application is explicitly requested with --apply-cors.");
+  } else {
+    console.log("R2 CORS application is not requested; CORS remains manual/planned.");
+  }
+  if (configText) {
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+  }
+  for (const line of buildAuthReadinessLines(process.env)) {
+    console.log(line);
+  }
+  printDirectUploadSetupPlan(plan);
+
+  if (!effectiveOptions.yes) {
+    console.log("\nDirect/multipart setup plan complete. Re-run with --turnkey-secrets --yes to set required Wrangler secrets interactively. Add --apply-cors only after reviewing the CORS recommendation.");
+    return 0;
+  }
+
+  if (effectiveOptions.applyCors && !plan.cors.corsJson) {
+    console.error("Error: --apply-cors requires PUBLIC_BASE_URL or --public-base-url to provide the final deployed origin.");
+    return 1;
+  }
+
+  if (!process.stdin.isTTY) {
+    console.error("Error: --turnkey-secrets --yes requires an interactive terminal so Wrangler can prompt for secret values without printing them.");
+    return 1;
+  }
+
+  runDirectUploadSetupCommands(plan, rootDir, effectiveOptions);
+  console.log("\nDirect/multipart setup complete. Verify secrets and CORS in Cloudflare, then use /admin to switch upload mode when ready. Worker-mediated uploads remain available as fallback.");
+  return 0;
+}
+
 export async function main(argv = process.argv.slice(2), rootDir = process.cwd()) {
   const options = parseArgs(argv);
   if (options.help) {
@@ -1694,7 +1876,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -1712,6 +1894,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (effectiveOptions.turnkey) {
     return runTurnkey(effectiveOptions, rootDir, wranglerPath);
+  }
+
+  if (effectiveOptions.turnkeySecrets) {
+    return runDirectUploadSetup(effectiveOptions, rootDir, wranglerPath);
   }
 
   if (effectiveOptions.setup) {

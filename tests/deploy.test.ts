@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   buildAuthReadinessLines,
   buildDirectUploadReadinessLines,
+  buildDirectUploadSetupPlan,
   buildDirectUploadSecretPlan,
   buildPostDeployVerificationLines,
   buildR2CorsRecommendation,
+  buildR2CorsSetCommand,
   buildReadinessReport,
   buildRemoteMigrationPlan,
   buildSecretPutCommand,
@@ -51,6 +53,8 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: false,
+    turnkeySecrets: false,
+    applyCors: false,
     readiness: false,
     skipInstall: false,
     reuseResources: false,
@@ -67,6 +71,8 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: false,
+    turnkeySecrets: false,
+    applyCors: false,
     readiness: false,
     skipInstall: true,
     reuseResources: false,
@@ -83,6 +89,8 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: true,
     turnkey: false,
+    turnkeySecrets: false,
+    applyCors: false,
     readiness: false,
     skipInstall: false,
     reuseResources: false,
@@ -99,6 +107,8 @@ test("deploy argument parser defaults to a safe check mode", () => {
     check: false,
     setup: false,
     turnkey: true,
+    turnkeySecrets: false,
+    applyCors: false,
     readiness: false,
     skipInstall: false,
     reuseResources: true,
@@ -113,6 +123,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.throws(() => parseArgs(["--check", "--yes"]), /Use either --check or --yes/);
   assert.throws(() => parseArgs(["--setup", "--check"]), /Use --setup by itself/);
   assert.throws(() => parseArgs(["--setup", "--turnkey"]), /either --setup or --turnkey/);
+  assert.equal(parseArgs(["--turnkey-secrets"]).turnkeySecrets, true);
+  assert.equal(parseArgs(["--turnkey-secrets", "--yes", "--apply-cors"]).applyCors, true);
+  assert.throws(() => parseArgs(["--turnkey-secrets", "--check"]), /turnkey-secrets by itself/);
+  assert.throws(() => parseArgs(["--apply-cors"]), /only with --turnkey-secrets --yes/);
   assert.equal(parseArgs(["--readiness"]).readiness, true);
   assert.equal(parseArgs(["--", "--readiness"]).readiness, true);
   assert.throws(() => parseArgs(["--readiness", "--yes"]), /read-only report mode/);
@@ -201,6 +215,7 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
   assert.match(output, /\[ready\] Scheduled triggers: Configured cron trigger/);
   assert.match(output, /\[manual\] Remote migrations: Readiness mode does not list or apply remote migrations/);
   assert.match(output, /\[manual\] R2 CORS recommendation: Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /turnkey-secrets/);
   assert.match(output, /\[ready\] Worker-mediated fallback/);
   assert.match(output, /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
   assert.doesNotMatch(output, /super-secret-value/);
@@ -390,6 +405,48 @@ test("direct upload readiness reports secret and CORS guidance without storing s
   assert.match(configured.join("\n"), /Suggested CORS JSON/);
   assert.match(configured.join("\n"), /expose ETag/);
   assert.doesNotMatch(configured.join("\n"), /secret-access-key/);
+});
+
+test("direct upload setup plan gates secrets and CORS behind confirmation", () => {
+  assert.deepEqual(
+    buildR2CorsSetCommand("glyph-files", "/tmp/cors.json", { force: true }),
+    ["pnpm", "wrangler", "r2", "bucket", "cors", "set", "glyph-files", "--file", "/tmp/cors.json", "--force"]
+  );
+
+  const configWithOrigin = validWranglerConfig.replace('"APP_ENV":"production"', '"APP_ENV":"production","PUBLIC_BASE_URL":"https://files.example.com"');
+  const plan = buildDirectUploadSetupPlan(parseArgs(["--turnkey-secrets"]), configWithOrigin, {
+    R2_ACCOUNT_ID: "account-id",
+    R2_ACCESS_KEY_ID: "access-key-id",
+    R2_SECRET_ACCESS_KEY: "do-not-print"
+  });
+  const details = plan.items.map((item) => item.detail).join("\n");
+  const commands = plan.items.map((item) => item.command?.join(" ") ?? "").join("\n");
+
+  assert.equal(plan.items.filter((item) => item.mutates).length, 3);
+  assert.match(commands, /pnpm wrangler secret put R2_ACCOUNT_ID/);
+  assert.match(commands, /pnpm wrangler secret put R2_ACCESS_KEY_ID/);
+  assert.match(commands, /pnpm wrangler secret put R2_SECRET_ACCESS_KEY/);
+  assert.match(commands, /pnpm wrangler secret put R2_BUCKET_NAME/);
+  assert.match(details, /never prints or stores the secret value/);
+  assert.match(details, /Worker-mediated uploads remain the safe fallback/);
+  assert.match(plan.cors.corsJson ?? "", /"AllowedOrigins": \[\n      "https:\/\/files\.example\.com"\n    \]/);
+  assert.equal(plan.items.some((item) => item.label === "Apply reviewed R2 CORS" && item.mutates), false);
+  assert.doesNotMatch(`${details}\n${commands}`, /do-not-print/);
+
+  const applyPlan = buildDirectUploadSetupPlan(parseArgs(["--turnkey-secrets", "--yes", "--apply-cors"]), configWithOrigin, {});
+  const corsItem = applyPlan.items.find((item) => item.label === "Apply reviewed R2 CORS");
+  assert.equal(corsItem?.mutates, true);
+  assert.match(corsItem?.command?.join(" ") ?? "", /wrangler r2 bucket cors set glyph-files --file <generated-cors-json-file> --force/);
+});
+
+test("direct upload setup plan keeps CORS manual without a public origin", () => {
+  const plan = buildDirectUploadSetupPlan(parseArgs(["--turnkey-secrets"]), validWranglerConfig, {});
+  const output = plan.items.map((item) => `${item.label}: ${item.detail}`).join("\n");
+
+  assert.equal(plan.cors.corsJson, null);
+  assert.match(output, /CORS cannot be applied until PUBLIC_BASE_URL or --public-base-url/);
+  assert.match(output, /Worker-mediated uploads remain the safe fallback/);
+  assert.equal(plan.items.some((item) => item.label === "Apply reviewed R2 CORS" && item.mutates), false);
 });
 
 test("post deploy verification reports known or operator-provided URLs", () => {
