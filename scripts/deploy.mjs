@@ -24,6 +24,7 @@ export function parseArgs(argv) {
     turnkeySchedule: false,
     turnkeyRehearse: false,
     verifyDomain: false,
+    verifyDeploy: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -58,6 +59,8 @@ export function parseArgs(argv) {
       options.turnkeyRehearse = true;
     } else if (arg === "--verify-domain") {
       options.verifyDomain = true;
+    } else if (arg === "--verify-deploy") {
+      options.verifyDeploy = true;
     } else if (arg === "--apply-cors") {
       options.applyCors = true;
     } else if (arg === "--readiness") {
@@ -112,31 +115,35 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.verifyDeploy)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
-  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.verifyDomain || options.applyCors)) {
+  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-schedule by itself, or with --yes to write reviewed local cron trigger config.");
   }
 
-  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.verifyDomain || options.applyCors || options.readiness)) {
+  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-rehearse by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.applyCors)) {
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
+  }
+
+  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.applyCors)) {
+    throw new Error("Use --verify-deploy by itself with optional --public-base-url; it is read-only.");
   }
 
   if (options.applyCors && (!options.turnkeySecrets || !options.yes)) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -480,6 +487,11 @@ export function buildTurnkeyPlan(options, configText = null) {
       label: "Rehearse end-to-end deploy",
       mutates: false,
       detail: "Before mutating local config or Cloudflare resources, run pnpm run deploy:glyph -- --turnkey-rehearse to review prerequisites, resource plans, config state, migration and deploy gates, direct/multipart follow-up, custom-domain verification, scheduled-trigger setup, URLs, and recovery steps in one read-only operator report."
+    },
+    {
+      label: "Verify deployed Glyph origin",
+      mutates: false,
+      detail: "After an intentional deploy, run pnpm run deploy:glyph -- --verify-deploy --public-base-url https://files.example.com or the workers.dev origin printed by Wrangler to check /health, /admin, /, passkey origin guidance, R2 CORS alignment, and recovery steps without uploading files or mutating anything."
     },
     {
       label: "Configure direct/multipart upload readiness",
@@ -1020,6 +1032,366 @@ export function buildCustomDomainVerificationPlan(options, configText = null, he
 
 export function buildCustomDomainVerificationRecoveryLines(context) {
   return buildCustomDomainTroubleshootingLines(context);
+}
+
+function defaultDeployCheckResult(origin) {
+  const blocked = {
+    status: "blocked",
+    ok: false,
+    detail: "Check cannot run until a valid deployed Glyph origin is supplied.",
+    recovery: "Pass --public-base-url with the workers.dev or custom-domain origin printed by Wrangler deploy, or set vars.PUBLIC_BASE_URL."
+  };
+
+  return {
+    health: origin ? {
+      status: "manual",
+      ok: false,
+      detail: `Health check not run yet. Expected endpoint: ${origin}/health.`,
+      recovery: "Run --verify-deploy from a networked terminal after deploying intentionally."
+    } : blocked,
+    admin: origin ? {
+      status: "manual",
+      ok: false,
+      detail: `Admin check not run yet. Expected endpoint: ${origin}/admin.`,
+      recovery: "Open /admin on the deployed origin to confirm passkey bootstrap or login."
+    } : blocked,
+    upload: origin ? {
+      status: "manual",
+      ok: false,
+      detail: `Upload page check not run yet. Expected endpoint: ${origin}/.`,
+      recovery: "Open / on the deployed origin to confirm the public upload form without uploading a file."
+    } : blocked
+  };
+}
+
+function deployedOriginKind(host) {
+  if (!host) {
+    return "unknown";
+  }
+  return host.endsWith(".workers.dev") ? "workers.dev" : "custom-domain";
+}
+
+export function buildDeployVerificationRecoveryLines(context) {
+  const lines = [];
+  const routeHosts = Array.isArray(context.routeHosts) ? context.routeHosts : [];
+  const matchingRoutes = Array.isArray(context.matchingRoutes) ? context.matchingRoutes : [];
+  const configuredResult = context.configuredPublicBaseUrl ? validatePublicBaseUrl(context.configuredPublicBaseUrl) : { url: null, error: null };
+  const configuredOrigin = configuredResult.url?.origin ?? null;
+  const originKind = deployedOriginKind(context.host);
+
+  if (context.validationError) {
+    lines.push(`Invalid origin: ${context.validationError} Use an origin-only https URL such as https://files.example.com or the workers.dev origin printed by Wrangler deploy.`);
+  }
+  if (context.configuredPublicBaseUrl && configuredResult.error) {
+    lines.push(`Configured PUBLIC_BASE_URL is invalid: ${configuredResult.error} Fix wrangler.jsonc before relying on generated links or passkeys.`);
+  }
+  if (context.origin && configuredOrigin && configuredOrigin !== context.origin) {
+    lines.push(`PUBLIC_BASE_URL mismatch: wrangler.jsonc is ${configuredOrigin}, but this check is using ${context.origin}. Align generated links, reachable origin, passkey origin, and R2 CORS origin before relying on the deployment.`);
+  }
+  if (!context.origin) {
+    lines.push("No deployed origin: pass --public-base-url with the workers.dev or custom-domain origin printed by Wrangler deploy, or configure vars.PUBLIC_BASE_URL.");
+  }
+  if (context.origin && originKind === "custom-domain" && routeHosts.length === 0) {
+    lines.push("Custom-domain route hints are missing locally; verify the Worker route/custom-domain attachment manually in Cloudflare.");
+  }
+  if (context.origin && originKind === "custom-domain" && routeHosts.length > 0 && matchingRoutes.length === 0) {
+    lines.push(`Route mismatch: align PUBLIC_BASE_URL host ${context.host} with Wrangler route/custom-domain host(s): ${routeHosts.join(", ")}.`);
+  }
+  if (context.origin && originKind === "custom-domain" && matchingRoutes.length > 0) {
+    lines.push(`Route hints: at least one local Wrangler route/custom-domain hint matches ${context.host}.`);
+  }
+  if (context.origin && originKind === "workers.dev") {
+    lines.push("workers.dev origin: Wrangler route hints are optional; use the exact workers.dev origin printed by deploy for links and passkeys unless a custom domain is configured.");
+  }
+
+  for (const [label, result] of [["Health", context.checks?.health], ["Admin", context.checks?.admin], ["Upload page", context.checks?.upload]]) {
+    if (!result) {
+      continue;
+    }
+    if (result.recovery) {
+      lines.push(result.recovery);
+    }
+    if (result.status === "blocked") {
+      lines.push(`${label} blocked: ${result.detail} Confirm the Worker is deployed, the route points at this Glyph Worker, and HTTPS is healthy.`);
+    } else if (result.status === "needs attention") {
+      lines.push(`${label} mismatch: ${result.detail} This may be the wrong route, non-Glyph content, stale deployment, or a custom-domain DNS/certificate issue.`);
+    } else if (result.status === "ready") {
+      lines.push(`${label} ready: ${result.detail}`);
+    }
+  }
+
+  if (context.origin) {
+    lines.push(`Expected URLs: public upload ${context.origin}/, health ${context.origin}/health, admin ${context.origin}/admin.`);
+    lines.push(`Passkey origin: passkeys are origin-bound; bootstrap or sign in from exactly ${context.origin}/admin.`);
+    lines.push(`R2 CORS: direct and multipart uploads require AllowedOrigins to include exactly ${context.origin} and ExposeHeaders to include ETag.`);
+  }
+  lines.push("Safety boundary: deploy verification is read-only and never uploads files, creates admin users, executes passkey flows, deploys Workers, applies migrations, sets secrets, applies R2 CORS, creates DNS/custom domains/scheduled triggers, publishes releases, executes updates, or mutates Cloudflare resources.");
+  return [...new Set(lines)];
+}
+
+export function buildDeployVerificationPlan(options, configText = null, checkResult = null) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const configuredPublicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const publicBaseUrl = options.publicBaseUrl ?? configuredPublicBaseUrl;
+  const validation = publicBaseUrl ? validatePublicBaseUrl(publicBaseUrl) : { url: null, error: "A deployed origin is required for post-deploy verification." };
+  const origin = validation.url?.origin ?? null;
+  const host = validation.url?.hostname.toLowerCase() ?? null;
+  const originKind = deployedOriginKind(host);
+  const routeHosts = config ? wranglerRouteHosts(config) : [];
+  const matchingRoutes = host ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, host)) : [];
+  const checks = checkResult ?? defaultDeployCheckResult(origin);
+  const cors = buildR2CorsRecommendation(configText, {
+    bucket: options.bucket,
+    publicBaseUrl: origin
+  });
+  const recovery = buildDeployVerificationRecoveryLines({
+    validationError: validation.error,
+    origin,
+    host,
+    configuredPublicBaseUrl,
+    suppliedPublicBaseUrl: options.publicBaseUrl,
+    routeHosts,
+    matchingRoutes,
+    checks,
+    cors
+  });
+  const routeDetail = originKind === "workers.dev"
+    ? "workers.dev origin detected; route hints are optional, but the origin should match the URL printed by Wrangler deploy."
+    : routeHosts.length > 0
+      ? `Configured route/custom-domain host(s): ${routeHosts.join(", ")}. ${matchingRoutes.length > 0 ? `Matching host(s): ${matchingRoutes.join(", ")}.` : host ? `No configured route host currently matches ${host}.` : ""}`
+      : "No local Wrangler route/custom-domain hints are configured; verify attachment in Cloudflare if this is a custom domain.";
+
+  const items = [
+    {
+      label: "Validate deployed origin",
+      status: validation.error ? "blocked" : "ready",
+      detail: validation.error
+        ? validation.error
+        : `${origin} is an origin-only https ${originKind} origin.`
+    },
+    {
+      label: "Compare deployment route hints",
+      status: originKind === "workers.dev" ? "manual" : matchingRoutes.length > 0 ? "ready" : routeHosts.length > 0 ? "needs attention" : "manual",
+      detail: routeDetail
+    },
+    {
+      label: "Check health endpoint",
+      status: checks.health.status,
+      detail: checks.health.detail
+    },
+    {
+      label: "Check admin surface",
+      status: checks.admin.status,
+      detail: checks.admin.detail
+    },
+    {
+      label: "Check public upload surface",
+      status: checks.upload.status,
+      detail: checks.upload.detail
+    },
+    {
+      label: "Expected URLs and passkey origin",
+      status: origin ? "manual" : "blocked",
+      detail: origin
+        ? `Public upload: ${origin}/. Health: ${origin}/health. Admin: ${origin}/admin. Passkeys are origin-bound to this exact origin.`
+        : "Expected URLs cannot be reported until a deployed origin is supplied."
+    },
+    {
+      label: "R2 CORS alignment",
+      status: cors.origin ? "manual" : "needs attention",
+      detail: cors.summary
+    },
+    {
+      label: "Recovery guidance",
+      status: "manual",
+      detail: recovery.join(" ")
+    },
+    {
+      label: "Safety boundary",
+      status: "ready",
+      detail: "This workflow is read-only. It never uploads files, creates admin users, executes passkey flows, deploys Workers, applies remote migrations, sets secrets, applies R2 CORS, creates DNS records, creates custom domains, creates scheduled triggers, publishes releases, executes updates, or mutates Cloudflare resources."
+    }
+  ];
+
+  return {
+    items,
+    origin,
+    host,
+    originKind,
+    routeHosts,
+    matchingRoutes,
+    checks,
+    cors,
+    recovery,
+    validationError: validation.error
+  };
+}
+
+async function fetchDeployCheckText(origin, path, fetchImpl, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(`${origin}${path}`, {
+      headers: { Accept: path === "/health" ? "application/json" : "text/html" },
+      signal: controller.signal
+    });
+    const text = await response.text();
+    return { response, text, error: null };
+  } catch (error) {
+    return { response: null, text: "", error };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function deployFetchFailure(origin, path, error, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const message = error instanceof Error ? error.message : String(error);
+  const aborted = error instanceof Error && error.name === "AbortError";
+  const certificateLike = /cert|certificate|tls|ssl|handshake|525|526/iu.test(message);
+  const dnsLike = /dns|enotfound|getaddrinfo|name not resolved|eai_again/iu.test(message);
+  return {
+    status: "blocked",
+    ok: false,
+    detail: aborted ? `${origin}${path} timed out after ${timeoutMs}ms.` : `${origin}${path} could not be reached: ${message}`,
+    recovery: aborted
+      ? "Confirm Worker deployment and route attachment, then retry from a network with access to the origin."
+      : certificateLike
+        ? "Confirm HTTPS certificate readiness before relying on the deployed origin."
+        : dnsLike
+          ? "Confirm DNS is propagated and the Worker route/custom-domain attachment is complete."
+          : "Confirm the Worker is deployed, the route points at Glyph, and HTTPS is healthy."
+  };
+}
+
+export async function checkDeployOrigin(origin, fetchImpl = globalThis.fetch, options = {}) {
+  if (!origin) {
+    return defaultDeployCheckResult(null);
+  }
+
+  if (typeof fetchImpl !== "function") {
+    return {
+      health: {
+        status: "manual",
+        ok: false,
+        detail: `Fetch is not available in this runtime. Manually open ${origin}/health.`,
+        recovery: "Run --verify-deploy from a Node.js runtime with fetch support or check the URL manually."
+      },
+      admin: {
+        status: "manual",
+        ok: false,
+        detail: `Fetch is not available in this runtime. Manually open ${origin}/admin.`,
+        recovery: "Run --verify-deploy from a Node.js runtime with fetch support or check the URL manually."
+      },
+      upload: {
+        status: "manual",
+        ok: false,
+        detail: `Fetch is not available in this runtime. Manually open ${origin}/.`,
+        recovery: "Run --verify-deploy from a Node.js runtime with fetch support or check the URL manually."
+      }
+    };
+  }
+
+  const [healthFetch, adminFetch, uploadFetch] = await Promise.all([
+    fetchDeployCheckText(origin, "/health", fetchImpl, options),
+    fetchDeployCheckText(origin, "/admin", fetchImpl, options),
+    fetchDeployCheckText(origin, "/", fetchImpl, options)
+  ]);
+
+  const health = (() => {
+    if (healthFetch.error) {
+      return deployFetchFailure(origin, "/health", healthFetch.error, options);
+    }
+    if (!healthFetch.response?.ok) {
+      return {
+        status: "blocked",
+        ok: false,
+        detail: `${origin}/health returned HTTP ${healthFetch.response?.status ?? "unknown"}.`,
+        recovery: "Confirm the Worker is deployed and the route points at this Glyph Worker."
+      };
+    }
+    let payload = null;
+    try {
+      payload = JSON.parse(healthFetch.text);
+    } catch {
+      payload = null;
+    }
+    if (payload?.ok === true && payload?.app === "glyph") {
+      return {
+        status: "ready",
+        ok: true,
+        detail: `${origin}/health returned ok for Glyph.`,
+        recovery: null
+      };
+    }
+    return {
+      status: "needs attention",
+      ok: false,
+      detail: `${origin}/health responded, but the body did not look like Glyph health JSON.`,
+      recovery: "Confirm the route points at this Glyph Worker, not another Worker or origin."
+    };
+  })();
+
+  const admin = (() => {
+    if (adminFetch.error) {
+      return deployFetchFailure(origin, "/admin", adminFetch.error, options);
+    }
+    if (!adminFetch.response?.ok) {
+      return {
+        status: "blocked",
+        ok: false,
+        detail: `${origin}/admin returned HTTP ${adminFetch.response?.status ?? "unknown"}.`,
+        recovery: "Confirm the Worker is deployed, D1 is reachable, and the admin route is served by Glyph."
+      };
+    }
+    if (/Glyph Admin (Setup|Login)|Create passkey|Use passkey|Register the first admin passkey|Sign in with the passkey/iu.test(adminFetch.text)) {
+      return {
+        status: "ready",
+        ok: true,
+        detail: `${origin}/admin showed the expected unauthenticated passkey bootstrap/login surface.`,
+        recovery: null
+      };
+    }
+    return {
+      status: "needs attention",
+      ok: false,
+      detail: `${origin}/admin responded, but the body did not look like Glyph's unauthenticated admin surface.`,
+      recovery: "Confirm this is the Glyph Worker and that the check is not receiving a cached, authenticated, or non-Glyph response."
+    };
+  })();
+
+  const upload = (() => {
+    if (uploadFetch.error) {
+      return deployFetchFailure(origin, "/", uploadFetch.error, options);
+    }
+    if (!uploadFetch.response?.ok) {
+      return {
+        status: "blocked",
+        ok: false,
+        detail: `${origin}/ returned HTTP ${uploadFetch.response?.status ?? "unknown"}.`,
+        recovery: "Confirm the Worker is deployed and the root route is served by Glyph."
+      };
+    }
+    if (/Private file drop|Upload a file and get a short|<h1>Glyph<\/h1>|name="file"/iu.test(uploadFetch.text)) {
+      return {
+        status: "ready",
+        ok: true,
+        detail: `${origin}/ showed the public Glyph upload surface without uploading a file.`,
+        recovery: null
+      };
+    }
+    return {
+      status: "needs attention",
+      ok: false,
+      detail: `${origin}/ responded, but the body did not look like Glyph's public upload page.`,
+      recovery: "Confirm this is the Glyph Worker and the route is not pointing at another service."
+    };
+  })();
+
+  return { health, admin, upload };
 }
 
 export function buildScheduledTriggerReadiness(configText = null) {
@@ -1684,9 +2056,17 @@ export function buildReadinessReport(options, context = {}) {
     ]
   });
 
+  const postDeployReadinessItems = buildPostDeployVerificationLines(configText).map((line) => readinessItem("manual", "Health/admin check", line));
+  postDeployReadinessItems.push(
+    readinessItem(
+      "manual",
+      "Post-deploy verification",
+      "After an intentional deploy, run `pnpm run deploy:glyph -- --verify-deploy --public-base-url https://files.example.com` or the workers.dev origin printed by Wrangler to check /health, /admin, /, passkey origin guidance, and R2 CORS alignment without uploading files or mutating anything."
+    )
+  );
   sections.push({
     title: "Post-deploy readiness",
-    items: buildPostDeployVerificationLines(configText).map((line) => readinessItem("manual", "Health/admin check", line))
+    items: postDeployReadinessItems
   });
 
   sections.push({
@@ -1854,6 +2234,7 @@ export function buildTurnkeyRehearsalReport(options, context = {}) {
   });
 
   const postDeployItems = buildPostDeployVerificationLines(configText).map((line) => readinessItem("manual", "Public/admin URLs", line));
+  postDeployItems.push(readinessItem("manual", "Verify deployed origin", `${commandText(["pnpm", "run", "deploy:glyph", "--", "--verify-deploy", "--public-base-url", publicOrigin ?? "https://files.example.com"])} checks /health, /admin, and / without uploading files, creating admin users, executing passkey flows, or mutating Cloudflare resources.`));
   postDeployItems.push(readinessItem("manual", "Recommended command order", `${commandText(["pnpm", "run", "deploy:glyph", "--", "--turnkey-rehearse"])} -> ${commandText(["pnpm", "run", "deploy:glyph", "--", "--turnkey"])} -> reviewed ${commandText(["pnpm", "run", "deploy:glyph", "--", "--turnkey", "--yes"])}; use secrets/domain/schedule helpers for optional follow-up.`));
   postDeployItems.push(readinessItem("manual", "Partial setup recovery", "If setup stops midway, rerun this rehearsal and the non-mutating turnkey plan, then use --reuse-resources plus the real --d1-database-id when a D1 database already exists."));
   sections.push({ title: "Expected URLs and recovery", items: postDeployItems });
@@ -2065,6 +2446,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --turnkey-schedule
   pnpm run deploy:glyph -- --turnkey-schedule --yes
+  pnpm run deploy:glyph -- --verify-deploy --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
@@ -2077,6 +2459,7 @@ Options:
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
   --turnkey-schedule  Print or write guided local Wrangler cron trigger config for optional scheduled work.
+  --verify-deploy     Read-only post-deploy check of /health, /admin, /, passkeys, and CORS guidance.
   --verify-domain     Read-only check of a manually attached custom domain, /health, /admin, and CORS guidance.
   --apply-cors        With --turnkey-secrets --yes, apply reviewed R2 CORS using Wrangler.
   --readiness         Print a consolidated read-only deployment readiness report.
@@ -2101,6 +2484,12 @@ Custom domain readiness:
   certificates, custom domains, deploys, applies migrations, stores secrets, or mutates Cloudflare resources.
   --verify-domain is always read-only. It checks the final origin shape, local route hints, /health when
   network access is available, expected /admin URL, passkey origin guidance, and R2 CORS alignment.
+
+Post-deploy verification:
+  --verify-deploy is always read-only. It checks the deployed workers.dev or custom-domain origin,
+  /health, /admin, and / when network access is available, then reports expected URLs, passkey origin
+  guidance, R2 CORS alignment, and recovery steps. It never uploads files, creates admin users,
+  executes passkey flows, deploys, applies migrations, sets secrets, applies CORS, or mutates resources.
 
 Scheduled update check readiness:
   Optional read-only scheduled update checks require a Wrangler cron trigger plus a valid update source
@@ -2146,6 +2535,7 @@ export function validateProject(rootDir, options) {
     || options.turnkeySchedule
     || options.turnkeyRehearse
     || options.verifyDomain
+    || options.verifyDeploy
     ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
     : ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
 
@@ -2504,6 +2894,32 @@ function printCustomDomainVerificationPlan(plan) {
   }
 }
 
+function printDeployVerificationPlan(plan) {
+  console.log("\nPost-deploy verification details:");
+  if (plan.origin) {
+    console.log(`Final origin: ${plan.origin}`);
+    console.log(`Origin kind: ${plan.originKind}`);
+    console.log(`Expected upload URL: ${plan.origin}/`);
+    console.log(`Expected health URL: ${plan.origin}/health`);
+    console.log(`Expected admin URL: ${plan.origin}/admin`);
+  } else {
+    console.log("Final origin: not configured yet");
+  }
+  console.log(plan.routeHosts.length > 0 ? `Configured route hosts: ${plan.routeHosts.join(", ")}` : "Configured route hosts: none");
+  console.log(plan.matchingRoutes.length > 0 ? `Matching route hosts: ${plan.matchingRoutes.join(", ")}` : "Matching route hosts: none");
+  console.log(`Health status: ${plan.checks.health.status}`);
+  console.log(`Health detail: ${plan.checks.health.detail}`);
+  console.log(`Admin status: ${plan.checks.admin.status}`);
+  console.log(`Admin detail: ${plan.checks.admin.detail}`);
+  console.log(`Upload status: ${plan.checks.upload.status}`);
+  console.log(`Upload detail: ${plan.checks.upload.detail}`);
+  printSetupPlan(plan.items);
+  console.log("\nR2 CORS alignment:");
+  for (const line of plan.cors.lines) {
+    console.log(line);
+  }
+}
+
 function runSetupCommands(plan, rootDir) {
   for (const item of plan) {
     if (item.mutates && item.command) {
@@ -2640,6 +3056,35 @@ async function runCustomDomainVerification(effectiveOptions, wranglerPath) {
     console.log("\nCustom-domain verification finished: /health responded as Glyph. Confirm /admin and passkeys on the same origin before relying on the domain.");
   } else {
     console.log("\nCustom-domain verification finished with operator follow-up. Review the recovery guidance above before sharing links from this origin.");
+  }
+
+  return 0;
+}
+
+async function runDeployVerification(effectiveOptions, wranglerPath) {
+  const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const initialPlan = buildDeployVerificationPlan(effectiveOptions, configText);
+  const checks = initialPlan.origin && !initialPlan.validationError
+    ? await checkDeployOrigin(initialPlan.origin)
+    : initialPlan.checks;
+  const plan = buildDeployVerificationPlan(effectiveOptions, configText, checks);
+
+  console.log("Glyph post-deploy verification: read-only check; no uploads, passkey actions, local files, deployments, migrations, or Cloudflare resources will be changed.");
+  if (configText) {
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+  } else {
+    console.log("Wrangler config: wrangler.jsonc not found; using supplied --public-base-url only.");
+  }
+  printDeployVerificationPlan(plan);
+
+  if (plan.validationError) {
+    console.log("\nPost-deploy verification finished with a blocked origin configuration. Pass the deployed workers.dev or custom-domain origin and rerun the same command.");
+  } else if (plan.checks.health.ok && plan.checks.admin.ok && plan.checks.upload.ok) {
+    console.log("\nPost-deploy verification finished: /health, /admin, and / all look like Glyph. Confirm passkeys and any direct/multipart CORS settings on the same origin before relying on optional features.");
+  } else {
+    console.log("\nPost-deploy verification finished with operator follow-up. Review the recovery guidance above before sharing links from this origin.");
   }
 
   return 0;
@@ -2897,7 +3342,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.verifyDomain ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -2931,6 +3376,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (effectiveOptions.verifyDomain) {
     return runCustomDomainVerification(effectiveOptions, wranglerPath);
+  }
+
+  if (effectiveOptions.verifyDeploy) {
+    return runDeployVerification(effectiveOptions, wranglerPath);
   }
 
   if (effectiveOptions.setup) {

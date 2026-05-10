@@ -178,6 +178,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Guided scheduled-trigger setup maintenance releases can keep the public release/update channel aligned with scheduled-trigger setup planning while preserving the conservative source-only release model.
 - Turnkey deploy rehearsal can give operators one read-only fresh-checkout-to-deploy report covering prerequisites, Cloudflare auth, D1/R2 plans, Wrangler config, placeholder D1 IDs, migration and deploy gates, direct/multipart secrets and R2 CORS, custom-domain verification, scheduled-trigger/admin opt-ins, URLs, and recovery steps without mutating local files or Cloudflare resources.
 - Turnkey deploy rehearsal maintenance releases can keep the public release/update channel aligned with the end-to-end operator report while preserving the conservative source-only release model.
+- General post-deploy verification can validate a deployed workers.dev or custom-domain Glyph origin by checking `/health`, `/admin`, and `/`, reporting URLs, passkey origin guidance, R2 CORS alignment, and recovery steps without uploading files, executing passkey flows, or mutating Cloudflare resources.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -243,3 +244,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 63. Publish the scheduled-trigger setup planning maintenance release. Completed.
 64. Add end-to-end turnkey deploy rehearsal and operator report. Completed.
 65. Publish the turnkey deploy rehearsal maintenance release. Completed.
+66. Add general post-deploy verification for turnkey deploy. Completed.
