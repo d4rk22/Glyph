@@ -443,6 +443,13 @@ Phase 66 general post-deploy verification is in place:
 - The check validates the final origin, fetches `/health`, `/admin`, and `/` when network access is available, confirms the responses look like Glyph, reports expected public/admin URLs and passkey origin guidance, and aligns R2 CORS guidance with the final origin.
 - Recovery guidance covers invalid origins, missing deploys, wrong routes, non-Glyph responses, custom-domain DNS/certificate issues, unavailable admin/upload surfaces, `PUBLIC_BASE_URL` mismatch, and R2 CORS origin drift without uploading files, creating admins, executing passkey flows, deploying, applying migrations, setting secrets, applying CORS, or mutating Cloudflare resources.
 
+Phase 67 post-deploy verification maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.2`.
+- `v0.3.2` publishes the general post-deploy verification workflow through the GitHub release channel.
+- The release highlights the `--verify-deploy` read-only verification workflow, workers.dev and custom-domain origin support, `/health`, `/admin`, and `/` response checks, expected public/admin URL reporting, passkey origin guidance, R2 CORS alignment, recovery guidance for invalid origins, wrong routes, non-Glyph responses, DNS/certificate issues, unavailable admin/upload surfaces, `PUBLIC_BASE_URL` mismatch, and the no-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
