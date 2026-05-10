@@ -26,6 +26,7 @@ export function parseArgs(argv) {
     turnkeyRehearse: false,
     turnkeyExamples: false,
     preflight: false,
+    cloudflareRehearsal: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -65,6 +66,8 @@ export function parseArgs(argv) {
       options.turnkeyExamples = true;
     } else if (arg === "--preflight") {
       options.preflight = true;
+    } else if (arg === "--cloudflare-rehearsal") {
+      options.cloudflareRehearsal = true;
     } else if (arg === "--verify-domain") {
       options.verifyDomain = true;
     } else if (arg === "--verify-deploy") {
@@ -125,27 +128,27 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
-  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --turnkey-schedule by itself, or with --yes to write reviewed local cron trigger config.");
   }
 
-  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyRehearse && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-rehearse by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.turnkeyExamples && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --turnkey-examples by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.preflight && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
+  if (options.preflight && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness)) {
     throw new Error("Use --preflight by itself with optional --public-base-url; it is a read-only checklist mode.");
   }
 
@@ -153,11 +156,15 @@ export function parseArgs(argv) {
     throw new Error("Use --preflight --yes only with --outdir to overwrite an existing local checklist file.");
   }
 
-  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDeploy || options.applyCors)) {
+  if (options.cloudflareRehearsal && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors || options.readiness || options.outdirExplicit)) {
+    throw new Error("Use --cloudflare-rehearsal by itself with optional --public-base-url; it is a read-only real-account checklist mode.");
+  }
+
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
   }
 
-  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.applyCors)) {
+  if (options.verifyDeploy && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --verify-deploy by itself with optional --public-base-url; it is read-only.");
   }
 
@@ -165,7 +172,7 @@ export function parseArgs(argv) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.turnkeyRehearse || options.turnkeyExamples || options.preflight || options.cloudflareRehearsal || options.verifyDomain || options.verifyDeploy || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -2137,6 +2144,188 @@ function exampleItem(label, detail, commands = []) {
   return { label, detail, commands };
 }
 
+function rehearsalItem(label, detail, evidence = "", commands = []) {
+  return { label, detail, evidence, commands };
+}
+
+export function buildCloudflareRehearsalChecklist(options, context = {}) {
+  const configText = context.configText ?? null;
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const configuredPublicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const publicBaseUrl = options.publicBaseUrl ?? configuredPublicBaseUrl ?? "https://files.example.com";
+  const publicBaseResult = validatePublicBaseUrl(publicBaseUrl);
+  const origin = publicBaseResult.url?.origin ?? "https://files.example.com";
+  const database = options.database || DEFAULT_DATABASE_NAME;
+  const bucket = options.bucket || DEFAULT_BUCKET_NAME;
+
+  return {
+    title: "Glyph Real Cloudflare Deploy Rehearsal Checklist",
+    intro: "Read-only operator checklist: no commands are executed, no files are written, no secret values should be recorded, and no Cloudflare resources are changed by this helper.",
+    sections: [
+      {
+        title: "Prepare The Account And Checkout",
+        items: [
+          rehearsalItem(
+            "Confirm local tools and clean checkout",
+            "Install from the committed lockfile and run the read-only reports before any confirmed Cloudflare action.",
+            "Record Node, pnpm, Wrangler versions, current git commit, and whether the working tree was clean. Do not record token values.",
+            [
+              ["pnpm", "install", "--frozen-lockfile"],
+              ["git", "status", "--short"],
+              ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey-rehearse"],
+              ["pnpm", "run", "deploy:glyph", "--", "--preflight"]
+            ]
+          ),
+          rehearsalItem(
+            "Confirm Cloudflare authentication",
+            "Use Wrangler login in an interactive terminal or CLOUDFLARE_API_TOKEN in non-interactive environments.",
+            "Record auth method and target account identity only. Never paste API tokens, secret values, or private account details into committed notes.",
+            [["pnpm", "wrangler", "whoami"]]
+          )
+        ]
+      },
+      {
+        title: "Provision Or Reuse Core Resources",
+        items: [
+          rehearsalItem(
+            "Create or reuse D1 and R2",
+            `Confirm D1 database ${database} and R2 bucket ${bucket} exist in the intended account before deploy.`,
+            "Record whether each resource was created or reused, the D1 database ID, and bucket name. Do not record Cloudflare account IDs if they are private.",
+            [
+              ["pnpm", "wrangler", "d1", "list", "--json"],
+              ["pnpm", "wrangler", "r2", "bucket", "list"],
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey", "--yes", "--reuse-resources", "--d1-database-id", "<real-d1-database-id>"]
+            ]
+          ),
+          rehearsalItem(
+            "Capture and verify Wrangler config",
+            "Replace the placeholder D1 database_id with the real ID and verify DB, FILES, APP_ENV, and optional PUBLIC_BASE_URL.",
+            "Record config fields by name and whether placeholders remain. Do not commit temporary real-resource changes unless the deployment repo intentionally owns them.",
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--readiness"],
+              ["pnpm", "run", "deploy:glyph", "--", "--check"]
+            ]
+          )
+        ]
+      },
+      {
+        title: "Migrate, Deploy, And Verify",
+        items: [
+          rehearsalItem(
+            "Remote migrations review and apply gate",
+            "List/check remote migrations first, then apply only through the confirmed deploy path after reviewing migration files.",
+            "Record migration command outcome and any migration IDs or filenames. Do not paste private database contents.",
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--check"],
+              ["pnpm", "run", "deploy:glyph", "--", "--yes"]
+            ]
+          ),
+          rehearsalItem(
+            "Capture deployed origin",
+            "Record the workers.dev or custom-domain origin printed by Wrangler after Worker deploy, then verify public, health, and admin surfaces.",
+            "Record public URL, /health result, /admin bootstrap/login surface, and / upload surface status.",
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--verify-deploy", "--public-base-url", origin]
+            ]
+          ),
+          rehearsalItem(
+            "Bootstrap first admin passkey",
+            "Open /admin on the final origin and bootstrap the first passkey if no admin exists.",
+            "Record that bootstrap completed and which origin was used. Do not record passkey data, credential IDs, challenges, cookies, or session tokens.",
+            []
+          ),
+          rehearsalItem(
+            "Run optional upload/download smoke test",
+            "Upload a harmless test file, open the short link, then delete it from admin and verify the short link becomes unavailable.",
+            "Record filename placeholder, file size, upload mode, short-link status, delete status, and not-found status. Do not upload sensitive files or record private R2 object keys.",
+            []
+          )
+        ]
+      },
+      {
+        title: "Optional Production Follow-Up",
+        items: [
+          rehearsalItem(
+            "Prepare direct or multipart uploads",
+            "Set R2 S3-compatible Wrangler secrets and apply reviewed R2 CORS only if direct or multipart upload modes will be used.",
+            "Record which secret names were set and whether CORS includes the final origin and ETag exposure. Never record secret values.",
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey-secrets", "--public-base-url", origin],
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey-secrets", "--yes", "--public-base-url", origin],
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey-secrets", "--yes", "--apply-cors", "--public-base-url", origin]
+            ]
+          ),
+          rehearsalItem(
+            "Attach and verify custom domain",
+            "If using a custom domain, attach DNS/custom-domain routing manually in Cloudflare and verify the final origin.",
+            "Record route host, certificate readiness, /health result, passkey origin decision, and R2 CORS origin alignment.",
+            [
+              ["pnpm", "run", "deploy:glyph", "--", "--turnkey-domain", "--public-base-url", origin],
+              ["pnpm", "run", "deploy:glyph", "--", "--verify-domain", "--public-base-url", origin]
+            ]
+          ),
+          rehearsalItem(
+            "Activate optional scheduled work",
+            "Configure Wrangler cron triggers through reviewed local config/deploy, then enable read-only update checks or scheduled maintenance in /admin as needed.",
+            "Record cron expression, deployed trigger status, and which /admin opt-ins were enabled.",
+            [["pnpm", "run", "deploy:glyph", "--", "--turnkey-schedule"]]
+          )
+        ]
+      },
+      {
+        title: "Rollback And Recovery Notes",
+        items: [
+          rehearsalItem(
+            "Record rollback path",
+            "Keep the previous release tag, current deployed version, migration state, and Wrangler deploy output handy before changing production.",
+            "Record release tag, commit SHA, migration status, and known manual reversal steps. Do not record secrets, cookies, passkey material, or private file details.",
+            [
+              ["git", "rev-parse", "--short", "HEAD"],
+              ["pnpm", "run", "release:check"],
+              ["pnpm", "run", "update:glyph"]
+            ]
+          ),
+          rehearsalItem(
+            "Keep evidence local and sanitized",
+            "Use local deployment notes or issue summaries that avoid real API tokens, secret values, passkey data, cookies, private domains when sensitive, R2 object keys, and private file contents.",
+            "Record only sanitized status, command outcomes, URLs that are safe to share, and follow-up items.",
+            []
+          )
+        ]
+      }
+    ]
+  };
+}
+
+export function formatCloudflareRehearsalChecklist(checklist) {
+  const lines = [
+    `# ${markdownInline(checklist.title)}`,
+    "",
+    markdownInline(checklist.intro),
+    ""
+  ];
+
+  for (const section of checklist.sections) {
+    lines.push(`## ${markdownInline(section.title)}`);
+    lines.push("");
+    for (const item of section.items) {
+      lines.push(`- [ ] ${markdownInline(item.label)}: ${markdownInline(item.detail)}`);
+      if (item.evidence) {
+        lines.push(`  Evidence to capture: ${markdownInline(item.evidence)}`);
+      }
+      for (const command of item.commands) {
+        lines.push(`  Command: ${markdownCommand(command)}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 export function buildTurnkeyExamplesReport(options, context = {}) {
   const configText = context.configText ?? null;
   const config = configText ? parseWranglerConfig(configText) : null;
@@ -2933,6 +3122,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey
   pnpm run deploy:glyph -- --turnkey-rehearse
   pnpm run deploy:glyph -- --turnkey-examples
+  pnpm run deploy:glyph -- --cloudflare-rehearsal
   pnpm run deploy:glyph -- --preflight
   pnpm run deploy:glyph -- --preflight --outdir ./deploy-notes
   pnpm run deploy:glyph -- --turnkey --yes
@@ -2953,6 +3143,8 @@ Options:
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --turnkey-rehearse  Print one end-to-end read-only operator rehearsal report.
   --turnkey-examples  Print read-only deploy transcripts and recovery command examples.
+  --cloudflare-rehearsal
+                      Print a read-only real Cloudflare account rehearsal checklist and evidence guide.
   --preflight         Print a read-only markdown deploy preflight checklist.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
@@ -3011,6 +3203,12 @@ Turnkey safety:
   --turnkey-examples is always non-mutating. It prints command transcripts for fresh checkout, auth
   recovery, existing resource reuse, placeholder D1 IDs, migration gates, direct/multipart follow-up,
   custom domains, scheduled triggers, and post-deploy verification without running those commands.
+  --cloudflare-rehearsal is always non-mutating. It prints a structured checklist for a real
+  Cloudflare account pass, including auth, D1/R2 creation or reuse, D1 ID capture, migrations, deploy,
+  URL checks, admin bootstrap, optional upload smoke testing, direct/multipart setup, custom domains,
+  scheduled triggers, rollback notes, and sanitized evidence capture. It never writes files, stores
+  secrets, creates resources, deploys, applies migrations, uploads files, creates admins, executes
+  passkey flows, or mutates Cloudflare resources.
   --preflight is always non-mutating. It prints a concise markdown checklist covering local
   prerequisites, auth, D1/R2 readiness, placeholder D1 IDs, migration gates, Worker-mediated fallback,
   direct/multipart secrets and CORS, custom domains, scheduled triggers, post-deploy verification,
@@ -3861,6 +4059,12 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
     return 0;
   }
 
+  if (options.cloudflareRehearsal) {
+    const checklist = buildCloudflareRehearsalChecklist(options, collectReadinessContext(rootDir, process.env));
+    console.log(formatCloudflareRehearsalChecklist(checklist));
+    return 0;
+  }
+
   if (options.preflight) {
     const checklist = buildPreflightChecklist(options, collectReadinessContext(rootDir, process.env));
     const markdown = formatPreflightChecklist(checklist);
@@ -3876,7 +4080,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.preflight || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.turnkeyRehearse || effectiveOptions.turnkeyExamples || effectiveOptions.preflight || effectiveOptions.cloudflareRehearsal || effectiveOptions.verifyDomain || effectiveOptions.verifyDeploy ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {

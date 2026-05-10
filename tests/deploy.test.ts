@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   buildAuthReadinessLines,
+  buildCloudflareRehearsalChecklist,
   buildCustomDomainSetupPlan,
   buildCustomDomainTroubleshootingLines,
   buildCustomDomainVerificationPlan,
@@ -41,6 +42,7 @@ import {
   DEFAULT_DRY_RUN_OUTDIR,
   PREFLIGHT_CHECKLIST_FILENAME,
   findD1DatabaseId,
+  formatCloudflareRehearsalChecklist,
   formatTurnkeyExamplesReport,
   formatPreflightChecklist,
   formatReadinessReport,
@@ -84,6 +86,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyRehearse: false,
     turnkeyExamples: false,
     preflight: false,
+    cloudflareRehearsal: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -110,6 +113,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyRehearse: false,
     turnkeyExamples: false,
     preflight: false,
+    cloudflareRehearsal: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -136,6 +140,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyRehearse: false,
     turnkeyExamples: false,
     preflight: false,
+    cloudflareRehearsal: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -162,6 +167,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeyRehearse: false,
     turnkeyExamples: false,
     preflight: false,
+    cloudflareRehearsal: false,
     verifyDomain: false,
     verifyDeploy: false,
     applyCors: false,
@@ -200,6 +206,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-examples", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.throws(() => parseArgs(["--turnkey-examples", "--yes"]), /turnkey-examples by itself/);
   assert.throws(() => parseArgs(["--turnkey-examples", "--turnkey"]), /turnkey-examples by itself/);
+  assert.equal(parseArgs(["--cloudflare-rehearsal"]).cloudflareRehearsal, true);
+  assert.equal(parseArgs(["--cloudflare-rehearsal", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
+  assert.throws(() => parseArgs(["--cloudflare-rehearsal", "--yes"]), /cloudflare-rehearsal by itself/);
+  assert.throws(() => parseArgs(["--cloudflare-rehearsal", "--outdir", "./deploy-notes"]), /cloudflare-rehearsal by itself/);
   assert.equal(parseArgs(["--preflight"]).preflight, true);
   assert.equal(parseArgs(["--preflight", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
   assert.equal(parseArgs(["--preflight", "--outdir", "./deploy-notes"]).outdirExplicit, true);
@@ -429,6 +439,39 @@ test("turnkey examples report prints recovery transcripts without mutation or se
   assert.match(output, /verify-deploy --public-base-url https:\/\/files\.example\.com/);
   assert.match(output, /never deploys Workers/);
   assert.doesNotMatch(output, /actual-secret|sk_live|AKIA[0-9A-Z]+/);
+});
+
+test("cloudflare rehearsal checklist captures real-account evidence without mutation or secrets", () => {
+  const output = formatCloudflareRehearsalChecklist(buildCloudflareRehearsalChecklist(parseArgs(["--cloudflare-rehearsal", "--public-base-url", "https://files.example.com"]), {
+    env: {
+      CLOUDFLARE_API_TOKEN: "hidden-token",
+      R2_SECRET_ACCESS_KEY: "hidden-secret"
+    },
+    configText: validWranglerConfig
+  }));
+
+  assert.match(output, /^# Glyph Real Cloudflare Deploy Rehearsal Checklist/);
+  assert.match(output, /no commands are executed, no files are written/);
+  assert.match(output, /Cloudflare authentication/);
+  assert.match(output, /D1 database ID/);
+  assert.match(output, /Remote migrations/);
+  assert.match(output, /Worker deploy/);
+  assert.match(output, /\/health/);
+  assert.match(output, /first admin passkey/i);
+  assert.match(output, /upload\/download smoke test/);
+  assert.match(output, /direct or multipart uploads/);
+  assert.match(output, /R2 CORS/);
+  assert.match(output, /custom domain/);
+  assert.match(output, /scheduled work/);
+  assert.match(output, /Rollback/);
+  assert.match(output, /Do not record passkey data/);
+  assert.match(output, /Do not upload sensitive files/);
+  assert.match(output, /pnpm run deploy:glyph -- --turnkey --yes --reuse-resources --d1-database-id <real-d1-database-id>/);
+  assert.match(output, /pnpm run deploy:glyph -- --verify-deploy --public-base-url https:\/\/files\.example\.com/);
+  assert.match(output, /pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url https:\/\/files\.example\.com/);
+  assert.ok(output.indexOf("Confirm Cloudflare authentication") < output.indexOf("Create or reuse D1 and R2"));
+  assert.ok(output.indexOf("Remote migrations review and apply gate") < output.indexOf("Capture deployed origin"));
+  assert.doesNotMatch(output, /hidden-token|hidden-secret|actual-secret|sk_live|AKIA[0-9A-Z]+/);
 });
 
 test("preflight checklist summarizes deploy gates as markdown without mutation or secret values", () => {

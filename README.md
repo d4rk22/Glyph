@@ -503,6 +503,12 @@ Phase 75 fresh-instance deploy validation maintenance release is in place:
 - The release highlights the fresh-checkout style deploy validation pass, exercised readiness/rehearsal/preflight/turnkey/setup/secrets/custom-domain/scheduled/post-deploy/update-helper paths, exported preflight wording fix, clearer missing-`pnpm` Corepack recovery message, and documented dry-run/planning versus real Cloudflare account proof boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 76 real Cloudflare deploy rehearsal checklist is in place:
+
+- `pnpm run deploy:glyph -- --cloudflare-rehearsal` prints a read-only real-account rehearsal checklist for the operator-owned proof pass after local dry-run/planning validation.
+- The checklist covers Cloudflare auth, D1/R2 creation or reuse, real D1 database ID capture, Wrangler config review, remote migration gates, Worker deploy, deployed URL capture, `/health`, `/admin`, `/` checks, first-admin passkey bootstrap, optional upload/download smoke testing, direct/multipart secrets, R2 CORS, optional custom domains, optional scheduled triggers, rollback notes, and sanitized evidence capture.
+- The helper does not run commands, write files, store secrets, create resources, apply migrations, deploy Workers, apply CORS, create DNS/custom domains/scheduled triggers, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -525,6 +531,7 @@ Preview the fresh-checkout turnkey deployment plan:
 ```sh
 pnpm run deploy:glyph -- --turnkey-examples
 pnpm run deploy:glyph -- --turnkey-rehearse
+pnpm run deploy:glyph -- --cloudflare-rehearsal
 pnpm run deploy:glyph -- --preflight
 pnpm run deploy:glyph -- --turnkey
 ```
@@ -534,6 +541,8 @@ Use `--turnkey-examples` when you want copyable transcripts for common paths bef
 Use `--preflight` when you want a compact markdown checklist rather than the longer readiness or rehearsal reports. It is always read-only and includes status labels plus a recommended next command for blocked/manual items.
 
 Use `--turnkey-rehearse` first when you want one operator-facing report that covers the full fresh-checkout-to-deploy path without changing anything. The regular turnkey plan is also read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
+
+Use `--cloudflare-rehearsal` when you are ready to run or plan a real Cloudflare account proof pass and want a sanitized evidence checklist. It prints what to verify and what evidence to record, but it does not run commands, write files, create resources, deploy, upload files, create admins, execute passkey flows, or mutate Cloudflare resources. Keep API tokens, secret values, passkey data, cookies, private file details, and sensitive deployment logs out of committed notes.
 
 ```sh
 pnpm run deploy:glyph -- --turnkey --yes
@@ -1156,6 +1165,7 @@ The lower-level `pnpm run deploy`, `pnpm run db:migrate:remote`, and Wrangler co
 - Multipart upload progress is client-side and part-completion based; there is no server push, background Worker, or resumable client session yet.
 - The turnkey deploy helper can guide a fresh checkout through resource discovery, resource creation or reuse, config binding updates, checks, migrations, dry-run, and deploy, but secrets, CORS, DNS, custom-domain attachment, scheduled trigger creation, and `/admin` bootstrap are still operator-owned.
 - The latest fresh-instance validation used non-mutating dry-run/planning paths in this environment; a real Cloudflare account pass is still the final proof for confirmed D1/R2 creation or reuse, remote migration application, Worker deploy, secret prompts, R2 CORS application, and first `/admin` passkey bootstrap.
+- The real Cloudflare rehearsal checklist is an evidence guide only; operators still perform and record the actual account actions themselves, and should keep all secret values, passkey data, cookies, private file details, and sensitive Cloudflare/account identifiers out of source control.
 - Release checks are local only; they do not publish GitHub releases, create tags, deploy, or apply remote migrations.
 - Self-update remains conservative: `/admin` is read-only, and the local helper can fetch a validated tag or run a temporary-worktree rehearsal only with `--yes`; it cannot deploy, apply remote migrations, restart Workers, store GitHub tokens, or execute updates from admin. Optional scheduled checks can only store release metadata in D1, and the deploy helper only reports cron trigger readiness.
 - Custom-domain support validates and documents readiness, but does not create DNS records, zones, certificates, routes, or custom domains yet.

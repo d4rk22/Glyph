@@ -185,6 +185,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Turnkey deploy examples can give operators read-only command transcripts and recovery paths for fresh checkout, missing auth, D1/R2 reuse, placeholder D1 IDs, remote migration gates, Worker-mediated fallback, direct/multipart setup, custom domains, scheduled triggers, and post-deploy verification without mutating local files or Cloudflare resources.
 - Turnkey deploy examples maintenance releases can keep the public release/update channel aligned with operator transcript guidance while preserving the conservative source-only release model.
 - Fresh-instance turnkey deploy validation can exercise the documented operator path, fix small wording or next-command friction, and document what was proven through dry-run/planning versus what still requires a real Cloudflare account pass.
+- Real Cloudflare deploy rehearsal checklists can guide a sanitized operator-owned proof pass for auth, D1/R2 resources, migrations, deploy, URL checks, admin bootstrap, upload smoke tests, optional direct/multipart/custom-domain/scheduled setup, rollback notes, and evidence capture without mutating resources by default.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -260,3 +261,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 73. Publish the downloadable preflight checklist maintenance release. Completed.
 74. Validate fresh-instance turnkey deploy and fix operator friction. Completed.
 75. Publish the fresh-instance deploy validation maintenance release. Completed.
+76. Add real Cloudflare deploy rehearsal checklist and evidence capture. Completed.
