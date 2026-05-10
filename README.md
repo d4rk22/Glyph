@@ -365,6 +365,13 @@ Phase 54 confirmed direct/multipart setup support is in place:
 - `pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors` additionally applies the reviewed R2 CORS recommendation with Wrangler when `PUBLIC_BASE_URL` or `--public-base-url` provides the final origin.
 - CORS application remains explicitly gated and separate from Worker deploy, remote migrations, DNS/custom-domain setup, scheduled triggers, releases, and update execution.
 
+Phase 55 confirmed direct/multipart setup maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.6`.
+- `v0.2.6` publishes the confirmed turnkey secret setup and R2 CORS workflow through the GitHub release channel.
+- The release highlights the `--turnkey-secrets` planning workflow, confirmed interactive `wrangler secret put` setup, secret-value safety, optional reviewed `--apply-cors` support, readiness/turnkey integration, and Worker-mediated upload fallback.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS/custom-domain creation, scheduled trigger automation, unrelated Cloudflare mutation, or GitHub release automation from the app is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

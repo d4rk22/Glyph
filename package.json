@@ -1,6 +1,6 @@
 {
   "name": "glyph",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Private-use Cloudflare-first file sharing app.",
   "type": "module",

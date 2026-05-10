@@ -223,3 +223,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 52. Add a consolidated deploy readiness report. Completed.
 53. Publish the consolidated deploy readiness report maintenance release. Completed.
 54. Add confirmed turnkey secret setup and R2 CORS setup support. Completed.
+55. Publish the confirmed turnkey secret setup and R2 CORS maintenance release. Completed.
