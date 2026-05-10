@@ -167,6 +167,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Turnkey deploy hardening can improve fresh-checkout success by reporting Cloudflare auth/token readiness, preserving explicit remote migration gates, checking direct/multipart secret and R2 CORS readiness, printing post-deploy verification steps, and showing recovery guidance for non-interactive and partial-setup failures.
 - Guided direct/multipart setup planning can print exact Wrangler secret commands without values, recommend R2 CORS for the deployed Glyph origin, keep CORS application manual, and preserve Worker-mediated uploads as the fallback until deployed secrets and CORS are ready.
 - Consolidated deploy readiness can give operators a non-mutating status report for local prerequisites, Cloudflare auth, Wrangler bindings, placeholder D1 IDs, D1/R2 setup, remote migration gates, direct/multipart secret and CORS readiness, post-deploy checks, and remaining manual safety boundaries.
+- Consolidated deploy readiness maintenance releases can keep the public release/update channel aligned with readiness reporting, documented script invocation fixes, and Wrangler JSONC parsing hardening while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -219,3 +220,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 50. Add guided secrets and R2 CORS setup planning for turnkey deploy. Completed.
 51. Publish the guided secrets and R2 CORS planning maintenance release. Completed.
 52. Add a consolidated deploy readiness report. Completed.
+53. Publish the consolidated deploy readiness report maintenance release. Completed.

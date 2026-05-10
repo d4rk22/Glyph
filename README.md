@@ -350,6 +350,14 @@ Phase 52 consolidated deploy readiness report is in place:
 - Readiness mode detects placeholder D1 database IDs, reports auth/token expectations, prints secret command guidance without values, recommends R2 CORS from the configured origin when possible, and keeps Worker-mediated uploads visible as the fallback.
 - The report never stores secrets, applies R2 CORS, applies remote migrations, deploys, creates DNS/custom-domain/scheduled-trigger resources, publishes releases, executes updates, or mutates Cloudflare resources.
 
+Phase 53 consolidated deploy readiness report maintenance release is in place:
+
+- The package-backed Glyph version is `0.2.5`.
+- `v0.2.5` publishes the consolidated deploy readiness report through the GitHub release channel.
+- The release highlights readiness status labels, Cloudflare auth/token guidance, placeholder D1 ID detection, direct/multipart secret guidance without values, R2 CORS recommendations, Worker-mediated fallback messaging, and post-deploy `/health` plus `/admin` guidance.
+- The release also notes deploy/update helper support for documented `pnpm run ... -- --flag` commands and JSONC parsing hardening for wildcard Wrangler route strings.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS/custom-domain creation, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
