@@ -176,6 +176,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Custom-domain troubleshooting maintenance releases can keep the public release/update channel aligned with troubleshooting improvements while preserving the conservative source-only release model.
 - Guided scheduled-trigger setup planning can inspect Wrangler cron trigger config, suggest conservative local `triggers.crons` config, explain read-only update checks versus storage/R2 maintenance, and write only reviewed local config with explicit confirmation while leaving deploy, admin opt-in settings, and Cloudflare trigger creation operator-owned.
 - Guided scheduled-trigger setup maintenance releases can keep the public release/update channel aligned with scheduled-trigger setup planning while preserving the conservative source-only release model.
+- Turnkey deploy rehearsal can give operators one read-only fresh-checkout-to-deploy report covering prerequisites, Cloudflare auth, D1/R2 plans, Wrangler config, placeholder D1 IDs, migration and deploy gates, direct/multipart secrets and R2 CORS, custom-domain verification, scheduled-trigger/admin opt-ins, URLs, and recovery steps without mutating local files or Cloudflare resources.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -239,3 +240,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 61. Publish the custom-domain troubleshooting maintenance release. Completed.
 62. Add guided scheduled-trigger setup planning for turnkey deploy. Completed.
 63. Publish the scheduled-trigger setup planning maintenance release. Completed.
+64. Add end-to-end turnkey deploy rehearsal and operator report. Completed.

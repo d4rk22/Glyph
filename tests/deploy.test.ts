@@ -23,6 +23,7 @@ import {
   buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
   buildTurnkeyPlan,
+  buildTurnkeyRehearsalReport,
   buildTurnkeyWranglerConfig,
   buildSetupPlan,
   buildDeploySteps,
@@ -32,6 +33,7 @@ import {
   DEFAULT_DRY_RUN_OUTDIR,
   findD1DatabaseId,
   formatReadinessReport,
+  formatTurnkeyRehearsalReport,
   hasR2Bucket,
   nodeMajorVersion,
   parseArgs,
@@ -65,6 +67,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySecrets: false,
     turnkeyDomain: false,
     turnkeySchedule: false,
+    turnkeyRehearse: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -86,6 +89,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySecrets: false,
     turnkeyDomain: false,
     turnkeySchedule: false,
+    turnkeyRehearse: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -107,6 +111,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySecrets: false,
     turnkeyDomain: false,
     turnkeySchedule: false,
+    turnkeyRehearse: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -128,6 +133,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkeySecrets: false,
     turnkeyDomain: false,
     turnkeySchedule: false,
+    turnkeyRehearse: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -156,6 +162,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-schedule", "--yes"]).yes, true);
   assert.throws(() => parseArgs(["--turnkey-schedule", "--check"]), /turnkey-schedule by itself/);
   assert.throws(() => parseArgs(["--turnkey-schedule", "--turnkey-domain"]), /turnkey-domain by itself|turnkey-schedule by itself/);
+  assert.equal(parseArgs(["--turnkey-rehearse"]).turnkeyRehearse, true);
+  assert.equal(parseArgs(["--turnkey-rehearse", "--public-base-url", "https://files.example.com"]).publicBaseUrl, "https://files.example.com");
+  assert.throws(() => parseArgs(["--turnkey-rehearse", "--yes"]), /turnkey-rehearse by itself/);
+  assert.throws(() => parseArgs(["--turnkey-rehearse", "--readiness"]), /turnkey-rehearse by itself/);
   assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
   assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
   assert.throws(() => parseArgs(["--verify-domain", "--turnkey-domain", "--public-base-url", "https://files.example.com"]), /turnkey-domain by itself|verify-domain by itself/);
@@ -240,6 +250,7 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
 
   assert.match(output, /Glyph deploy readiness report/);
   assert.match(output, /\[ready\] Package version: Glyph 9\.9\.9/);
+  assert.match(output, /\[manual\] Turnkey rehearsal: Run `pnpm run deploy:glyph -- --turnkey-rehearse`/);
   assert.match(output, /\[ready\] Cloudflare auth: CLOUDFLARE_API_TOKEN is set/);
   assert.match(output, /\[ready\] D1 binding: DB binds database glyph/);
   assert.match(output, /\[ready\] D1 database_id: non-placeholder/);
@@ -304,6 +315,44 @@ test("readiness report handles missing Wrangler config as a report item", () => 
   assert.match(output, /\[manual\] Cloudflare auth: No CLOUDFLARE_API_TOKEN detected/);
 });
 
+test("turnkey rehearsal report summarizes the full operator path without mutation", () => {
+  const output = formatTurnkeyRehearsalReport(buildTurnkeyRehearsalReport(parseArgs(["--turnkey-rehearse", "--public-base-url", "https://files.example.com"]), {
+    nodeVersion: "v25.0.0",
+    isInteractive: false,
+    env: {
+      CLOUDFLARE_API_TOKEN: "token"
+    },
+    packageJsonText: JSON.stringify({ version: "9.9.9", packageManager: "pnpm@11.0.8" }),
+    projectFiles: {
+      "package.json": true,
+      "pnpm-lock.yaml": true,
+      "wrangler.jsonc": true,
+      migrations: true,
+      "src/index.ts": true
+    },
+    configText: validWranglerConfig.replace("real-database-id", "00000000-0000-0000-0000-000000000000")
+  }));
+
+  assert.match(output, /Glyph turnkey deploy rehearsal report/);
+  assert.match(output, /Read-only rehearsal/);
+  assert.match(output, /\[ready\] Package version: Glyph 9\.9\.9/);
+  assert.match(output, /\[ready\] Cloudflare auth: CLOUDFLARE_API_TOKEN is set/);
+  assert.match(output, /D1\/R2 discovery/);
+  assert.match(output, /placeholder database_id is configured/);
+  assert.match(output, /--reuse-resources --d1-database-id <real-id>/);
+  assert.match(output, /Remote D1 migration gate/);
+  assert.match(output, /Worker deploy gate/);
+  assert.match(output, /turnkey-secrets/);
+  assert.match(output, /R2 CORS follow-up/);
+  assert.match(output, /verify-domain --public-base-url https:\/\/files\.example\.com/);
+  assert.match(output, /Passkeys are origin-bound/);
+  assert.match(output, /turnkey-schedule/);
+  assert.match(output, /Recommended command order/);
+  assert.match(output, /Partial setup recovery/);
+  assert.match(output, /No D1\/R2 creation, no local config writes/);
+  assert.doesNotMatch(output, /secret-value/);
+});
+
 test("remote migration plan keeps apply behind explicit confirmation", () => {
   assert.match(buildRemoteMigrationPlan(parseArgs(["--check"])).join("\n"), /only lists remote D1 migrations/);
   assert.match(buildRemoteMigrationPlan(parseArgs(["--yes"])).join("\n"), /--yes explicitly permits applying remote D1 migrations/);
@@ -348,9 +397,11 @@ test("turnkey plan is planning-first and reports setup, config, checks, and foll
   );
   assert.match(plan.map((item) => item.detail).join("\n"), /will not deploy until a real ID is supplied or captured/);
   assert.match(plan.map((item) => item.detail).join("\n"), /custom-domain route hints/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /--turnkey-rehearse/);
   assert.match(plan.map((item) => item.detail).join("\n"), /--turnkey-schedule/);
   assert.match(plan.map((item) => item.detail).join("\n"), /--verify-domain/);
   assert.match(plan.map((item) => item.label).join("\n"), /Verify custom-domain attachment/);
+  assert.match(plan.map((item) => item.label).join("\n"), /Rehearse end-to-end deploy/);
   assert.match(plan.map((item) => item.label).join("\n"), /Configure scheduled trigger readiness/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler d1 list --json/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler r2 bucket list/);

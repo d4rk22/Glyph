@@ -424,6 +424,12 @@ Phase 63 scheduled-trigger setup planning maintenance release is in place:
 - The release highlights the `--turnkey-schedule` planning workflow, confirmed local-only `--turnkey-schedule --yes` config update path, conservative `triggers.crons` suggestion, read-only update-check versus storage/R2 maintenance guidance, protected `/admin` opt-in reminders, readiness/turnkey integration, and no-Cloudflare-mutation safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 64 turnkey deploy rehearsal is in place:
+
+- `pnpm run deploy:glyph -- --turnkey-rehearse` prints one end-to-end, read-only operator report before local config or Cloudflare resources are changed.
+- The report summarizes local prerequisites, package version, Cloudflare auth, D1/R2 discovery or creation plans, Wrangler config readiness, placeholder D1 IDs, remote migration and deploy gates, direct/multipart secret and R2 CORS follow-up, custom-domain verification, scheduled-trigger setup, expected public/admin URLs, `/health` checks, and recovery steps.
+- The rehearsal makes the next recommended command clear for each blocked or manual item while preserving the no-D1/R2-creation, no-config-write, no-secret-storage, no-CORS-application, no-migration, no-deploy, no-DNS/custom-domain/scheduled-trigger, no-release, no-update, and no-Cloudflare-mutation safety boundary.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -444,10 +450,11 @@ The committed `pnpm-lock.yaml` is the source of truth for dependency resolution.
 Preview the fresh-checkout turnkey deployment plan:
 
 ```sh
+pnpm run deploy:glyph -- --turnkey-rehearse
 pnpm run deploy:glyph -- --turnkey
 ```
 
-The turnkey plan is read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
+Use `--turnkey-rehearse` first when you want one operator-facing report that covers the full fresh-checkout-to-deploy path without changing anything. The regular turnkey plan is also read-only by default. When you are ready for the helper to mutate local config and Cloudflare resources, run:
 
 ```sh
 pnpm run deploy:glyph -- --turnkey --yes
@@ -832,6 +839,14 @@ pnpm run deploy:glyph -- --readiness
 
 Readiness mode is always read-only. It summarizes local prerequisites, package version, Cloudflare auth mode, Wrangler D1/R2 bindings, placeholder D1 IDs, `APP_ENV`, `PUBLIC_BASE_URL`, custom-domain route hints, scheduled trigger presence, configured D1/R2 names, remote migration gates, direct/multipart secret readiness, R2 CORS recommendations, Worker-mediated fallback, expected `/health` and `/admin` checks, and the safety boundary. It does not run Cloudflare discovery commands, store secrets, apply CORS, apply remote migrations, deploy, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, or mutate Cloudflare resources.
 
+For one end-to-end deploy rehearsal before changing local config or Cloudflare resources, run:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-rehearse
+```
+
+Turnkey rehearsal is always read-only. It produces a single operator report that walks the full path from fresh checkout to deployed Glyph: local prerequisites and package version, Cloudflare auth/token readiness, D1/R2 discovery or creation plan, Wrangler config and placeholder D1 ID state, remote migration and deploy gates, direct/multipart secrets and R2 CORS follow-up, custom-domain setup/verification follow-up, scheduled-trigger and protected `/admin` opt-in follow-up, expected public/admin URLs, `/health` verification, and partial-setup recovery. Each blocked or manual item includes the next command to run, such as `--turnkey`, `--turnkey --yes`, `--turnkey-secrets`, `--turnkey-domain`, `--verify-domain`, or `--turnkey-schedule`.
+
 For custom-domain setup planning, preview the guided domain plan:
 
 ```sh
@@ -887,10 +902,11 @@ That command runs `wrangler secret put` interactively for required direct/multip
 For the fewest first-deploy steps, start with turnkey mode:
 
 ```sh
+pnpm run deploy:glyph -- --turnkey-rehearse
 pnpm run deploy:glyph -- --turnkey
 ```
 
-This prints the full plan and readiness report without changing local files or Cloudflare resources. Confirmed turnkey mode is explicit:
+The rehearsal prints one full operator report without changing local files or Cloudflare resources. The turnkey plan prints the action plan and readiness report, also without mutation. Confirmed turnkey mode is explicit:
 
 ```sh
 pnpm run deploy:glyph -- --turnkey --yes
@@ -921,7 +937,7 @@ After the operator-owned custom-domain attachment is complete, turnkey/readiness
 
 Turnkey and readiness output also point operators to `pnpm run deploy:glyph -- --turnkey-schedule` for optional scheduled-trigger setup planning. That workflow can write reviewed local `triggers.crons` with `--yes`, but it never creates Cloudflare scheduled triggers through the API, deploys Workers, applies migrations, enables admin settings, or mutates Cloudflare resources.
 
-Turnkey recovery output includes common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, and direct/multipart upload credential or CORS readiness. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
+Turnkey rehearsal and recovery output include common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, direct/multipart upload credential or CORS readiness, custom-domain route/health issues, and scheduled-trigger/admin opt-in follow-up. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
 
 After replacing the D1 placeholder ID and confirming Wrangler is authenticated, run a safe deployment check:
 
@@ -984,6 +1000,7 @@ The deploy helper also reports:
 - Custom-domain `/health`, expected `/admin`, route-hint, passkey origin, and R2 CORS alignment verification when run with `--verify-domain`.
 - Scheduled-trigger cron inspection, local config suggestions, admin opt-in follow-up, and safety boundaries when run with `--turnkey-schedule`.
 - Consolidated status labels and operator-owned follow-up when run with `--readiness`.
+- End-to-end fresh-checkout-to-deploy rehearsal, next-command recommendations, and partial-setup recovery guidance when run with `--turnkey-rehearse`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
