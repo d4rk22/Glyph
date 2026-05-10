@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   buildAuthReadinessLines,
   buildCustomDomainSetupPlan,
+  buildCustomDomainVerificationPlan,
+  buildCustomDomainVerificationRecoveryLines,
   buildCustomDomainWranglerConfig,
   buildDirectUploadReadinessLines,
   buildDirectUploadSetupPlan,
@@ -20,6 +22,7 @@ import {
   buildTurnkeyWranglerConfig,
   buildSetupPlan,
   buildDeploySteps,
+  checkCustomDomainHealth,
   classifyWranglerFailure,
   DEFAULT_BUCKET_NAME,
   DEFAULT_DRY_RUN_OUTDIR,
@@ -57,6 +60,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    verifyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -76,6 +80,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    verifyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: true,
@@ -95,6 +100,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    verifyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -114,6 +120,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: true,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    verifyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -137,6 +144,9 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-domain", "--yes", "--public-base-url", "https://files.example.com"]).yes, true);
   assert.throws(() => parseArgs(["--turnkey-domain", "--check"]), /turnkey-domain by itself/);
   assert.throws(() => parseArgs(["--turnkey-domain", "--apply-cors"]), /turnkey-domain by itself/);
+  assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
+  assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
+  assert.throws(() => parseArgs(["--verify-domain", "--turnkey-domain", "--public-base-url", "https://files.example.com"]), /turnkey-domain by itself|verify-domain by itself/);
   assert.equal(parseArgs(["--readiness"]).readiness, true);
   assert.equal(parseArgs(["--", "--readiness"]).readiness, true);
   assert.throws(() => parseArgs(["--readiness", "--yes"]), /read-only report mode/);
@@ -224,6 +234,8 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
   assert.match(output, /\[ready\] R2 binding: FILES binds bucket glyph-files/);
   assert.match(output, /\[ready\] Scheduled triggers: Configured cron trigger/);
   assert.match(output, /turnkey-domain/);
+  assert.match(output, /verify-domain/);
+  assert.match(output, /Custom-domain verification/);
   assert.match(output, /\[manual\] Remote migrations: Readiness mode does not list or apply remote migrations/);
   assert.match(output, /\[manual\] R2 CORS recommendation: Allow browser PUT requests from https:\/\/files\.example\.com/);
   assert.match(output, /turnkey-secrets/);
@@ -322,6 +334,8 @@ test("turnkey plan is planning-first and reports setup, config, checks, and foll
   );
   assert.match(plan.map((item) => item.detail).join("\n"), /will not deploy until a real ID is supplied or captured/);
   assert.match(plan.map((item) => item.detail).join("\n"), /custom-domain route hints/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /--verify-domain/);
+  assert.match(plan.map((item) => item.label).join("\n"), /Verify custom-domain attachment/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler d1 list --json/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler r2 bucket list/);
   assert.match(plan.map((item) => item.label).join("\n"), /Print live URLs/);
@@ -408,8 +422,127 @@ test("custom-domain setup plan validates origin route hints and manual follow-up
   assert.match(output, /certificate readiness/);
   assert.match(output, /Passkeys are origin-bound/);
   assert.match(output, /Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /--verify-domain/);
   assert.match(output, /Worker-mediated uploads remain available/);
   assert.match(output, /never creates DNS records/);
+});
+
+test("custom-domain verification plan reports route health passkey CORS and recovery guidance", () => {
+  const config = JSON.stringify({
+    name: "glyph",
+    main: "src/index.ts",
+    vars: { APP_ENV: "production", PUBLIC_BASE_URL: "https://files.example.com" },
+    routes: ["files.example.com/*"],
+    d1_databases: [
+      {
+        binding: "DB",
+        database_name: "glyph",
+        database_id: "real-database-id",
+        migrations_dir: "migrations"
+      }
+    ],
+    r2_buckets: [{ binding: "FILES", bucket_name: "glyph-files" }]
+  });
+  const plan = buildCustomDomainVerificationPlan(
+    parseArgs(["--verify-domain"]),
+    config,
+    {
+      status: "ready",
+      ok: true,
+      detail: "https://files.example.com/health returned ok for Glyph.",
+      recovery: null
+    }
+  );
+  const output = plan.items.map((item) => `${item.status} ${item.label}: ${item.detail}`).join("\n");
+
+  assert.equal(plan.origin, "https://files.example.com");
+  assert.deepEqual(plan.routeHosts, ["files.example.com"]);
+  assert.deepEqual(plan.matchingRoutes, ["files.example.com"]);
+  assert.match(output, /ready Compare Wrangler route hints/);
+  assert.match(output, /ready Check custom-domain health/);
+  assert.match(output, /Expected admin URL: https:\/\/files\.example\.com\/admin/);
+  assert.match(output, /Passkeys are origin-bound/);
+  assert.match(output, /Allow browser PUT requests from https:\/\/files\.example\.com/);
+  assert.match(output, /read-only/);
+
+  const mismatchPlan = buildCustomDomainVerificationPlan(
+    parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]),
+    config.replace("files.example.com/*", "old.example.com/*"),
+    {
+      status: "blocked",
+      ok: false,
+      detail: "https://files.example.com/health could not be reached: fetch failed",
+      recovery: "Confirm DNS is propagated, HTTPS certificate is active, the custom domain is attached to the Worker, and the Worker is deployed."
+    }
+  );
+  const mismatchOutput = mismatchPlan.items.map((item) => `${item.status} ${item.label}: ${item.detail}`).join("\n");
+  assert.deepEqual(mismatchPlan.matchingRoutes, []);
+  assert.match(mismatchOutput, /needs attention Compare Wrangler route hints/);
+  assert.match(mismatchOutput, /Route mismatch/);
+  assert.match(mismatchOutput, /HTTPS certificate is active/);
+});
+
+test("custom-domain verification recovery lines cover common operator issues", () => {
+  const lines = buildCustomDomainVerificationRecoveryLines({
+    validationError: "vars.PUBLIC_BASE_URL must use https:// for deployed custom-domain passkeys and short links.",
+    origin: null,
+    host: null,
+    routeHosts: [],
+    matchingRoutes: [],
+    health: {
+      recovery: "Run the verification command from a networked terminal after manually attaching the custom domain."
+    }
+  }).join("\n");
+
+  assert.match(lines, /Invalid origin/);
+  assert.match(lines, /origin-only https URL/);
+  assert.match(lines, /No origin/);
+  assert.match(lines, /networked terminal/);
+});
+
+test("custom-domain health check maps success and failure results", async () => {
+  const ok = await checkCustomDomainHealth(
+    "https://files.example.com",
+    async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, app: "glyph" })
+    })
+  );
+  assert.equal(ok.status, "ready");
+  assert.equal(ok.ok, true);
+
+  const wrongWorker = await checkCustomDomainHealth(
+    "https://files.example.com",
+    async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, app: "other" })
+    })
+  );
+  assert.equal(wrongWorker.status, "needs attention");
+  assert.match(wrongWorker.recovery ?? "", /attached to this Glyph Worker/);
+
+  const httpError = await checkCustomDomainHealth(
+    "https://files.example.com",
+    async () => ({
+      ok: false,
+      status: 525,
+      text: async () => "ssl handshake failed"
+    })
+  );
+  assert.equal(httpError.status, "blocked");
+  assert.match(httpError.detail, /HTTP 525/);
+
+  const fetchError = await checkCustomDomainHealth(
+    "https://files.example.com",
+    async () => {
+      throw new Error("getaddrinfo ENOTFOUND");
+    },
+    { timeoutMs: 1 }
+  );
+  assert.equal(fetchError.status, "blocked");
+  assert.match(fetchError.recovery, /DNS is propagated/);
 });
 
 test("custom-domain config suggestion is gated and local-only", () => {

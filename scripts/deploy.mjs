@@ -20,6 +20,7 @@ export function parseArgs(argv) {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    verifyDomain: false,
     applyCors: false,
     readiness: false,
     skipInstall: false,
@@ -48,6 +49,8 @@ export function parseArgs(argv) {
       options.turnkeySecrets = true;
     } else if (arg === "--turnkey-domain") {
       options.turnkeyDomain = true;
+    } else if (arg === "--verify-domain") {
+      options.verifyDomain = true;
     } else if (arg === "--apply-cors") {
       options.applyCors = true;
     } else if (arg === "--readiness") {
@@ -102,19 +105,23 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.verifyDomain)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
+  }
+
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.applyCors)) {
+    throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
   }
 
   if (options.applyCors && (!options.turnkeySecrets || !options.yes)) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -463,6 +470,11 @@ export function buildTurnkeyPlan(options, configText = null) {
       label: "Configure custom-domain readiness",
       mutates: false,
       detail: "For a custom domain, run pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com to review local PUBLIC_BASE_URL, route hints, passkey origin notes, R2 CORS alignment, and manual Cloudflare follow-up."
+    },
+    {
+      label: "Verify custom-domain attachment",
+      mutates: false,
+      detail: "After manually attaching DNS/custom-domain routing in Cloudflare, run pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com to check route hints, /health, /admin, passkey origin guidance, and R2 CORS alignment without mutating anything."
     },
     {
       label: "Run checks, migrations, dry-run, and deploy",
@@ -822,6 +834,14 @@ export function buildCustomDomainSetupPlan(options, configText = null) {
         : "Choose the final hostname, confirm its Cloudflare zone, create DNS, attach the Worker route/custom domain, and wait for certificate readiness."
     },
     {
+      label: "Verify attached custom domain",
+      command: origin ? ["pnpm", "run", "deploy:glyph", "--", "--verify-domain", "--public-base-url", origin] : undefined,
+      mutates: false,
+      detail: origin
+        ? `After manual DNS/custom-domain attachment and certificate readiness, run pnpm run deploy:glyph -- --verify-domain --public-base-url ${origin} to check ${origin}/health, route hints, ${origin}/admin, passkey origin guidance, and R2 CORS alignment.`
+        : "After the final origin is known and attached manually in Cloudflare, run --verify-domain to check health and configuration alignment."
+    },
+    {
       label: "Passkey origin guidance",
       mutates: false,
       detail: origin
@@ -856,6 +876,193 @@ export function buildCustomDomainSetupPlan(options, configText = null) {
     configUpdate,
     validationError: validation.error
   };
+}
+
+export function buildCustomDomainVerificationPlan(options, configText = null, healthResult = null) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  const configuredPublicBaseUrl = typeof config?.vars?.PUBLIC_BASE_URL === "string" && config.vars.PUBLIC_BASE_URL.trim().length > 0
+    ? config.vars.PUBLIC_BASE_URL.trim()
+    : null;
+  const publicBaseUrl = options.publicBaseUrl ?? configuredPublicBaseUrl;
+  const validation = publicBaseUrl ? validatePublicBaseUrl(publicBaseUrl) : { url: null, error: "PUBLIC_BASE_URL or --public-base-url is required for custom-domain verification." };
+  const origin = validation.url?.origin ?? null;
+  const host = validation.url?.hostname.toLowerCase() ?? null;
+  const routeHosts = config ? wranglerRouteHosts(config) : [];
+  const matchingRoutes = host ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, host)) : [];
+  const health = healthResult ?? {
+    status: origin ? "manual" : "blocked",
+    ok: false,
+    detail: origin
+      ? `Health check not run yet. Expected endpoint: ${origin}/health.`
+      : "Health check cannot run until a valid custom-domain origin is supplied.",
+    recovery: origin
+      ? "Run the verification command from a networked terminal after manually attaching the custom domain."
+      : "Set vars.PUBLIC_BASE_URL or pass --public-base-url with an origin-only https URL."
+  };
+  const cors = buildR2CorsRecommendation(configText, {
+    bucket: options.bucket,
+    publicBaseUrl: origin
+  });
+  const items = [
+    {
+      label: "Validate custom-domain origin",
+      status: validation.error ? "blocked" : "ready",
+      detail: validation.error
+        ? validation.error
+        : `${origin} is an origin-only https URL.`
+    },
+    {
+      label: "Compare Wrangler route hints",
+      status: matchingRoutes.length > 0 ? "ready" : routeHosts.length > 0 ? "needs attention" : "manual",
+      detail: routeHosts.length > 0
+        ? `Configured route/custom-domain host(s): ${routeHosts.join(", ")}. ${matchingRoutes.length > 0 ? `Matching host(s): ${matchingRoutes.join(", ")}.` : host ? `No configured route host currently matches ${host}.` : ""}`
+        : "No local Wrangler route/custom-domain hints are configured; verify attachment in Cloudflare."
+    },
+    {
+      label: "Check custom-domain health",
+      status: health.status,
+      detail: health.detail
+    },
+    {
+      label: "Admin URL and passkey origin",
+      status: origin ? "manual" : "blocked",
+      detail: origin
+        ? `Expected admin URL: ${origin}/admin. Passkeys are origin-bound; bootstrap or re-register the admin passkey from that exact origin.`
+        : "Admin URL cannot be reported until the final origin is known. Passkeys are origin-bound."
+    },
+    {
+      label: "R2 CORS alignment",
+      status: cors.origin ? "manual" : "needs attention",
+      detail: cors.summary
+    },
+    {
+      label: "Recovery guidance",
+      status: "manual",
+      detail: buildCustomDomainVerificationRecoveryLines({
+        validationError: validation.error,
+        origin,
+        host,
+        routeHosts,
+        matchingRoutes,
+        health
+      }).join(" ")
+    },
+    {
+      label: "Safety boundary",
+      status: "ready",
+      detail: "This workflow is read-only. It never creates DNS records, zones, certificates, custom domains, scheduled triggers, GitHub releases, deploys Workers, applies remote migrations, stores secrets, executes updates, applies R2 CORS, or mutates Cloudflare resources."
+    }
+  ];
+
+  return {
+    items,
+    origin,
+    host,
+    routeHosts,
+    matchingRoutes,
+    health,
+    cors,
+    validationError: validation.error
+  };
+}
+
+export function buildCustomDomainVerificationRecoveryLines(context) {
+  const lines = [];
+  if (context.validationError) {
+    lines.push(`Invalid origin: ${context.validationError} Use an origin-only https URL such as https://files.example.com.`);
+  }
+  if (!context.origin) {
+    lines.push("No origin: set vars.PUBLIC_BASE_URL in wrangler.jsonc or pass --public-base-url.");
+  }
+  if (context.origin && context.routeHosts.length === 0) {
+    lines.push("Missing route hints: add a reviewed Wrangler route/custom-domain hint or verify the Worker attachment manually in Cloudflare.");
+  }
+  if (context.origin && context.routeHosts.length > 0 && context.matchingRoutes.length === 0) {
+    lines.push(`Route mismatch: align PUBLIC_BASE_URL host ${context.host} with Wrangler route/custom-domain host(s): ${context.routeHosts.join(", ")}.`);
+  }
+  if (context.health?.recovery) {
+    lines.push(context.health.recovery);
+  }
+  if (context.origin) {
+    lines.push(`Verify the reachable origin is exactly ${context.origin}; generated links and passkeys should use the same origin.`);
+    lines.push("If direct or multipart uploads are enabled, ensure R2 CORS allows browser PUT requests from this origin and exposes ETag.");
+  }
+  return [...new Set(lines)];
+}
+
+export async function checkCustomDomainHealth(origin, fetchImpl = globalThis.fetch, options = {}) {
+  if (!origin) {
+    return {
+      status: "blocked",
+      ok: false,
+      detail: "Health check cannot run until a valid custom-domain origin is supplied.",
+      recovery: "Set vars.PUBLIC_BASE_URL or pass --public-base-url with an origin-only https URL."
+    };
+  }
+
+  if (typeof fetchImpl !== "function") {
+    return {
+      status: "manual",
+      ok: false,
+      detail: `Fetch is not available in this runtime. Manually open ${origin}/health.`,
+      recovery: "Run the verification command from a Node.js runtime with fetch support or check the URL manually."
+    };
+  }
+
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(`${origin}/health`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      return {
+        status: "blocked",
+        ok: false,
+        detail: `${origin}/health returned HTTP ${response.status}.`,
+        recovery: "Confirm DNS/custom-domain attachment points to the Glyph Worker and that the Worker is deployed."
+      };
+    }
+
+    if (payload?.ok === true && payload?.app === "glyph") {
+      return {
+        status: "ready",
+        ok: true,
+        detail: `${origin}/health returned ok for Glyph.`,
+        recovery: null
+      };
+    }
+
+    return {
+      status: "needs attention",
+      ok: false,
+      detail: `${origin}/health responded, but the body did not look like Glyph health JSON.`,
+      recovery: "Confirm the custom domain is attached to this Glyph Worker, not another Worker or origin."
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const aborted = error instanceof Error && error.name === "AbortError";
+    return {
+      status: "blocked",
+      ok: false,
+      detail: aborted ? `${origin}/health timed out after ${timeoutMs}ms.` : `${origin}/health could not be reached: ${message}`,
+      recovery: aborted
+        ? "Confirm DNS/custom-domain attachment and Worker deployment, then retry from a network with access to the domain."
+        : "Confirm DNS is propagated, HTTPS certificate is active, the custom domain is attached to the Worker, and the Worker is deployed."
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function readinessItem(status, label, detail) {
@@ -1106,6 +1313,13 @@ export function buildReadinessReport(options, context = {}) {
         "manual",
         "Guided custom-domain setup",
         "Run `pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com` to review PUBLIC_BASE_URL, Wrangler route hints, passkey origin guidance, R2 CORS alignment, and manual Cloudflare follow-up."
+      )
+    );
+    configItems.push(
+      readinessItem(
+        "manual",
+        "Custom-domain verification",
+        "After manual DNS/custom-domain attachment, run `pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com` to validate the final origin, compare route hints, check /health, report /admin, and confirm R2 CORS alignment."
       )
     );
     configItems.push(
@@ -1375,6 +1589,7 @@ Usage:
   pnpm run deploy:glyph -- --turnkey-secrets --yes
   pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.example.com
+  pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
   pnpm run deploy:glyph -- --yes
@@ -1384,6 +1599,7 @@ Options:
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
+  --verify-domain     Read-only check of a manually attached custom domain, /health, /admin, and CORS guidance.
   --apply-cors        With --turnkey-secrets --yes, apply reviewed R2 CORS using Wrangler.
   --readiness         Print a consolidated read-only deployment readiness report.
   --check             Run validation, remote migration check, tests, and dry-run without deploying. Default.
@@ -1405,6 +1621,8 @@ Custom domain readiness:
   --turnkey-domain is a non-mutating plan by default. --turnkey-domain --yes may write reviewed
   local wrangler.jsonc PUBLIC_BASE_URL and route hints only; it never creates DNS records, zones,
   certificates, custom domains, deploys, applies migrations, stores secrets, or mutates Cloudflare resources.
+  --verify-domain is always read-only. It checks the final origin shape, local route hints, /health when
+  network access is available, expected /admin URL, passkey origin guidance, and R2 CORS alignment.
 
 Scheduled update check readiness:
   Optional read-only scheduled update checks require a Wrangler cron trigger plus a valid update source
@@ -1441,6 +1659,7 @@ export function validateProject(rootDir, options) {
   const warnings = [];
   const requiredFiles = options.turnkey
     || options.turnkeyDomain
+    || options.verifyDomain
     ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
     : ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
 
@@ -1766,6 +1985,29 @@ function printCustomDomainSetupPlan(plan) {
   }
 }
 
+function printCustomDomainVerificationPlan(plan) {
+  console.log("\nCustom-domain verification details:");
+  if (plan.origin) {
+    console.log(`Final origin: ${plan.origin}`);
+    console.log(`Expected health URL: ${plan.origin}/health`);
+    console.log(`Expected admin URL: ${plan.origin}/admin`);
+  } else {
+    console.log("Final origin: not configured yet");
+  }
+  console.log(plan.routeHosts.length > 0 ? `Configured route hosts: ${plan.routeHosts.join(", ")}` : "Configured route hosts: none");
+  console.log(plan.matchingRoutes.length > 0 ? `Matching route hosts: ${plan.matchingRoutes.join(", ")}` : "Matching route hosts: none");
+  console.log(`Health status: ${plan.health.status}`);
+  console.log(`Health detail: ${plan.health.detail}`);
+  if (plan.health.recovery) {
+    console.log(`Health recovery: ${plan.health.recovery}`);
+  }
+  printSetupPlan(plan.items);
+  console.log("\nR2 CORS alignment:");
+  for (const line of plan.cors.lines) {
+    console.log(line);
+  }
+}
+
 function runSetupCommands(plan, rootDir) {
   for (const item of plan) {
     if (item.mutates && item.command) {
@@ -1838,6 +2080,35 @@ function runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath) {
   }
 
   console.log("Custom-domain local config update complete. Configure DNS/custom-domain attachment in Cloudflare, verify certificate readiness, align R2 CORS with the final origin, then run deploy readiness checks.");
+  return 0;
+}
+
+async function runCustomDomainVerification(effectiveOptions, wranglerPath) {
+  const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const initialPlan = buildCustomDomainVerificationPlan(effectiveOptions, configText);
+  const health = initialPlan.origin && !initialPlan.validationError
+    ? await checkCustomDomainHealth(initialPlan.origin)
+    : initialPlan.health;
+  const plan = buildCustomDomainVerificationPlan(effectiveOptions, configText, health);
+
+  console.log("Glyph custom-domain verification: read-only check; no local files or Cloudflare resources will be changed.");
+  if (configText) {
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+  } else {
+    console.log("Wrangler config: wrangler.jsonc not found; using supplied --public-base-url only.");
+  }
+  printCustomDomainVerificationPlan(plan);
+
+  if (plan.validationError) {
+    console.log("\nCustom-domain verification finished with a blocked origin configuration. Fix the origin and rerun the same command.");
+  } else if (plan.health.ok) {
+    console.log("\nCustom-domain verification finished: /health responded as Glyph. Confirm /admin and passkeys on the same origin before relying on the domain.");
+  } else {
+    console.log("\nCustom-domain verification finished with operator follow-up. Review the recovery guidance above before sharing links from this origin.");
+  }
+
   return 0;
 }
 
@@ -2087,7 +2358,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.verifyDomain ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -2113,6 +2384,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (effectiveOptions.turnkeyDomain) {
     return runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath);
+  }
+
+  if (effectiveOptions.verifyDomain) {
+    return runCustomDomainVerification(effectiveOptions, wranglerPath);
   }
 
   if (effectiveOptions.setup) {

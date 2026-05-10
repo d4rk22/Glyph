@@ -170,6 +170,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Consolidated deploy readiness maintenance releases can keep the public release/update channel aligned with readiness reporting, documented script invocation fixes, and Wrangler JSONC parsing hardening while preserving the conservative source-only release model.
 - Confirmed direct/multipart setup can run required `wrangler secret put` prompts only with explicit confirmation and can apply reviewed R2 CORS only with an additional explicit flag, while keeping Worker deploy, migrations, DNS/custom domains, scheduled triggers, releases, updates, and unrelated Cloudflare resources out of scope.
 - Guided custom-domain setup planning can validate the final public origin, inspect Wrangler route hints, print manual Cloudflare DNS/domain/certificate/passkey steps, align R2 CORS guidance with the final origin, and write only reviewed local config hints with explicit confirmation while leaving Cloudflare DNS/custom-domain mutations operator-owned.
+- Custom-domain verification can read a configured or supplied final origin, compare local route hints, check `/health` when network access is available, report the expected `/admin` URL and passkey origin boundary, align R2 CORS guidance, and print recovery steps without mutating local files or Cloudflare resources.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -227,3 +228,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 55. Publish the confirmed turnkey secret setup and R2 CORS maintenance release. Completed.
 56. Add guided custom-domain setup planning for turnkey deploy. Completed.
 57. Publish the guided custom-domain setup maintenance release. Completed.
+58. Add custom-domain verification checks for turnkey deploy. Completed.

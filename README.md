@@ -385,6 +385,13 @@ Phase 57 guided custom-domain setup maintenance release is in place:
 - The release highlights the `--turnkey-domain` planning workflow, confirmed local-only `--turnkey-domain --yes` config update path, `PUBLIC_BASE_URL` origin validation, Wrangler route hint reporting, manual Cloudflare DNS/custom-domain/certificate guidance, passkey origin guidance, R2 CORS alignment, and readiness/turnkey integration.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 58 custom-domain verification checks are in place:
+
+- `pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com` performs a read-only verification pass after the operator has manually attached DNS/custom-domain routing in Cloudflare.
+- The check validates the final origin, compares local Wrangler route/custom-domain hints, requests `/health` when network access is available, reports the expected `/admin` URL, reminds operators that passkeys are origin-bound, and keeps R2 CORS guidance aligned with the final origin.
+- Recovery output covers invalid origins, missing or mismatched route hints, DNS/custom-domain attachment gaps, certificate/HTTPS failures, Worker health failures, and `PUBLIC_BASE_URL` versus reachable-origin mismatches.
+- The workflow never creates DNS records, zones, certificates, custom domains, scheduled triggers, releases, deploys Workers, applies migrations, stores secrets, executes updates, applies R2 CORS, or mutates Cloudflare resources.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -522,6 +529,14 @@ pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url 
 For a custom domain, configure Cloudflare so the Worker is reachable at the desired `https://` origin, then set `vars.PUBLIC_BASE_URL` in `wrangler.jsonc` to that exact origin, for example `https://files.example.com`. Keep it origin-only: no path, query string, or fragment. Generated short links use this value, and passkeys registered for `/admin` are bound to that origin. If direct-to-R2 or multipart uploads are enabled, the R2 bucket CORS allowed origin must match the deployed Glyph origin.
 
 Use `pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com` when you want the deploy helper to turn those custom-domain requirements into a checklist and local config suggestion. Use `--yes` only after reviewing the suggestion; the helper still leaves Cloudflare DNS/custom-domain attachment and certificate readiness to the operator.
+
+After the custom domain has been attached manually in Cloudflare, verify it with:
+
+```sh
+pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com
+```
+
+The verification workflow is read-only. It validates the origin, compares local Wrangler route hints, checks `https://files.example.com/health` when network access is available, reports `https://files.example.com/admin`, reminds you that passkeys are bound to that exact origin, and repeats the R2 CORS allowed-origin guidance for direct/multipart uploads. If the domain is not ready yet, it prints recovery guidance for DNS/custom-domain attachment, certificate/HTTPS failures, Worker health failures, missing route hints, route mismatches, and `PUBLIC_BASE_URL` alignment.
 
 After deploy, verify the deployed origin before sharing links: open `/health` and confirm the JSON response is ok, then open `/admin` on the same origin to bootstrap or sign in. If `PUBLIC_BASE_URL` is configured, the deploy helper prints the exact public and admin URLs. Otherwise, use the workers.dev or custom-domain URL printed by Wrangler deploy.
 
@@ -790,6 +805,14 @@ pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.
 
 That command can set `vars.PUBLIC_BASE_URL` and add a Wrangler route hint such as `files.example.com/*` with `custom_domain=true`. It does not create DNS records, zones, certificates, custom domains, scheduled triggers, deploy Workers, apply remote migrations, store secrets, or mutate Cloudflare resources. Afterward, attach the Worker to the custom domain in Cloudflare, wait for certificate readiness, verify `/health`, and bootstrap or re-register the admin passkey from the final `/admin` origin.
 
+For read-only verification after manual Cloudflare custom-domain attachment, run:
+
+```sh
+pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com
+```
+
+This validates the final origin, compares local Wrangler route hints, checks `/health` from the custom-domain origin when network access is available, reports the expected `/admin` URL, repeats passkey origin guidance, and confirms the R2 CORS recommendation matches the final origin. It does not deploy, apply migrations, write config, apply CORS, create DNS/custom-domain resources, or mutate Cloudflare resources.
+
 For direct-to-R2 or multipart upload setup after the basic Worker/D1/R2 path is ready, preview the guided secret/CORS plan:
 
 ```sh
@@ -836,6 +859,8 @@ Turnkey mode does not store secrets in source-controlled files. It also does not
 Turnkey output points operators to `pnpm run deploy:glyph -- --turnkey-secrets` for direct/multipart upload secret and CORS setup. That workflow can set required Wrangler secrets interactively with `--yes` and can apply reviewed R2 CORS only with `--yes --apply-cors`; it does not deploy Workers or apply migrations.
 
 Turnkey output also points operators to `pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com` for custom-domain setup planning. That workflow can write reviewed local `PUBLIC_BASE_URL` and route hints with `--yes`, but it never creates DNS records, zones, certificates, custom domains, deploys Workers, applies migrations, or mutates Cloudflare resources.
+
+After the operator-owned custom-domain attachment is complete, turnkey/readiness output points operators to `pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com` for a read-only `/health`, `/admin`, route-hint, passkey-origin, and R2 CORS alignment check.
 
 Turnkey recovery output includes common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, and direct/multipart upload credential or CORS readiness. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
 
@@ -897,6 +922,7 @@ The deploy helper also reports:
 - Turnkey setup/deploy actions and manual follow-up steps when run with `--turnkey`.
 - Direct/multipart secret and CORS setup actions when run with `--turnkey-secrets`.
 - Custom-domain origin, route-hint, passkey origin, and R2 CORS alignment guidance when run with `--turnkey-domain`.
+- Custom-domain `/health`, expected `/admin`, route-hint, passkey origin, and R2 CORS alignment verification when run with `--verify-domain`.
 - Consolidated status labels and operator-owned follow-up when run with `--readiness`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
