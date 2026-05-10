@@ -496,6 +496,13 @@ Phase 74 fresh-instance turnkey deploy validation is in place:
 - The pass found and fixed one operator-facing wording issue: exported preflight checklist files now describe themselves as local deployment-note artifacts instead of saying no files were written.
 - The validation was intentionally non-mutating. Real Cloudflare D1/R2 creation or reuse, remote migration application, Worker deploy, secret prompts, R2 CORS application, DNS/custom-domain attachment, scheduled trigger activation, passkey bootstrap, and file upload were not performed in this environment.
 
+Phase 75 fresh-instance deploy validation maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.6`.
+- `v0.3.6` publishes the fresh-instance deploy validation and operator-friction fixes through the GitHub release channel.
+- The release highlights the fresh-checkout style deploy validation pass, exercised readiness/rehearsal/preflight/turnkey/setup/secrets/custom-domain/scheduled/post-deploy/update-helper paths, exported preflight wording fix, clearer missing-`pnpm` Corepack recovery message, and documented dry-run/planning versus real Cloudflare account proof boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

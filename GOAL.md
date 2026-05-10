@@ -259,3 +259,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 72. Add downloadable preflight checklist output. Completed.
 73. Publish the downloadable preflight checklist maintenance release. Completed.
 74. Validate fresh-instance turnkey deploy and fix operator friction. Completed.
+75. Publish the fresh-instance deploy validation maintenance release. Completed.
