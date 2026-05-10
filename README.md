@@ -516,6 +516,14 @@ Phase 77 real Cloudflare deploy rehearsal maintenance release is in place:
 - The release highlights the real-account proof-pass checklist, auth/token confirmation, D1/R2 creation or reuse, real D1 database ID capture, Wrangler config guidance, remote migration gates, Worker deploy and URL capture, `/health`, `/admin`, and `/` verification, first-admin passkey bootstrap guidance, optional upload/download smoke testing, direct/multipart secrets, R2 CORS, custom-domain and scheduled-trigger follow-up, rollback/recovery notes, sanitized evidence capture, and the no-mutation/no-secret-storage safety boundary.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 78 real Cloudflare deploy rehearsal findings are in place:
+
+- The rehearsal exercised the released `--cloudflare-rehearsal` checklist, readiness report, turnkey plan, turnkey rehearsal, preflight stdout/file output, direct/multipart secret guidance, custom-domain guidance, scheduled-trigger guidance, post-deploy verification guidance, Wrangler dry-run, local D1 migration check, release check, and update-helper dry-runs.
+- The explicit deploy `--check` gate was also exercised until the local shell prerequisite check: `pnpm` is not on `PATH` in this Codex environment, so the helper prints the existing Corepack/pnpm recovery message before attempting remote migration listing.
+- Sanitized real-account proof stopped at Cloudflare authentication in this non-interactive environment: Wrangler is installed and runnable, but `wrangler whoami`, D1 discovery, and R2 discovery require an authenticated Wrangler session or `CLOUDFLARE_API_TOKEN`.
+- No Cloudflare resources were created or mutated during the rehearsal. D1/R2 creation or reuse, real D1 database ID capture, remote migration application, Worker deploy, deployed URL capture, `/health`, `/admin`, `/` verification, first-admin passkey bootstrap, harmless upload/download smoke testing, direct/multipart secret setup, R2 CORS application, custom-domain attachment, and scheduled-trigger activation remain operator-owned proof steps after authentication is available.
+- No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, or sensitive deployment logs were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
