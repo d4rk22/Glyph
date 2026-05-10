@@ -411,6 +411,12 @@ Phase 61 custom-domain troubleshooting maintenance release is in place:
 - The release highlights the shared read-only troubleshooting guidance across `--verify-domain`, `--turnkey-domain`, and `--readiness`; invalid `PUBLIC_BASE_URL` handling; route-hint mismatch recovery; DNS/custom-domain attachment and certificate/TLS guidance; non-Glyph `/health` detection; passkey origin guidance; and R2 CORS origin alignment for direct/multipart uploads.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, scheduled trigger automation, R2 CORS automation, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 62 guided scheduled-trigger setup planning is in place:
+
+- `pnpm run deploy:glyph -- --turnkey-schedule` prints a non-mutating plan for optional Cloudflare Scheduled Worker trigger configuration.
+- `pnpm run deploy:glyph -- --turnkey-schedule --yes` writes only reviewed local `wrangler.jsonc` `triggers.crons` config; it does not deploy, apply migrations, enable admin settings, create Cloudflare scheduled triggers through the API, or mutate Cloudflare resources.
+- The guidance explains the difference between read-only scheduled update checks and scheduled storage/R2 maintenance, and reminds operators that both scheduled paths also require protected `/admin` opt-in settings after intentional deploy.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -843,6 +849,20 @@ This validates the final origin, compares local Wrangler route hints, checks `/h
 
 The troubleshooting output is intentionally explicit. It calls out invalid `PUBLIC_BASE_URL` values, missing or mismatched route hints, likely DNS/custom-domain attachment gaps, certificate/TLS failures, non-Glyph `/health` responses, reachable-origin mismatches, passkeys registered on the wrong origin, and direct/multipart R2 CORS origin drift. These checks are guidance only and never mutate Cloudflare resources.
 
+For optional scheduled update checks or storage/R2 maintenance, preview the guided schedule plan:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-schedule
+```
+
+Confirmed scheduled-trigger setup writes only reviewed local cron config:
+
+```sh
+pnpm run deploy:glyph -- --turnkey-schedule --yes
+```
+
+That command can add `triggers.crons` with a conservative daily schedule, such as `0 3 * * *`, or leave existing cron triggers unchanged when they are already configured. It does not create Cloudflare scheduled triggers through the API, deploy Workers, apply remote migrations, store secrets, execute updates, create DNS records, create custom domains, apply R2 CORS, publish releases, or mutate Cloudflare resources. After deploying intentionally, enable read-only scheduled update checks and/or scheduled maintenance from the protected `/admin` settings.
+
 For direct-to-R2 or multipart upload setup after the basic Worker/D1/R2 path is ready, preview the guided secret/CORS plan:
 
 ```sh
@@ -891,6 +911,8 @@ Turnkey output points operators to `pnpm run deploy:glyph -- --turnkey-secrets` 
 Turnkey output also points operators to `pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com` for custom-domain setup planning. That workflow can write reviewed local `PUBLIC_BASE_URL` and route hints with `--yes`, but it never creates DNS records, zones, certificates, custom domains, deploys Workers, applies migrations, or mutates Cloudflare resources.
 
 After the operator-owned custom-domain attachment is complete, turnkey/readiness output points operators to `pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com` for a read-only `/health`, `/admin`, route-hint, passkey-origin, and R2 CORS alignment check.
+
+Turnkey and readiness output also point operators to `pnpm run deploy:glyph -- --turnkey-schedule` for optional scheduled-trigger setup planning. That workflow can write reviewed local `triggers.crons` with `--yes`, but it never creates Cloudflare scheduled triggers through the API, deploys Workers, applies migrations, enables admin settings, or mutates Cloudflare resources.
 
 Turnkey recovery output includes common operator fixes for missing Wrangler auth or `CLOUDFLARE_API_TOKEN`, existing D1/R2 resources, placeholder D1 database IDs, invalid `PUBLIC_BASE_URL`, and direct/multipart upload credential or CORS readiness. Existing R2 buckets are safe to reuse only after you confirm they belong to the intended Cloudflare account.
 
@@ -953,11 +975,12 @@ The deploy helper also reports:
 - Direct/multipart secret and CORS setup actions when run with `--turnkey-secrets`.
 - Custom-domain origin, route-hint, passkey origin, and R2 CORS alignment guidance when run with `--turnkey-domain`.
 - Custom-domain `/health`, expected `/admin`, route-hint, passkey origin, and R2 CORS alignment verification when run with `--verify-domain`.
+- Scheduled-trigger cron inspection, local config suggestions, admin opt-in follow-up, and safety boundaries when run with `--turnkey-schedule`.
 - Consolidated status labels and operator-owned follow-up when run with `--readiness`.
 
 If `PUBLIC_BASE_URL` is set but no Wrangler route/custom-domain config is present, the helper warns so you can confirm the Worker is attached manually. If both are present but hosts differ, the helper warns about the mismatch.
 
-Optional scheduled work is a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then enable the desired scheduled behavior in `/admin`. Read-only scheduled update checks also require a valid update source. Scheduled maintenance requires its own admin setting and uses the configured storage cap and R2 cleanup state. The deploy helper only reports trigger readiness; it does not create triggers or mutate Cloudflare resources for scheduled work.
+Optional scheduled work is a two-part setup: add a Cloudflare Scheduled Worker trigger in Wrangler or Cloudflare config, then enable the desired scheduled behavior in `/admin`. Read-only scheduled update checks also require a valid update source. Scheduled maintenance requires its own admin setting and uses the configured storage cap and R2 cleanup state. The deploy helper can now plan or write reviewed local `triggers.crons` config with `--turnkey-schedule --yes`; it still does not create Cloudflare triggers through the API, deploy Workers, apply migrations, enable admin settings, or mutate Cloudflare resources for scheduled work.
 
 Before deploying without turnkey mode, make sure these Cloudflare pieces already exist:
 

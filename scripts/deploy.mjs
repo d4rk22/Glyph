@@ -11,6 +11,7 @@ export const DEFAULT_DRY_RUN_OUTDIR = "/tmp/glyph-deploy-dry-run";
 export const PLACEHOLDER_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 export const DIRECT_UPLOAD_SECRET_NAMES = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
 export const OPTIONAL_DIRECT_UPLOAD_SECRET_NAMES = ["R2_BUCKET_NAME"];
+export const DEFAULT_SCHEDULE_CRON = "0 3 * * *";
 
 export function parseArgs(argv) {
   const options = {
@@ -20,6 +21,7 @@ export function parseArgs(argv) {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    turnkeySchedule: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -49,6 +51,8 @@ export function parseArgs(argv) {
       options.turnkeySecrets = true;
     } else if (arg === "--turnkey-domain") {
       options.turnkeyDomain = true;
+    } else if (arg === "--turnkey-schedule") {
+      options.turnkeySchedule = true;
     } else if (arg === "--verify-domain") {
       options.verifyDomain = true;
     } else if (arg === "--apply-cors") {
@@ -105,15 +109,19 @@ export function parseArgs(argv) {
     throw new Error("Use either --setup or --turnkey, not both.");
   }
 
-  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.verifyDomain)) {
+  if (options.turnkeySecrets && (options.check || options.setup || options.turnkey || options.turnkeyDomain || options.turnkeySchedule || options.verifyDomain)) {
     throw new Error("Use --turnkey-secrets by itself, or with --yes and optional --apply-cors.");
   }
 
-  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.verifyDomain || options.applyCors)) {
+  if (options.turnkeyDomain && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeySchedule || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --turnkey-domain by itself, or with --yes and optional --public-base-url.");
   }
 
-  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.applyCors)) {
+  if (options.turnkeySchedule && (options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.verifyDomain || options.applyCors)) {
+    throw new Error("Use --turnkey-schedule by itself, or with --yes to write reviewed local cron trigger config.");
+  }
+
+  if (options.verifyDomain && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.applyCors)) {
     throw new Error("Use --verify-domain by itself with optional --public-base-url; it is read-only.");
   }
 
@@ -121,7 +129,7 @@ export function parseArgs(argv) {
     throw new Error("Use --apply-cors only with --turnkey-secrets --yes after reviewing the generated CORS recommendation.");
   }
 
-  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.verifyDomain || options.applyCors)) {
+  if (options.readiness && (options.yes || options.check || options.setup || options.turnkey || options.turnkeySecrets || options.turnkeyDomain || options.turnkeySchedule || options.verifyDomain || options.applyCors)) {
     throw new Error("Use --readiness by itself; it is a read-only report mode.");
   }
 
@@ -383,8 +391,8 @@ export function buildSetupPlan(options, configText = null) {
       label: "Configure optional scheduled work",
       mutates: false,
       detail: cronTriggers.length > 0
-        ? `Wrangler cron trigger(s) found: ${cronTriggers.join(", ")}. Read-only scheduled update checks still require a valid update source and read-only scheduled checks enabled in /admin; scheduled maintenance requires scheduled maintenance enabled in /admin. Glyph does not create triggers automatically.`
-        : "No Wrangler cron trigger is configured. To use read-only scheduled update checks or scheduled maintenance, add a Cloudflare Scheduled Worker trigger manually, then enable the desired scheduled behavior in /admin. Glyph does not create triggers automatically."
+        ? `Wrangler cron trigger(s) found: ${cronTriggers.join(", ")}. Read-only scheduled update checks still require a valid update source and read-only scheduled checks enabled in /admin; scheduled maintenance requires scheduled maintenance enabled in /admin. Use --turnkey-schedule to review or adjust local cron trigger config. Glyph does not create triggers automatically.`
+        : "No Wrangler cron trigger is configured. To use read-only scheduled update checks or scheduled maintenance, run pnpm run deploy:glyph -- --turnkey-schedule to review a local cron trigger suggestion, then enable the desired scheduled behavior in /admin. Glyph does not create triggers automatically."
     },
     {
       label: "Run deploy readiness check",
@@ -475,6 +483,11 @@ export function buildTurnkeyPlan(options, configText = null) {
       label: "Verify custom-domain attachment",
       mutates: false,
       detail: "After manually attaching DNS/custom-domain routing in Cloudflare, run pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com to check route hints, /health, /admin, passkey origin guidance, and R2 CORS alignment without mutating anything."
+    },
+    {
+      label: "Configure scheduled trigger readiness",
+      mutates: false,
+      detail: "For optional read-only update notices or storage/R2 maintenance, run pnpm run deploy:glyph -- --turnkey-schedule to review local Wrangler cron trigger config. Confirmed schedule setup is separate from admin opt-in settings, remote migrations, and deploy."
     },
     {
       label: "Run checks, migrations, dry-run, and deploy",
@@ -997,6 +1010,163 @@ export function buildCustomDomainVerificationRecoveryLines(context) {
   return buildCustomDomainTroubleshootingLines(context);
 }
 
+export function buildScheduledTriggerReadiness(configText = null) {
+  if (!configText) {
+    return {
+      status: "missing",
+      crons: [],
+      errors: [],
+      warnings: [],
+      detail: "No wrangler.jsonc was found; add a reviewed triggers.crons entry before deploying scheduled features."
+    };
+  }
+
+  const config = parseWranglerConfig(configText);
+  if (!config) {
+    return {
+      status: "inconsistent",
+      crons: [],
+      errors: ["wrangler.jsonc could not be parsed."],
+      warnings: [],
+      detail: "wrangler.jsonc could not be parsed, so scheduled trigger readiness cannot be checked."
+    };
+  }
+
+  const validation = validateWranglerCronTriggers(config);
+  const crons = wranglerCronTriggers(config);
+  if (validation.errors.length > 0 || validation.warnings.length > 0) {
+    return {
+      status: "inconsistent",
+      crons,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      detail: [...validation.errors, ...validation.warnings].join(" ")
+    };
+  }
+
+  if (crons.length === 0) {
+    return {
+      status: "missing",
+      crons,
+      errors: [],
+      warnings: [],
+      detail: "No Wrangler cron trigger is configured; scheduled features stay inert until an operator adds one and deploys intentionally."
+    };
+  }
+
+  return {
+    status: "configured",
+    crons,
+    errors: [],
+    warnings: [],
+    detail: `Configured cron trigger(s): ${crons.join(", ")}.`
+  };
+}
+
+export function buildScheduledTriggerWranglerConfig(configText, options = {}) {
+  const config = configText ? parseWranglerConfig(configText) : null;
+  if (configText && !config) {
+    return {
+      configText: normalizeConfigText(configText),
+      changed: false,
+      cron: DEFAULT_SCHEDULE_CRON,
+      crons: [],
+      error: "wrangler.jsonc could not be parsed; fix it before writing scheduled-trigger config."
+    };
+  }
+
+  const next = config && typeof config === "object" ? structuredClone(config) : {};
+  const cron = DEFAULT_SCHEDULE_CRON;
+  const configuredCrons = Array.isArray(config?.triggers?.crons)
+    ? config.triggers.crons.filter((value) => typeof value === "string" && value.trim().length > 0).map((value) => value.trim())
+    : [];
+  if (configuredCrons.length > 0) {
+    return {
+      configText: normalizeConfigText(configText),
+      changed: false,
+      cron,
+      crons: [...new Set(configuredCrons)],
+      error: null
+    };
+  }
+
+  next.$schema ??= "node_modules/wrangler/config-schema.json";
+  next.name = typeof next.name === "string" && next.name.length > 0 ? next.name : "glyph";
+  next.main = typeof next.main === "string" && next.main.length > 0 ? next.main : "src/index.ts";
+  next.triggers = next.triggers && typeof next.triggers === "object" && !Array.isArray(next.triggers)
+    ? next.triggers
+    : {};
+
+  const existingCrons = Array.isArray(next.triggers.crons)
+    ? next.triggers.crons.filter((value) => typeof value === "string" && value.trim().length > 0).map((value) => value.trim())
+    : [];
+  const nextCrons = existingCrons.length > 0 ? [...new Set(existingCrons)] : [cron];
+  next.triggers.crons = nextCrons;
+
+  const output = `${JSON.stringify(next, null, 2)}\n`;
+  return {
+    configText: output,
+    changed: normalizeConfigText(configText) !== normalizeConfigText(output),
+    cron,
+    crons: nextCrons,
+    error: null
+  };
+}
+
+export function buildScheduledTriggerSetupPlan(options, configText = null) {
+  const readiness = buildScheduledTriggerReadiness(configText);
+  const configUpdate = buildScheduledTriggerWranglerConfig(configText, options);
+  const suggestedCrons = configUpdate.crons.length > 0 ? configUpdate.crons : [DEFAULT_SCHEDULE_CRON];
+  const items = [
+    {
+      label: "Inspect Wrangler cron trigger configuration",
+      mutates: false,
+      detail: readiness.status === "configured"
+        ? `${readiness.detail} Glyph uses the same deployed Scheduled Worker trigger for read-only update checks and storage/R2 maintenance.`
+        : readiness.status === "inconsistent"
+          ? `Scheduled trigger configuration needs attention: ${readiness.detail}`
+          : readiness.detail
+    },
+    {
+      label: "Understand read-only scheduled update checks",
+      mutates: false,
+      detail: "Read-only scheduled update checks only fetch public GitHub release metadata and persist the latest check result in D1. They also require a valid update source and the read-only scheduled update-check setting enabled in /admin."
+    },
+    {
+      label: "Understand scheduled storage/R2 maintenance",
+      mutates: false,
+      detail: "Scheduled maintenance can enforce the configured storage cap, expire oldest active uploads, and retry R2 cleanup for expired/deleted uploads. It also requires scheduled maintenance enabled in /admin."
+    },
+    {
+      label: "Review local Wrangler cron suggestion",
+      command: configUpdate.error ? undefined : ["pnpm", "run", "deploy:glyph", "--", "--turnkey-schedule", "--yes"],
+      mutates: Boolean(!configUpdate.error && configUpdate.changed),
+      detail: configUpdate.error
+        ? configUpdate.error
+        : configUpdate.changed
+          ? `With --yes, Glyph writes a reviewed local triggers.crons value (${suggestedCrons.join(", ")}). This configures the Worker schedule for the next intentional deploy, but it does not enable admin settings or create Cloudflare triggers directly.`
+          : `wrangler.jsonc already has usable triggers.crons (${suggestedCrons.join(", ")}); no local config write is needed.`
+    },
+    {
+      label: "Deploy and enable admin settings intentionally",
+      mutates: false,
+      detail: "After reviewing local config, deploy intentionally. Then enable read-only scheduled update checks and/or scheduled maintenance from the protected /admin settings; the cron trigger alone does not turn either feature on."
+    },
+    {
+      label: "Safety boundary",
+      mutates: false,
+      detail: "This workflow only plans or writes local Wrangler cron config with explicit confirmation. It never creates Cloudflare scheduled triggers through the API, deploys Workers, applies remote migrations, stores secrets, executes updates, creates DNS records, creates custom domains, applies R2 CORS, publishes releases, or mutates Cloudflare resources."
+    }
+  ];
+
+  return {
+    items,
+    readiness,
+    configUpdate,
+    suggestedCrons
+  };
+}
+
 export function buildCustomDomainTroubleshootingLines(context) {
   const lines = [];
   const routeHosts = Array.isArray(context.routeHosts) ? context.routeHosts : [];
@@ -1322,6 +1492,7 @@ export function buildReadinessReport(options, context = {}) {
     const routeHosts = wranglerRouteHosts(config);
     const matchingRouteHosts = publicBaseHost ? routeHosts.filter((routeHostValue) => routeHostMatches(routeHostValue, publicBaseHost)) : [];
     const cronTriggers = wranglerCronTriggers(config);
+    const scheduleReadiness = buildScheduledTriggerReadiness(configText);
 
     configItems.push(readinessItem("ready", "wrangler.jsonc", "present and parseable."));
     configItems.push(
@@ -1420,6 +1591,15 @@ export function buildReadinessReport(options, context = {}) {
         cronTriggers.length > 0 ? "ready" : "optional",
         "Scheduled triggers",
         cronTriggers.length > 0 ? `Configured cron trigger(s): ${cronTriggers.join(", ")}.` : "none configured; scheduled update checks and maintenance stay inert until an operator adds a trigger."
+      )
+    );
+    configItems.push(
+      readinessItem(
+        scheduleReadiness.status === "configured" ? "ready" : scheduleReadiness.status === "inconsistent" ? "needs attention" : "manual",
+        "Guided scheduled-trigger setup",
+        scheduleReadiness.status === "configured"
+          ? `${scheduleReadiness.detail} Read-only update checks still need a valid update source plus the /admin opt-in; scheduled maintenance still needs its /admin opt-in.`
+          : "Run `pnpm run deploy:glyph -- --turnkey-schedule` to review a local Wrangler cron suggestion for optional read-only update checks and storage/R2 maintenance. Use `--yes` only after reviewing local config changes."
       )
     );
     for (const error of validation.errors) {
@@ -1682,6 +1862,8 @@ Usage:
   pnpm run deploy:glyph -- --turnkey-secrets --yes
   pnpm run deploy:glyph -- --turnkey-domain --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --turnkey-domain --yes --public-base-url https://files.example.com
+  pnpm run deploy:glyph -- --turnkey-schedule
+  pnpm run deploy:glyph -- --turnkey-schedule --yes
   pnpm run deploy:glyph -- --verify-domain --public-base-url https://files.example.com
   pnpm run deploy:glyph -- --readiness
   pnpm run deploy:glyph -- --check
@@ -1692,6 +1874,7 @@ Options:
   --turnkey           Print or run a fresh-checkout setup, verification, migration, and deploy flow.
   --turnkey-secrets   Print or run guided direct/multipart Wrangler secret setup and reviewed R2 CORS planning.
   --turnkey-domain    Print or write guided custom-domain PUBLIC_BASE_URL and Wrangler route hints.
+  --turnkey-schedule  Print or write guided local Wrangler cron trigger config for optional scheduled work.
   --verify-domain     Read-only check of a manually attached custom domain, /health, /admin, and CORS guidance.
   --apply-cors        With --turnkey-secrets --yes, apply reviewed R2 CORS using Wrangler.
   --readiness         Print a consolidated read-only deployment readiness report.
@@ -1722,6 +1905,9 @@ Scheduled update check readiness:
   and read-only scheduled checks enabled in /admin. The helper reports cron trigger configuration but
   never creates triggers, deploys updates, applies migrations, checks out code, stores GitHub tokens,
   executes local update helpers, or mutates Cloudflare resources for scheduled checks.
+  --turnkey-schedule is a non-mutating plan by default. --turnkey-schedule --yes may write reviewed
+  local wrangler.jsonc triggers.crons only; it does not deploy, apply migrations, enable admin settings,
+  create Cloudflare scheduled triggers through the API, or mutate Cloudflare resources.
 
 Scheduled maintenance readiness:
   Optional scheduled maintenance uses the same Wrangler cron trigger mechanism plus scheduled
@@ -1752,6 +1938,7 @@ export function validateProject(rootDir, options) {
   const warnings = [];
   const requiredFiles = options.turnkey
     || options.turnkeyDomain
+    || options.turnkeySchedule
     || options.verifyDomain
     ? ["package.json", "pnpm-lock.yaml", "migrations", "src/index.ts"]
     : ["package.json", "pnpm-lock.yaml", "wrangler.jsonc", "migrations", "src/index.ts"];
@@ -1776,7 +1963,7 @@ export function validateProject(rootDir, options) {
   }
 
   const wranglerPath = join(rootDir, "wrangler.jsonc");
-  if (existsSync(wranglerPath)) {
+  if (existsSync(wranglerPath) && !options.turnkeySchedule) {
     const result = validateWranglerConfig(readFileSync(wranglerPath, "utf8"), {
       requireDeployReady: options.yes
     });
@@ -2078,6 +2265,16 @@ function printCustomDomainSetupPlan(plan) {
   }
 }
 
+function printScheduledTriggerSetupPlan(plan) {
+  printSetupPlan(plan.items);
+  console.log("\nScheduled-trigger details:");
+  console.log(`Readiness: ${plan.readiness.status}`);
+  console.log(plan.readiness.crons.length > 0 ? `Configured cron trigger(s): ${plan.readiness.crons.join(", ")}` : "Configured cron trigger(s): none");
+  console.log(`Suggested cron trigger(s): ${plan.suggestedCrons.join(", ")}`);
+  console.log("Read-only update checks require a valid update source and read-only scheduled checks enabled in /admin.");
+  console.log("Scheduled storage/R2 maintenance requires scheduled maintenance enabled in /admin.");
+}
+
 function printCustomDomainVerificationPlan(plan) {
   console.log("\nCustom-domain verification details:");
   if (plan.origin) {
@@ -2173,6 +2370,43 @@ function runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath) {
   }
 
   console.log("Custom-domain local config update complete. Configure DNS/custom-domain attachment in Cloudflare, verify certificate readiness, align R2 CORS with the final origin, then run deploy readiness checks.");
+  return 0;
+}
+
+function runScheduledTriggerSetup(effectiveOptions, wranglerPath) {
+  const configText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : null;
+  const plan = buildScheduledTriggerSetupPlan(effectiveOptions, configText);
+
+  console.log(effectiveOptions.yes
+    ? "Glyph scheduled-trigger setup: explicitly confirmed local Wrangler cron config update only."
+    : "Glyph scheduled-trigger setup plan: no local files, deployments, migrations, scheduled triggers, or Cloudflare resources will be changed.");
+  if (configText) {
+    for (const line of summarizeDeploymentTarget(configText)) {
+      console.log(line);
+    }
+  } else {
+    console.log("Wrangler config: wrangler.jsonc will be generated only with --turnkey-schedule --yes and reviewed cron config.");
+  }
+  printScheduledTriggerSetupPlan(plan);
+
+  if (!effectiveOptions.yes) {
+    console.log("\nScheduled-trigger setup plan complete. Re-run with --turnkey-schedule --yes only after reviewing the local Wrangler cron suggestion and admin follow-up steps.");
+    return 0;
+  }
+
+  if (plan.configUpdate.error) {
+    console.error(`Error: ${plan.configUpdate.error}`);
+    return 1;
+  }
+
+  if (plan.configUpdate.changed) {
+    writeFileSync(wranglerPath, plan.configUpdate.configText);
+    console.log(`\nUpdated wrangler.jsonc with reviewed triggers.crons: ${plan.configUpdate.crons.join(", ")}.`);
+  } else {
+    console.log("\nwrangler.jsonc already has usable scheduled-trigger configuration.");
+  }
+
+  console.log("Scheduled-trigger local config update complete. Deploy intentionally, then enable read-only update checks and/or scheduled maintenance from the protected /admin settings.");
   return 0;
 }
 
@@ -2451,7 +2685,7 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
   const effectiveOptions = { ...options, check: !options.yes };
   const validation = validateProject(rootDir, {
     ...effectiveOptions,
-    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.verifyDomain ? false : effectiveOptions.yes
+    yes: effectiveOptions.setup || effectiveOptions.turnkey || effectiveOptions.turnkeySecrets || effectiveOptions.turnkeyDomain || effectiveOptions.turnkeySchedule || effectiveOptions.verifyDomain ? false : effectiveOptions.yes
   });
 
   for (const warning of validation.warnings) {
@@ -2477,6 +2711,10 @@ export async function main(argv = process.argv.slice(2), rootDir = process.cwd()
 
   if (effectiveOptions.turnkeyDomain) {
     return runCustomDomainSetup(effectiveOptions, rootDir, wranglerPath);
+  }
+
+  if (effectiveOptions.turnkeySchedule) {
+    return runScheduledTriggerSetup(effectiveOptions, wranglerPath);
   }
 
   if (effectiveOptions.verifyDomain) {

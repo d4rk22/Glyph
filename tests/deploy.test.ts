@@ -16,6 +16,9 @@ import {
   buildR2CorsSetCommand,
   buildReadinessReport,
   buildRemoteMigrationPlan,
+  buildScheduledTriggerReadiness,
+  buildScheduledTriggerSetupPlan,
+  buildScheduledTriggerWranglerConfig,
   buildSecretPutCommand,
   buildTurnkeyRecoveryLines,
   buildTurnkeyFollowUpLines,
@@ -61,6 +64,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    turnkeySchedule: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -81,6 +85,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    turnkeySchedule: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -101,6 +106,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: false,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    turnkeySchedule: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -121,6 +127,7 @@ test("deploy argument parser defaults to a safe check mode", () => {
     turnkey: true,
     turnkeySecrets: false,
     turnkeyDomain: false,
+    turnkeySchedule: false,
     verifyDomain: false,
     applyCors: false,
     readiness: false,
@@ -145,6 +152,10 @@ test("deploy argument parser defaults to a safe check mode", () => {
   assert.equal(parseArgs(["--turnkey-domain", "--yes", "--public-base-url", "https://files.example.com"]).yes, true);
   assert.throws(() => parseArgs(["--turnkey-domain", "--check"]), /turnkey-domain by itself/);
   assert.throws(() => parseArgs(["--turnkey-domain", "--apply-cors"]), /turnkey-domain by itself/);
+  assert.equal(parseArgs(["--turnkey-schedule"]).turnkeySchedule, true);
+  assert.equal(parseArgs(["--turnkey-schedule", "--yes"]).yes, true);
+  assert.throws(() => parseArgs(["--turnkey-schedule", "--check"]), /turnkey-schedule by itself/);
+  assert.throws(() => parseArgs(["--turnkey-schedule", "--turnkey-domain"]), /turnkey-domain by itself|turnkey-schedule by itself/);
   assert.equal(parseArgs(["--verify-domain", "--public-base-url", "https://files.example.com"]).verifyDomain, true);
   assert.throws(() => parseArgs(["--verify-domain", "--yes"]), /verify-domain by itself/);
   assert.throws(() => parseArgs(["--verify-domain", "--turnkey-domain", "--public-base-url", "https://files.example.com"]), /turnkey-domain by itself|verify-domain by itself/);
@@ -234,6 +245,8 @@ test("readiness report summarizes deploy state without mutating guidance", () =>
   assert.match(output, /\[ready\] D1 database_id: non-placeholder/);
   assert.match(output, /\[ready\] R2 binding: FILES binds bucket glyph-files/);
   assert.match(output, /\[ready\] Scheduled triggers: Configured cron trigger/);
+  assert.match(output, /\[ready\] Guided scheduled-trigger setup: Configured cron trigger/);
+  assert.match(output, /scheduled maintenance still needs its \/admin opt-in/);
   assert.match(output, /turnkey-domain/);
   assert.match(output, /verify-domain/);
   assert.match(output, /Custom-domain verification/);
@@ -335,8 +348,10 @@ test("turnkey plan is planning-first and reports setup, config, checks, and foll
   );
   assert.match(plan.map((item) => item.detail).join("\n"), /will not deploy until a real ID is supplied or captured/);
   assert.match(plan.map((item) => item.detail).join("\n"), /custom-domain route hints/);
+  assert.match(plan.map((item) => item.detail).join("\n"), /--turnkey-schedule/);
   assert.match(plan.map((item) => item.detail).join("\n"), /--verify-domain/);
   assert.match(plan.map((item) => item.label).join("\n"), /Verify custom-domain attachment/);
+  assert.match(plan.map((item) => item.label).join("\n"), /Configure scheduled trigger readiness/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler d1 list --json/);
   assert.match(plan.map((item) => item.commands?.map((command) => command.join(" ")).join("\n") ?? "").join("\n"), /wrangler r2 bucket list/);
   assert.match(plan.map((item) => item.label).join("\n"), /Print live URLs/);
@@ -370,6 +385,57 @@ test("turnkey config generation updates bindings only with explicit values", () 
   assert.match(updated.configText, /"bucket_name": "private-files"/);
   assert.match(updated.configText, /"PUBLIC_BASE_URL": "https:\/\/files\.example\.com"/);
   assert.equal(validateWranglerConfig(updated.configText, { requireDeployReady: true }).errors.length, 0);
+});
+
+test("scheduled-trigger setup plans local cron config without Cloudflare mutation", () => {
+  const plan = buildScheduledTriggerSetupPlan(parseArgs(["--turnkey-schedule"]), validWranglerConfig);
+  const output = plan.items.map((item) => `${item.label}: ${item.detail}`).join("\n");
+
+  assert.equal(plan.readiness.status, "missing");
+  assert.deepEqual(plan.suggestedCrons, ["0 3 * * *"]);
+  assert.match(output, /No Wrangler cron trigger is configured/);
+  assert.match(output, /read-only scheduled update checks/);
+  assert.match(output, /Scheduled maintenance can enforce/);
+  assert.match(output, /triggers\.crons value \(0 3 \* \* \*\)/);
+  assert.match(output, /does not enable admin settings/);
+  assert.match(output, /never creates Cloudflare scheduled triggers through the API/);
+
+  const update = buildScheduledTriggerWranglerConfig(validWranglerConfig, parseArgs(["--turnkey-schedule", "--yes"]));
+  assert.equal(update.changed, true);
+  assert.match(update.configText, /"triggers"/);
+  assert.match(update.configText, /"0 3 \* \* \*"/);
+});
+
+test("scheduled-trigger setup reports configured and inconsistent cron state", () => {
+  const configuredConfig = JSON.stringify({
+    ...JSON.parse(validWranglerConfig),
+    triggers: { crons: ["0 */6 * * *"] }
+  });
+  const configuredPlan = buildScheduledTriggerSetupPlan(parseArgs(["--turnkey-schedule"]), configuredConfig);
+  const configuredOutput = configuredPlan.items.map((item) => item.detail).join("\n");
+
+  assert.equal(buildScheduledTriggerReadiness(configuredConfig).status, "configured");
+  assert.equal(configuredPlan.configUpdate.changed, false);
+  assert.deepEqual(configuredPlan.suggestedCrons, ["0 */6 * * *"]);
+  assert.match(configuredOutput, /Configured cron trigger/);
+  assert.match(configuredOutput, /no local config write is needed/);
+
+  const inconsistentConfig = JSON.stringify({
+    ...JSON.parse(validWranglerConfig),
+    triggers: { crons: "" }
+  });
+  const inconsistentPlan = buildScheduledTriggerSetupPlan(parseArgs(["--turnkey-schedule"]), inconsistentConfig);
+  const inconsistentOutput = inconsistentPlan.items.map((item) => item.detail).join("\n");
+
+  assert.equal(buildScheduledTriggerReadiness(inconsistentConfig).status, "inconsistent");
+  assert.match(inconsistentOutput, /needs attention/);
+  assert.match(inconsistentOutput, /must be an array/);
+  assert.deepEqual(inconsistentPlan.configUpdate.crons, ["0 3 * * *"]);
+
+  const unparseablePlan = buildScheduledTriggerSetupPlan(parseArgs(["--turnkey-schedule"]), "{");
+  assert.equal(unparseablePlan.configUpdate.changed, false);
+  assert.match(unparseablePlan.configUpdate.error ?? "", /could not be parsed/);
+  assert.match(unparseablePlan.items.map((item) => item.detail).join("\n"), /fix it before writing/);
 });
 
 test("turnkey follow-up output includes URLs, manual tasks, and partial setup recovery", () => {

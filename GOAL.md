@@ -174,6 +174,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Custom-domain verification maintenance releases can keep the public release/update channel aligned with read-only domain verification while preserving the conservative source-only release model.
 - Custom-domain troubleshooting can explain invalid origins, route-hint gaps, DNS/custom-domain attachment, certificate/TLS problems, non-Glyph health responses, passkey origin changes, and R2 CORS origin alignment without mutating Cloudflare resources.
 - Custom-domain troubleshooting maintenance releases can keep the public release/update channel aligned with troubleshooting improvements while preserving the conservative source-only release model.
+- Guided scheduled-trigger setup planning can inspect Wrangler cron trigger config, suggest conservative local `triggers.crons` config, explain read-only update checks versus storage/R2 maintenance, and write only reviewed local config with explicit confirmation while leaving deploy, admin opt-in settings, and Cloudflare trigger creation operator-owned.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -235,3 +236,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 59. Publish the custom-domain verification maintenance release. Completed.
 60. Add custom-domain readiness troubleshooting docs and checks. Completed.
 61. Publish the custom-domain troubleshooting maintenance release. Completed.
+62. Add guided scheduled-trigger setup planning for turnkey deploy. Completed.
