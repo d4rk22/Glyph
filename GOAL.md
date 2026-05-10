@@ -190,6 +190,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Cloudflare auth/token readiness doctor can diagnose Wrangler availability, interactive versus non-interactive shell mode, redacted token presence, `wrangler whoami`, D1/R2 discovery gating, token capability guidance, and recovery paths without printing secrets or mutating Cloudflare resources.
 - Cloudflare auth doctor maintenance releases can keep the public release/update channel aligned with auth/token diagnostics while preserving the conservative source-only release model.
 - Authenticated Cloudflare proof passes can exercise auth-doctor, readiness, turnkey rehearsal, and deploy-helper paths as far as the current environment allows, document sanitized findings, and improve recovery wording without committing secrets or mutating Cloudflare resources by default.
+- Authenticated Cloudflare proof-pass maintenance releases can keep the public release/update channel aligned with sanitized auth/deploy findings and recovery-output improvements while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -272,3 +273,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 80. Add Cloudflare auth/token readiness doctor for turnkey deploy. Completed.
 81. Publish the Cloudflare auth doctor maintenance release. Completed.
 82. Run authenticated Cloudflare deploy proof pass and fix remaining auth/deploy friction. Completed.
+83. Publish the authenticated Cloudflare proof-pass maintenance release. Completed.

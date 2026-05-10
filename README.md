@@ -553,6 +553,13 @@ Phase 82 authenticated Cloudflare proof pass is in place:
 - The deploy helper now gives more useful fallback commands when local Wrangler is available but `pnpm` is missing, including `npm exec wrangler -- login`, `npm exec wrangler -- d1 list --json`, and `npm run deploy:glyph -- --readiness`.
 - No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, sensitive deployment logs, or Cloudflare resources were committed or mutated.
 
+Phase 83 authenticated proof-pass maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.10`.
+- `v0.3.10` publishes the phase 82 authenticated Cloudflare proof-pass findings and auth/deploy friction fix through the GitHub release channel.
+- The release highlights the sanitized proof boundary, the `pnpm` PATH/Corepack blocker in this shell, local Wrangler availability through npm fallback commands, non-interactive `CLOUDFLARE_API_TOKEN` requirements, unauthenticated `wrangler whoami` status, D1/R2 discovery gating, D1 database ID recovery guidance, remote migration/deploy readiness boundaries, and improved auth-doctor npm fallback recovery output.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
