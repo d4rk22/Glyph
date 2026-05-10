@@ -456,6 +456,13 @@ Phase 68 turnkey deploy transcripts and recovery examples are in place:
 - Examples cover fresh checkout to first deploy, missing non-interactive `CLOUDFLARE_API_TOKEN`, existing D1/R2 reuse, placeholder D1 database ID recovery, remote migration gates, Worker-mediated upload fallback, direct/multipart secret and R2 CORS follow-up, custom-domain setup and passkey origin notes, scheduled-trigger setup plus protected `/admin` opt-ins, and post-deploy `/health`, `/admin`, and `/` verification.
 - The examples do not run commands, print secret values, deploy Workers, apply migrations, set secrets, apply CORS, create DNS/custom-domain/scheduled-trigger resources, publish releases, execute updates, upload files, create admins, execute passkey flows, or mutate Cloudflare resources.
 
+Phase 69 turnkey deploy examples maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.3`.
+- `v0.3.3` publishes the turnkey deploy examples workflow through the GitHub release channel.
+- The release highlights the `--turnkey-examples` read-only examples workflow, fresh-checkout-to-first-deploy transcripts, non-interactive `CLOUDFLARE_API_TOKEN` recovery, existing D1/R2 reuse, placeholder D1 database ID recovery, remote migration gates, Worker-mediated upload fallback, direct/multipart secret and R2 CORS follow-up, custom-domain/passkey origin guidance, scheduled-trigger plus protected `/admin` opt-in guidance, post-deploy verification examples, no-secret-value output, and the no-mutation safety boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

@@ -181,6 +181,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - General post-deploy verification can validate a deployed workers.dev or custom-domain Glyph origin by checking `/health`, `/admin`, and `/`, reporting URLs, passkey origin guidance, R2 CORS alignment, and recovery steps without uploading files, executing passkey flows, or mutating Cloudflare resources.
 - Post-deploy verification maintenance releases can keep the public release/update channel aligned with deployed-origin verification while preserving the conservative source-only release model.
 - Turnkey deploy examples can give operators read-only command transcripts and recovery paths for fresh checkout, missing auth, D1/R2 reuse, placeholder D1 IDs, remote migration gates, Worker-mediated fallback, direct/multipart setup, custom domains, scheduled triggers, and post-deploy verification without mutating local files or Cloudflare resources.
+- Turnkey deploy examples maintenance releases can keep the public release/update channel aligned with operator transcript guidance while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -249,3 +250,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 66. Add general post-deploy verification for turnkey deploy. Completed.
 67. Publish the post-deploy verification maintenance release. Completed.
 68. Add turnkey deploy transcript and recovery examples. Completed.
+69. Publish the turnkey deploy examples maintenance release. Completed.
