@@ -568,6 +568,15 @@ Phase 84 pnpm recovery proof refresh is in place:
 - The local `.pnpm-store/` cache directory is ignored so package-manager proof runs do not leave noisy untracked cache artifacts.
 - No API tokens, secret values, passkey data, cookies, session IDs, private account IDs, private file details, R2 object keys, sensitive deployment logs, or Cloudflare resources were committed or mutated.
 
+Phase 85 first real turnkey deploy proof is in place:
+
+- The first authenticated Cloudflare turnkey proof pass succeeded after the API token was updated with `User Details:Read` and `Memberships:Read` alongside the required account permissions for Workers, D1, and R2.
+- The confirmed `pnpm run deploy:glyph -- --turnkey --yes` flow created the `glyph` D1 database and `glyph-files` R2 bucket, applied all nine remote D1 migrations, ran typecheck/tests, completed a Wrangler dry-run, and deployed the Worker.
+- The deployed workers.dev origin is `https://glyph.hi-660.workers.dev`; read-only verification passed for `/health`, `/admin`, and `/` without uploading files, creating an admin, or executing passkey flows.
+- The real D1 `database_id` was intentionally not committed because this repository is public. `wrangler.jsonc` keeps the placeholder database ID; operators should run `pnpm wrangler d1 list --json`, copy their own database ID for `glyph`, and use the turnkey helper or local config update path before deploying their instance.
+- Remaining operator-owned steps are first `/admin` passkey bootstrap, optional harmless upload/download smoke testing, optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin before enabling direct/multipart browser uploads, optional custom-domain setup, and optional scheduled-trigger plus protected `/admin` setting opt-ins.
+- No API tokens, secret values, account IDs, passkey data, cookies, session IDs, private file details, R2 object keys, or sensitive deployment logs were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
