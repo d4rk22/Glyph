@@ -196,6 +196,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Real turnkey deploy proof maintenance releases can keep the public release/update channel aligned with the first successful authenticated turnkey deploy proof while preserving the conservative source-only release model.
 - Deployed-app smoke tests can verify the live workers.dev health/admin/upload surfaces, harmless public upload and short-link download, cleanup/deleted-link behavior, and document any remaining operator-owned passkey/admin UI proof without committing sensitive runtime evidence.
 - Operator-assisted admin passkey smoke tests can verify or precisely document the WebAuthn boundary for first-admin bootstrap, protected admin access, listing, metadata, link-copy affordances, deletion, and any production UI/action bugs while keeping passkey/session evidence out of the repository.
+- Direct/multipart production readiness proofs can verify the deployed Worker-mediated fallback, confirm direct/multipart endpoints stay unavailable until secrets, CORS, and admin upload-mode opt-in are configured, and document sanitized operator-owned steps without committing secret values, short IDs, object keys, or private Cloudflare identifiers.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -287,3 +288,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 89. Publish the admin smoke-test bugfix maintenance release. Completed.
 90. Complete the deployed admin delete smoke-test closure. Completed with operator-assisted admin deletion verified and deleted short-link not-found behavior confirmed.
 91. Publish the admin delete smoke-test closure maintenance release. Completed.
+92. Prove direct/multipart upload readiness in production. Completed with Worker-mediated fallback verified, direct/multipart correctly blocked pending secrets/CORS/admin opt-in, and sanitized operator-owned follow-ups documented.

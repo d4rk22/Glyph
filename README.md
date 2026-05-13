@@ -628,6 +628,16 @@ Phase 91 admin delete smoke-test closure maintenance release is in place:
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 - Operators still own optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 92 direct/multipart production readiness proof is in place:
+
+- The deployed workers.dev instance remains safely on the Worker-mediated upload path: production `upload_mode` is unset and therefore defaults to Worker-mediated uploads.
+- A harmless Worker-mediated production upload/download round trip passed, the downloaded bytes matched the uploaded file, and the smoke-test artifact was cleaned up with D1 metadata marked deleted and the short link returning the polished not-found response.
+- The direct single-part and multipart initiate endpoints currently return HTTP 409 with clear not-enabled errors, so pending direct/multipart uploads do not become public while production is not configured for them.
+- Deployed Worker secrets for direct/multipart R2 signing are not configured yet, and the `glyph-files` R2 bucket does not currently have a CORS policy. Browser direct-to-R2 and multipart uploads remain blocked until an operator sets the required Wrangler secrets, applies reviewed CORS for the final origin, and enables the desired upload mode from the protected admin UI.
+- The deploy helper's `--turnkey-secrets --public-base-url https://glyph.hi-660.workers.dev` plan prints the required secret commands and workers.dev-aligned CORS recommendation without printing or storing secret values.
+- Browser automation still cannot perform protected passkey/admin actions in this environment, so verification of the protected upload-mode controls and real direct/multipart browser uploads remains operator-owned after secrets and CORS are configured.
+- No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
