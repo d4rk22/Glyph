@@ -611,6 +611,15 @@ Phase 89 admin smoke-test bugfix maintenance release is in place:
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 - Operators still own refreshing the protected admin dashboard, retrying deletion of the harmless phase 88 smoke-test upload if still present, verifying deleted-link not-found behavior, optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 90 deployed admin delete smoke-test closure is in place:
+
+- The operator refreshed the protected workers.dev `/admin` dashboard after the `v0.3.12` fix and confirmed the harmless phase 88 smoke-test upload card no longer collapses the filename or metadata.
+- The operator retried admin deletion from the protected dashboard; the upload is now marked deleted, deleted metadata is visible, and R2 cleanup is marked complete.
+- A read-only public check of the deleted smoke-test short link now returns the polished not-found response with HTTP 404.
+- Browser automation remains unable to perform native passkey actions or inspect the authenticated session, so the protected delete action was operator-assisted and the public deleted-link result was verified separately.
+- No screenshots, passkey data, cookies, session IDs, API tokens, secret values, account IDs, real D1 IDs, private file details, R2 object keys, private domains, short IDs, or sensitive logs were committed.
+- Remaining production follow-ups are optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
