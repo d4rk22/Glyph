@@ -596,7 +596,10 @@ Phase 88 operator-assisted admin passkey smoke-test checkpoint is in place:
 
 - The deployed `/admin` page was opened in the browser automation surface and showed the expected first-admin `Create passkey` bootstrap form.
 - Clicking `Create passkey` did not complete the native WebAuthn ceremony from automation; the page remained at the bootstrap state, so no passkey data, admin session, or protected dashboard state was captured.
-- The exact remaining operator step is to open `https://glyph.hi-660.workers.dev/admin` in a real browser, click `Create passkey`, complete the system passkey prompt, then verify the protected admin dashboard, upload listing, metadata, link-copy affordance, and admin deletion with a harmless test upload.
+- The operator completed the passkey ceremony in a real browser and reached the protected admin dashboard.
+- The admin smoke test exposed a production UI/action bug: a long harmless test filename could collapse into a one-character-wide column, and a delete attempt could hit the same-origin verification fallback instead of returning to the dashboard.
+- The deployed admin upload-card layout now keeps file details, metadata, expiration controls, and actions in resilient wrapping rows, and same-origin admin form verification now accepts normal opaque-origin browser posts when same-origin fetch metadata or same-origin referrer evidence is present.
+- The exact remaining operator step is to refresh `https://glyph.hi-660.workers.dev/admin`, verify the fixed upload-card layout for the harmless test upload, and retry deletion from the protected dashboard.
 - Read-only post-deploy verification still passes for `/health`, `/admin`, and `/`; public upload/download/deleted-link behavior remains covered by phase 87.
 - No screenshots, passkey data, cookies, session IDs, API tokens, secret values, account IDs, real D1 IDs, private file details, R2 object keys, private domains, or sensitive logs were committed.
 

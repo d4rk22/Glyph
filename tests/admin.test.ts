@@ -428,7 +428,24 @@ test("adminNoticeMessage maps known dashboard notices", () => {
 test("isSameOriginAdminRequest accepts absent or matching origins", () => {
   assert.equal(isSameOriginAdminRequest("https://glyph.example/admin/uploads/delete", null), true);
   assert.equal(isSameOriginAdminRequest("https://glyph.example/admin/uploads/delete", "https://glyph.example"), true);
+  assert.equal(
+    isSameOriginAdminRequest(
+      "https://glyph.example/admin/uploads/delete",
+      "null",
+      "https://glyph.example/admin"
+    ),
+    true
+  );
+  assert.equal(isSameOriginAdminRequest("https://glyph.example/admin/uploads/delete", "null", null, "same-origin"), true);
   assert.equal(isSameOriginAdminRequest("https://glyph.example/admin/uploads/delete", "https://evil.example"), false);
+  assert.equal(
+    isSameOriginAdminRequest(
+      "https://glyph.example/admin/uploads/delete",
+      "https://evil.example",
+      "https://glyph.example/admin"
+    ),
+    false
+  );
 });
 
 test("protected admin page shows passkey login without a valid session", async () => {
@@ -463,6 +480,8 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /<span class="usage-value">5.50 KB<\/span>/);
   assert.match(body, /aria-label="Storage cap"/);
   assert.match(body, /Current No cap/);
+  assert.match(body, /grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(body, /grid-template-columns: repeat\(auto-fit, minmax\(180px, 1fr\)\)/);
   assert.match(body, /name="storageCapBytes"/);
   assert.match(body, /aria-label="Upload mode"/);
   assert.match(body, /Worker-mediated/);
@@ -500,6 +519,7 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /status">Active/);
   assert.match(body, /status deleted">Deleted/);
   assert.match(body, /data-copy-url="https:\/\/glyph\.example\/active123"/);
+  assert.match(body, /class="upload-summary"/);
   assert.match(body, /Object uploads\/active123\/report\.pdf/);
   assert.match(body, /No expiration/);
   assert.match(body, /name="expiresAt"/);
@@ -1177,6 +1197,25 @@ test("admin delete rejects cross-origin form posts before touching R2 or upload 
   assert.match(body, /Action blocked/);
   assert.deepEqual(env.deletedObjectKeys, []);
   assert.deepEqual(env.markedDeletedIds, []);
+});
+
+test("admin delete accepts same-origin fetch metadata when origin is opaque", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    uploadById: activeUploadRow
+  });
+  const request = adminRequest("/admin/uploads/delete", {
+    method: "POST",
+    headers: { Origin: "null", "Sec-Fetch-Site": "same-origin" },
+    body: new URLSearchParams({ id: "active123" })
+  });
+
+  const response = await worker.fetch(request, env, createExecutionContext());
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=deleted");
+  assert.deepEqual(env.deletedObjectKeys, ["uploads/active123/report.pdf"]);
+  assert.deepEqual(env.markedDeletedIds, ["active123"]);
 });
 
 test("admin delete redirects with missing upload notices", async () => {

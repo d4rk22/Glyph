@@ -43,6 +43,29 @@ export function adminNoticeMessage(notice: string | null): string | null {
   }
 }
 
-export function isSameOriginAdminRequest(requestUrl: string, origin: string | null): boolean {
-  return !origin || origin === new URL(requestUrl).origin;
+export function isSameOriginAdminRequest(
+  requestUrl: string,
+  origin: string | null,
+  referer: string | null = null,
+  secFetchSite: string | null = null
+): boolean {
+  const requestOrigin = new URL(requestUrl).origin;
+
+  if (origin && origin !== "null") {
+    return origin === requestOrigin;
+  }
+
+  if (referer) {
+    try {
+      return new URL(referer).origin === requestOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  if (origin === "null") {
+    return secFetchSite === "same-origin" || secFetchSite === "none";
+  }
+
+  return true;
 }

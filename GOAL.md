@@ -195,7 +195,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Real turnkey deploy proof can document a successful authenticated resource creation, migration, deploy, and post-deploy verification pass while keeping tokens, account IDs, private resource identifiers, passkey data, cookies, private file details, R2 object keys, and sensitive logs out of the public repository.
 - Real turnkey deploy proof maintenance releases can keep the public release/update channel aligned with the first successful authenticated turnkey deploy proof while preserving the conservative source-only release model.
 - Deployed-app smoke tests can verify the live workers.dev health/admin/upload surfaces, harmless public upload and short-link download, cleanup/deleted-link behavior, and document any remaining operator-owned passkey/admin UI proof without committing sensitive runtime evidence.
-- Operator-assisted admin passkey smoke tests can verify or precisely document the WebAuthn boundary for first-admin bootstrap, protected admin access, listing, metadata, link-copy affordances, and deletion while keeping passkey/session evidence out of the repository.
+- Operator-assisted admin passkey smoke tests can verify or precisely document the WebAuthn boundary for first-admin bootstrap, protected admin access, listing, metadata, link-copy affordances, deletion, and any production UI/action bugs while keeping passkey/session evidence out of the repository.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -283,4 +283,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 85. Capture and commit the first real turnkey deploy proof. Completed.
 86. Publish the first real turnkey deploy proof maintenance release. Completed.
 87. Perform the first real deployed-app smoke test and capture sanitized findings. Completed.
-88. Complete the operator-assisted admin passkey smoke test. Completed with the WebAuthn ceremony still operator-owned.
+88. Complete the operator-assisted admin passkey smoke test. Completed with operator passkey bootstrap verified, a production admin layout/delete bug fixed and deployed, and final deletion retry left as the remaining operator-owned check.

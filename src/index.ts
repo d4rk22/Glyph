@@ -1371,12 +1371,16 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 
     .upload-card {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.9fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
       padding: 16px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--surface);
+    }
+
+    .upload-summary {
+      min-width: 0;
     }
 
     .upload-name {
@@ -1395,9 +1399,15 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
 
     .upload-meta {
       display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 6px;
       color: var(--muted);
       font-size: 0.9rem;
+    }
+
+    .upload-meta span {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .status {
@@ -1421,7 +1431,7 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
     .upload-actions {
       display: flex;
       align-items: flex-start;
-      justify-content: flex-end;
+      justify-content: flex-start;
       gap: 10px;
       flex-wrap: wrap;
     }
@@ -1437,6 +1447,8 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
       align-items: flex-end;
       gap: 8px;
       flex-wrap: wrap;
+      flex: 1 1 360px;
+      min-width: min(100%, 320px);
       margin-top: 0;
       padding: 0;
       border: 0;
@@ -1449,8 +1461,10 @@ function renderShell(title: string, main: string, options: { wide?: boolean } = 
     }
 
     .expiration-form input {
+      flex: 1 1 220px;
+      min-width: 180px;
       min-height: 44px;
-      max-width: 220px;
+      max-width: none;
       padding: 10px 12px;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -2084,7 +2098,7 @@ function uploadCard(upload: UploadMetadata, shortUrl: string): string {
     </form>`;
 
   return `<article class="upload-card">
-  <div>
+  <div class="upload-summary">
     <p class="upload-name">${escapeHtml(upload.originalFilename)}</p>
     <p class="upload-url">${escapeHtml(shortUrl)}</p>
   </div>
@@ -2856,7 +2870,12 @@ function isUploadExpired(upload: UploadMetadata, now = new Date()): boolean {
 }
 
 function isSameOriginRequest(request: Request): boolean {
-  return isSameOriginAdminRequest(request.url, request.headers.get("Origin"));
+  return isSameOriginAdminRequest(
+    request.url,
+    request.headers.get("Origin"),
+    request.headers.get("Referer"),
+    request.headers.get("Sec-Fetch-Site")
+  );
 }
 
 async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
