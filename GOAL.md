@@ -193,6 +193,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Authenticated Cloudflare proof-pass maintenance releases can keep the public release/update channel aligned with sanitized auth/deploy findings and recovery-output improvements while preserving the conservative source-only release model.
 - Deploy proof refreshes can update sanitized operator findings when local tooling changes, such as resolving pnpm/Corepack blockers while preserving the Cloudflare auth/token boundary and no-mutation safety model.
 - Real turnkey deploy proof can document a successful authenticated resource creation, migration, deploy, and post-deploy verification pass while keeping tokens, account IDs, private resource identifiers, passkey data, cookies, private file details, R2 object keys, and sensitive logs out of the public repository.
+- Real turnkey deploy proof maintenance releases can keep the public release/update channel aligned with the first successful authenticated turnkey deploy proof while preserving the conservative source-only release model.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -278,3 +279,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 83. Publish the authenticated Cloudflare proof-pass maintenance release. Completed.
 84. Refresh deploy proof findings after pnpm recovery. Completed.
 85. Capture and commit the first real turnkey deploy proof. Completed.
+86. Publish the first real turnkey deploy proof maintenance release. Completed.

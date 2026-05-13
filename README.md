@@ -577,6 +577,13 @@ Phase 85 first real turnkey deploy proof is in place:
 - Remaining operator-owned steps are first `/admin` passkey bootstrap, optional harmless upload/download smoke testing, optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin before enabling direct/multipart browser uploads, optional custom-domain setup, and optional scheduled-trigger plus protected `/admin` setting opt-ins.
 - No API tokens, secret values, account IDs, passkey data, cookies, session IDs, private file details, R2 object keys, or sensitive deployment logs were committed.
 
+Phase 86 first real turnkey deploy proof maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.11`.
+- `v0.3.11` publishes the phase 85 real turnkey deploy proof through the GitHub release channel.
+- The release highlights authenticated D1/R2 resource creation, remote D1 migration application, Wrangler dry-run, Worker deploy, workers.dev post-deploy verification for `/health`, `/admin`, and `/`, sanitized public-repo documentation, and the decision to keep the real D1 `database_id` out of committed `wrangler.jsonc`.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
