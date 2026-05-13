@@ -592,6 +592,14 @@ Phase 87 first deployed-app smoke test is in place:
 - The `/admin` surface is still at the first-admin passkey bootstrap state. Admin bootstrap/login, admin file listing, metadata viewing, link-copy affordance verification, and admin UI deletion remain operator-owned because they require a real browser WebAuthn/passkey ceremony.
 - No API tokens, secret values, account IDs, real D1 IDs, passkey data, cookies, session IDs, private file details, R2 object keys, private domains, or sensitive logs were committed.
 
+Phase 88 operator-assisted admin passkey smoke-test checkpoint is in place:
+
+- The deployed `/admin` page was opened in the browser automation surface and showed the expected first-admin `Create passkey` bootstrap form.
+- Clicking `Create passkey` did not complete the native WebAuthn ceremony from automation; the page remained at the bootstrap state, so no passkey data, admin session, or protected dashboard state was captured.
+- The exact remaining operator step is to open `https://glyph.hi-660.workers.dev/admin` in a real browser, click `Create passkey`, complete the system passkey prompt, then verify the protected admin dashboard, upload listing, metadata, link-copy affordance, and admin deletion with a harmless test upload.
+- Read-only post-deploy verification still passes for `/health`, `/admin`, and `/`; public upload/download/deleted-link behavior remains covered by phase 87.
+- No screenshots, passkey data, cookies, session IDs, API tokens, secret values, account IDs, real D1 IDs, private file details, R2 object keys, private domains, or sensitive logs were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
