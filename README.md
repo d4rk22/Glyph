@@ -603,6 +603,14 @@ Phase 88 operator-assisted admin passkey smoke-test checkpoint is in place:
 - Read-only post-deploy verification still passes for `/health`, `/admin`, and `/`; public upload/download/deleted-link behavior remains covered by phase 87.
 - No screenshots, passkey data, cookies, session IDs, API tokens, secret values, account IDs, real D1 IDs, private file details, R2 object keys, private domains, or sensitive logs were committed.
 
+Phase 89 admin smoke-test bugfix maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.12`.
+- `v0.3.12` publishes the phase 88 admin smoke-test bugfix through the GitHub release channel.
+- The release highlights the fixed admin upload-card layout for long filenames, resilient wrapping metadata/actions/expiration controls, improved same-origin admin form verification for opaque-origin same-origin browser posts, preserved explicit cross-origin rejection, focused admin route tests, and live workers.dev verification.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+- Operators still own refreshing the protected admin dashboard, retrying deletion of the harmless phase 88 smoke-test upload if still present, verifying deleted-link not-found behavior, optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

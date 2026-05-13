@@ -284,3 +284,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 86. Publish the first real turnkey deploy proof maintenance release. Completed.
 87. Perform the first real deployed-app smoke test and capture sanitized findings. Completed.
 88. Complete the operator-assisted admin passkey smoke test. Completed with operator passkey bootstrap verified, a production admin layout/delete bug fixed and deployed, and final deletion retry left as the remaining operator-owned check.
+89. Publish the admin smoke-test bugfix maintenance release. Completed.
