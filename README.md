@@ -620,6 +620,14 @@ Phase 90 deployed admin delete smoke-test closure is in place:
 - No screenshots, passkey data, cookies, session IDs, API tokens, secret values, account IDs, real D1 IDs, private file details, R2 object keys, private domains, short IDs, or sensitive logs were committed.
 - Remaining production follow-ups are optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 91 admin delete smoke-test closure maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.13`.
+- `v0.3.13` publishes the phase 90 deployed admin delete smoke-test closure through the GitHub release channel.
+- The release highlights the completed operator-assisted production admin deletion proof, fixed long-filename admin card layout verification, deleted metadata visibility, R2 cleanup complete state, deleted short-link not-found verification, and sanitized evidence boundary.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+- Operators still own optional direct/multipart R2 S3-compatible credentials, R2 CORS for the final origin, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
