@@ -584,6 +584,14 @@ Phase 86 first real turnkey deploy proof maintenance release is in place:
 - The release highlights authenticated D1/R2 resource creation, remote D1 migration application, Wrangler dry-run, Worker deploy, workers.dev post-deploy verification for `/health`, `/admin`, and `/`, sanitized public-repo documentation, and the decision to keep the real D1 `database_id` out of committed `wrangler.jsonc`.
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 
+Phase 87 first deployed-app smoke test is in place:
+
+- The deployed workers.dev origin `https://glyph.hi-660.workers.dev` passed read-only checks for `/health`, `/admin`, and `/`.
+- A harmless text-file upload through the public `/` form succeeded, the generated short URL downloaded with the original filename and `text/plain` content type, and the downloaded bytes matched the uploaded file.
+- The smoke-test R2 object was deleted and its D1 metadata was marked deleted through a temporary, non-committed Wrangler config so the short URL now returns the polished not-found page.
+- The `/admin` surface is still at the first-admin passkey bootstrap state. Admin bootstrap/login, admin file listing, metadata viewing, link-copy affordance verification, and admin UI deletion remain operator-owned because they require a real browser WebAuthn/passkey ceremony.
+- No API tokens, secret values, account IDs, real D1 IDs, passkey data, cookies, session IDs, private file details, R2 object keys, private domains, or sensitive logs were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
