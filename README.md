@@ -665,6 +665,15 @@ Phase 95 direct/multipart production-boundary maintenance release is in place:
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload beyond deliberate harmless verification, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 - Operators still own setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 96 direct/multipart production enablement proof is in place:
+
+- The workers.dev `--turnkey-secrets` plan was re-run for `https://glyph.hi-660.workers.dev`; it still prints the required Wrangler secret commands and the workers.dev-aligned R2 CORS rule without printing or storing secret values.
+- Deployed Worker secret-name discovery returned no configured direct/multipart R2 S3-compatible secrets, and the `glyph-files` bucket still reports no R2 CORS policy. Real browser direct-to-R2 and multipart uploads therefore remain intentionally blocked before protected admin upload-mode opt-in.
+- The deployed public upload page still renders the Worker-mediated form, production `upload_mode` remains unset and defaults to Worker-mediated behavior, and direct single-part plus multipart initiate probes both return HTTP 409 not-enabled responses.
+- A fresh harmless Worker-mediated workers.dev upload/download round trip passed, the downloaded bytes matched the uploaded file, the test object was deleted from R2, D1 metadata was marked deleted and cleanup-complete through a temporary non-committed config, and the deleted short link returned the polished not-found response.
+- Real direct-to-R2 single-part and multipart browser upload proof remains operator-owned until deployed R2 S3-compatible secrets, reviewed R2 CORS for the final origin, and protected `/admin` upload-mode opt-in are complete.
+- No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
