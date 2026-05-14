@@ -11,6 +11,7 @@ export type AppSettingKey =
   | "storage_cap_bytes"
   | "default_upload_ttl_seconds"
   | "upload_mode"
+  | "direct_upload_cors_confirmed"
   | "update_source_url"
   | "update_channel"
   | "auto_update_enabled"
@@ -121,6 +122,7 @@ export interface AppSettings {
   storageCapBytes: number | null;
   defaultUploadTtlSeconds: number | null;
   uploadMode: UploadMode;
+  directUploadCorsConfirmed: boolean;
   updateSourceUrl: string | null;
   updateChannel: UpdateChannel;
   autoUpdateEnabled: boolean;
@@ -880,6 +882,7 @@ export async function getAppSettings(db: D1Database): Promise<AppSettings> {
     storageCapBytes: parseNullableIntegerSetting(values.get("storage_cap_bytes")),
     defaultUploadTtlSeconds: parseNullableIntegerSetting(values.get("default_upload_ttl_seconds")),
     uploadMode: parseUploadMode(values.get("upload_mode")),
+    directUploadCorsConfirmed: parseBooleanSetting(values.get("direct_upload_cors_confirmed")),
     updateSourceUrl: parseNullableStringSetting(values.get("update_source_url")),
     updateChannel: parseUpdateChannel(values.get("update_channel")),
     autoUpdateEnabled: parseBooleanSetting(values.get("auto_update_enabled")),
@@ -956,6 +959,7 @@ export async function updateAppSettings(
     storageCapBytes: number | null;
     defaultUploadTtlSeconds: number | null;
     uploadMode: UploadMode;
+    directUploadCorsConfirmed: boolean;
     updateSourceUrl: string | null;
     updateChannel: UpdateChannel;
     autoUpdateEnabled: boolean;
@@ -978,6 +982,15 @@ export async function updateAppSettings(
 
   if (settings.uploadMode !== undefined) {
     await setAppSetting(db, "upload_mode", settings.uploadMode, now);
+  }
+
+  if (settings.directUploadCorsConfirmed !== undefined) {
+    await setAppSetting(
+      db,
+      "direct_upload_cors_confirmed",
+      settings.directUploadCorsConfirmed ? "true" : "false",
+      now
+    );
   }
 
   if ("updateSourceUrl" in settings) {
@@ -1501,6 +1514,7 @@ function parseAppSettingKey(value: string): AppSettingKey {
     value !== "storage_cap_bytes" &&
     value !== "default_upload_ttl_seconds" &&
     value !== "upload_mode" &&
+    value !== "direct_upload_cors_confirmed" &&
     value !== "update_source_url" &&
     value !== "update_channel" &&
     value !== "auto_update_enabled" &&
@@ -1536,7 +1550,12 @@ function validateAppSetting(key: AppSettingKey, value: string): void {
     return;
   }
 
-  if (key === "auto_update_enabled" || key === "update_available" || key === "scheduled_maintenance_enabled") {
+  if (
+    key === "direct_upload_cors_confirmed" ||
+    key === "auto_update_enabled" ||
+    key === "update_available" ||
+    key === "scheduled_maintenance_enabled"
+  ) {
     if (value !== "true" && value !== "false") {
       throw new Error(`${key} must be true or false.`);
     }

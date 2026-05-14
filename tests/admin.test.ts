@@ -409,6 +409,22 @@ test("adminNoticeMessage maps known dashboard notices", () => {
   assert.equal(adminNoticeMessage("invalid-storage-cap"), "Storage cap must be a non-negative whole number of bytes.");
   assert.equal(adminNoticeMessage("upload-mode-updated"), "Upload mode updated.");
   assert.equal(adminNoticeMessage("invalid-upload-mode"), "Upload mode must be worker-mediated, direct-to-R2, or multipart direct-to-R2.");
+  assert.equal(
+    adminNoticeMessage("direct-upload-secrets-missing"),
+    "Direct and multipart uploads require deployed R2 signing secrets before changing upload mode."
+  );
+  assert.equal(
+    adminNoticeMessage("direct-upload-cors-unconfirmed"),
+    "Direct and multipart uploads require confirmed R2 CORS for this origin before changing upload mode."
+  );
+  assert.equal(
+    adminNoticeMessage("direct-upload-cors-confirmed"),
+    "Direct upload R2 CORS readiness saved. Glyph did not change Cloudflare CORS."
+  );
+  assert.equal(
+    adminNoticeMessage("direct-upload-cors-unconfirmed-saved"),
+    "Direct upload R2 CORS readiness cleared. Worker-mediated uploads remain available."
+  );
   assert.equal(adminNoticeMessage("r2-cleanup-complete"), "R2 cleanup retry finished.");
   assert.equal(
     adminNoticeMessage("r2-cleanup-partial"),
@@ -486,6 +502,13 @@ test("authenticated admin page lists active and deleted upload metadata", async 
   assert.match(body, /aria-label="Upload mode"/);
   assert.match(body, /Worker-mediated/);
   assert.match(body, /Multipart direct-to-R2/);
+  assert.match(body, /Signing secrets missing/);
+  assert.match(body, /R2 CORS not confirmed/);
+  assert.match(body, /Direct modes Blocked/);
+  assert.match(body, /I have applied R2 CORS for this origin/);
+  assert.match(body, /Glyph does not store Cloudflare API tokens or mutate R2 CORS from the admin portal/);
+  assert.match(body, /pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url https:\/\/glyph\.example/);
+  assert.match(body, /action="\/admin\/settings\/direct-upload-readiness"/);
   assert.match(body, /name="uploadMode"/);
   assert.match(body, /aria-label="R2 cleanup"/);
   assert.match(body, /Pending 1/);
@@ -728,7 +751,7 @@ test("pending and failed multipart uploads are not downloadable", async () => {
   assert.equal(failedResponse.status, 404);
 });
 
-test("direct upload initiate requires direct mode and configured R2 credentials", async () => {
+test("direct upload initiate requires direct mode, configured R2 credentials, and confirmed CORS", async () => {
   const disabled = createFakeEnv();
   const disabledResponse = await worker.fetch(
     new Request("https://glyph.example/uploads/direct/initiate", {
@@ -751,14 +774,31 @@ test("direct upload initiate requires direct mode and configured R2 credentials"
     createExecutionContext()
   );
 
+  const unconfirmedCors = createFakeEnv({
+    directUploadCredentials: true,
+    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const unconfirmedCorsResponse = await worker.fetch(
+    new Request("https://glyph.example/uploads/direct/initiate", {
+      method: "POST",
+      body: JSON.stringify({ filename: "file.txt", contentType: "text/plain", sizeBytes: 12 })
+    }),
+    unconfirmedCors,
+    createExecutionContext()
+  );
+
   assert.equal(disabledResponse.status, 409);
   assert.equal(missingResponse.status, 409);
+  assert.equal(unconfirmedCorsResponse.status, 409);
 });
 
 test("direct upload initiate creates pending metadata and returns a presigned R2 URL", async () => {
   const env = createFakeEnv({
     directUploadCredentials: true,
-    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+    appSettings: [
+      { key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
   });
 
   const response = await worker.fetch(
@@ -787,7 +827,10 @@ test("direct upload initiate creates pending metadata and returns a presigned R2
 test("multipart mode keeps small direct uploads and rejects threshold-sized direct uploads", async () => {
   const env = createFakeEnv({
     directUploadCredentials: true,
-    appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+    appSettings: [
+      { key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
   });
 
   const small = await worker.fetch(
@@ -815,14 +858,26 @@ test("multipart mode keeps small direct uploads and rejects threshold-sized dire
   assert.equal(env.insertedUploadBindings[0][7], "direct");
 });
 
-test("public upload page enables direct upload only when mode and credentials are configured", async () => {
+test("public upload page enables direct upload only when mode, credentials, and CORS are ready", async () => {
   const workerMode = await worker.fetch(new Request("https://glyph.example/"), createFakeEnv(), createExecutionContext());
   const workerBody = await workerMode.text();
-  const directMode = await worker.fetch(
+  const unconfirmedCors = await worker.fetch(
     new Request("https://glyph.example/"),
     createFakeEnv({
       directUploadCredentials: true,
       appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+    }),
+    createExecutionContext()
+  );
+  const unconfirmedCorsBody = await unconfirmedCors.text();
+  const directMode = await worker.fetch(
+    new Request("https://glyph.example/"),
+    createFakeEnv({
+      directUploadCredentials: true,
+      appSettings: [
+        { key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+      ]
     }),
     createExecutionContext()
   );
@@ -831,13 +886,17 @@ test("public upload page enables direct upload only when mode and credentials ar
     new Request("https://glyph.example/"),
     createFakeEnv({
       directUploadCredentials: true,
-      appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+      appSettings: [
+        { key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+      ]
     }),
     createExecutionContext()
   );
   const multipartBody = await multipartMode.text();
 
   assert.doesNotMatch(workerBody, /data-direct-upload="true"/);
+  assert.doesNotMatch(unconfirmedCorsBody, /data-direct-upload="true"/);
   assert.match(directBody, /data-direct-upload="true"/);
   assert.match(multipartBody, /data-direct-upload="true"/);
   assert.match(multipartBody, /data-upload-mode="multipart"/);
@@ -965,7 +1024,10 @@ test("direct upload finalization marks size mismatches failed and cleans R2", as
 test("multipart upload initiate creates pending metadata and stores the R2 upload id", async () => {
   const env = createFakeEnv({
     directUploadCredentials: true,
-    appSettings: [{ key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }]
+    appSettings: [
+      { key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" },
+      { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
+    ]
   });
 
   await withMockedFetch(
@@ -1453,13 +1515,13 @@ test("admin storage cap can be cleared without enforcement", async () => {
   assert.deepEqual(env.deletedObjectKeys, []);
 });
 
-test("admin upload mode update validates origin and persists multipart mode", async () => {
+test("admin direct upload readiness setting validates origin and persists CORS confirmation", async () => {
   const env = createFakeEnv({ authenticated: true });
   const blocked = await worker.fetch(
-    adminRequest("/admin/settings/upload-mode", {
+    adminRequest("/admin/settings/direct-upload-readiness", {
       method: "POST",
       headers: { Origin: "https://evil.example" },
-      body: new URLSearchParams({ uploadMode: "multipart" })
+      body: new URLSearchParams({ directUploadCorsConfirmed: "true" })
     }),
     env,
     createExecutionContext()
@@ -1469,17 +1531,100 @@ test("admin upload mode update validates origin and persists multipart mode", as
   assert.deepEqual(env.settingsUpdates, []);
 
   const saved = await worker.fetch(
-    adminRequest("/admin/settings/upload-mode", {
+    adminRequest("/admin/settings/direct-upload-readiness", {
       method: "POST",
-      body: new URLSearchParams({ uploadMode: "multipart" })
+      body: new URLSearchParams({ directUploadCorsConfirmed: "true" })
     }),
     env,
     createExecutionContext()
   );
 
   assert.equal(saved.status, 303);
+  assert.equal(saved.headers.get("Location"), "/admin?notice=direct-upload-cors-confirmed");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["direct_upload_cors_confirmed", "true"]);
+
+  const cleared = await worker.fetch(
+    adminRequest("/admin/settings/direct-upload-readiness", {
+      method: "POST",
+      body: new URLSearchParams()
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(cleared.status, 303);
+  assert.equal(cleared.headers.get("Location"), "/admin?notice=direct-upload-cors-unconfirmed-saved");
+  assert.deepEqual(env.settingsUpdates[1].slice(0, 2), ["direct_upload_cors_confirmed", "false"]);
+});
+
+test("admin upload mode update gates direct modes behind secrets and CORS confirmation", async () => {
+  const missingSecrets = createFakeEnv({
+    authenticated: true,
+    appSettings: [{ key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const blockedBySecrets = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "multipart" })
+    }),
+    missingSecrets,
+    createExecutionContext()
+  );
+
+  assert.equal(blockedBySecrets.status, 303);
+  assert.equal(blockedBySecrets.headers.get("Location"), "/admin?notice=direct-upload-secrets-missing");
+  assert.deepEqual(missingSecrets.settingsUpdates, []);
+
+  const missingCors = createFakeEnv({ authenticated: true, directUploadCredentials: true });
+  const blockedByCors = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "direct" })
+    }),
+    missingCors,
+    createExecutionContext()
+  );
+
+  assert.equal(blockedByCors.status, 303);
+  assert.equal(blockedByCors.headers.get("Location"), "/admin?notice=direct-upload-cors-unconfirmed");
+  assert.deepEqual(missingCors.settingsUpdates, []);
+
+  const ready = createFakeEnv({
+    authenticated: true,
+    directUploadCredentials: true,
+    appSettings: [{ key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const saved = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "multipart" })
+    }),
+    ready,
+    createExecutionContext()
+  );
+
+  assert.equal(saved.status, 303);
   assert.equal(saved.headers.get("Location"), "/admin?notice=upload-mode-updated");
-  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["upload_mode", "multipart"]);
+  assert.deepEqual(ready.settingsUpdates[0].slice(0, 2), ["upload_mode", "multipart"]);
+});
+
+test("admin upload mode update always allows worker-mediated fallback", async () => {
+  const env = createFakeEnv({
+    authenticated: true,
+    appSettings: [{ key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" }]
+  });
+  const response = await worker.fetch(
+    adminRequest("/admin/settings/upload-mode", {
+      method: "POST",
+      body: new URLSearchParams({ uploadMode: "worker" })
+    }),
+    env,
+    createExecutionContext()
+  );
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/admin?notice=upload-mode-updated");
+  assert.deepEqual(env.settingsUpdates[0].slice(0, 2), ["upload_mode", "worker"]);
 });
 
 test("admin upload mode update rejects unknown modes", async () => {

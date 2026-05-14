@@ -674,6 +674,14 @@ Phase 96 direct/multipart production enablement proof is in place:
 - Real direct-to-R2 single-part and multipart browser upload proof remains operator-owned until deployed R2 S3-compatible secrets, reviewed R2 CORS for the final origin, and protected `/admin` upload-mode opt-in are complete.
 - No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
 
+Phase 97 admin direct/multipart readiness gates are in place:
+
+- `/admin` now shows direct/multipart readiness beside the upload-mode controls: whether R2 signing secrets are visible to the Worker, whether R2 CORS has been operator-confirmed, the expected CORS origin, and the exact local helper command for applying reviewed CORS from an operator machine.
+- A new D1 app setting, seeded by `0010_direct_upload_readiness.sql`, stores only the operator's R2 CORS readiness confirmation. It does not store Cloudflare API tokens, secret values, account IDs, CORS JSON, object keys, or private resource identifiers.
+- Direct-to-R2 and multipart upload-mode changes are gated: Worker-mediated mode always remains available, but direct and multipart modes require both configured R2 signing secrets and confirmed R2 CORS readiness.
+- If prerequisites are missing, `/admin` keeps the previous upload mode, shows a clear notice, and public initiate endpoints remain unavailable instead of creating pending downloadable uploads.
+- Glyph still does not mutate R2 CORS or set Wrangler secrets from the admin portal. Operators apply CORS and secrets from a trusted local machine with the deploy helper, then confirm readiness in `/admin`.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
@@ -848,7 +856,7 @@ After deploy, verify the deployed origin before sharing links: open `/health` an
 
 ## Migrations
 
-Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, R2 deletion cleanup state, direct upload finalization state, and multipart upload state.
+Migrations live in `migrations/` and create D1 tables for uploads, admin users, passkey credentials, admin sessions, WebAuthn challenges, and app settings. Later migrations add upload lifecycle fields for expiration, upload modes, storage accounting, R2 deletion cleanup state, direct upload finalization state, multipart upload state, and the admin-confirmed direct upload CORS readiness setting.
 
 Apply migrations locally:
 

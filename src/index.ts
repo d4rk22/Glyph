@@ -186,6 +186,10 @@ export default {
       return handleAdminUploadMode(request, env);
     }
 
+    if (url.pathname === "/admin/settings/direct-upload-readiness" && request.method === "POST") {
+      return handleAdminDirectUploadReadiness(request, env);
+    }
+
     if (url.pathname === "/admin/settings/updates" && request.method === "POST") {
       return handleAdminUpdateSettings(request, env);
     }
@@ -690,8 +694,36 @@ async function handleAdminUploadMode(request: Request, env: Env): Promise<Respon
     return redirect("/admin?notice=invalid-upload-mode");
   }
 
+  const settings = await getAppSettings(env.DB);
+  if ((uploadMode === "direct" || uploadMode === "multipart") && !directUploadConfigured(env)) {
+    return redirect("/admin?notice=direct-upload-secrets-missing");
+  }
+
+  if ((uploadMode === "direct" || uploadMode === "multipart") && !settings.directUploadCorsConfirmed) {
+    return redirect("/admin?notice=direct-upload-cors-unconfirmed");
+  }
+
   await updateAppSettings(env.DB, { uploadMode });
   return redirect("/admin?notice=upload-mode-updated");
+}
+
+async function handleAdminDirectUploadReadiness(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if (!auth) {
+    return redirect("/admin");
+  }
+
+  if (!isSameOriginRequest(request)) {
+    return html(renderShell("Forbidden", adminActionErrorPage("The direct upload readiness request could not be verified.")), 403);
+  }
+
+  const formData = await request.formData();
+  const directUploadCorsConfirmed = formData.get("directUploadCorsConfirmed") === "true";
+  await updateAppSettings(env.DB, { directUploadCorsConfirmed });
+
+  return redirect(
+    `/admin?notice=${directUploadCorsConfirmed ? "direct-upload-cors-confirmed" : "direct-upload-cors-unconfirmed-saved"}`
+  );
 }
 
 async function handleAdminUpdateSettings(request: Request, env: Env): Promise<Response> {
@@ -1700,7 +1732,7 @@ ${noticeMarkup(notice)}
 </div>
 ${usageDashboard(usage)}
 ${storageCapPanel(settings, usage)}
-${uploadModePanel(settings, directUploadAvailable)}
+${uploadModePanel(settings, directUploadAvailable, directUploadCorsOrigin(origin, configuredBaseUrl))}
 ${updatesPanel(settings)}
 ${r2CleanupPanel(cleanup)}
 ${scheduledMaintenancePanel(settings)}
@@ -1834,20 +1866,34 @@ function storageCapPanel(settings: AppSettings, usage: StorageUsage): string {
 </section>`;
 }
 
-function uploadModePanel(settings: AppSettings, directUploadAvailable: boolean): string {
-  const directStatus = directUploadAvailable ? "Direct credentials configured" : "Direct credentials missing";
+function uploadModePanel(settings: AppSettings, directUploadSecretsConfigured: boolean, corsOrigin: string): string {
+  const directStatus = directUploadSecretsConfigured ? "Signing secrets configured" : "Signing secrets missing";
+  const corsStatus = settings.directUploadCorsConfirmed ? "R2 CORS confirmed" : "R2 CORS not confirmed";
+  const directReady = directUploadSecretsConfigured && settings.directUploadCorsConfirmed;
   const currentLabel =
     settings.uploadMode === "multipart"
       ? "Multipart direct-to-R2"
       : settings.uploadMode === "direct"
         ? "Direct-to-R2"
         : "Worker-mediated";
+  const corsCommand = `pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url ${corsOrigin}`;
   return `<section class="settings-panel" aria-label="Upload mode">
   <h2>Upload mode</h2>
   <div class="settings-detail">
     <span>Current ${currentLabel}</span>
     <span>${escapeHtml(directStatus)}</span>
+    <span>${escapeHtml(corsStatus)}</span>
+    <span>Direct modes ${directReady ? "Ready" : "Blocked"}</span>
   </div>
+  <p class="settings-hint">Direct-to-R2 and multipart modes require deployed R2 signing secrets plus operator-confirmed R2 CORS for ${escapeHtml(corsOrigin)}. Glyph does not store Cloudflare API tokens or mutate R2 CORS from the admin portal.</p>
+  <p class="settings-hint">Apply reviewed CORS from an operator machine: <code>${escapeHtml(corsCommand)}</code></p>
+  <form method="post" action="/admin/settings/direct-upload-readiness">
+    <label>
+      <input type="checkbox" name="directUploadCorsConfirmed" value="true"${settings.directUploadCorsConfirmed ? " checked" : ""}>
+      I have applied R2 CORS for this origin.
+    </label>
+    <button type="submit">Save readiness</button>
+  </form>
   <form class="settings-form" method="post" action="/admin/settings/upload-mode">
     <div>
       <label for="upload-mode">Mode</label>
@@ -1860,6 +1906,21 @@ function uploadModePanel(settings: AppSettings, directUploadAvailable: boolean):
     <button type="submit">Save mode</button>
   </form>
 </section>`;
+}
+
+function directUploadCorsOrigin(origin: string, configuredBaseUrl: string | undefined): string {
+  if (configuredBaseUrl) {
+    try {
+      const url = new URL(configuredBaseUrl);
+      if (url.protocol === "https:") {
+        return url.origin;
+      }
+    } catch {
+      // Fall back to the request origin when PUBLIC_BASE_URL is not a valid URL.
+    }
+  }
+
+  return origin;
 }
 
 function r2CleanupPanel(cleanup: R2DeletionCleanupStats): string {
@@ -2223,11 +2284,15 @@ function parseUpdateSourceFormValue(value: string | null): string | null | Error
 }
 
 function directUploadEnabled(settings: AppSettings, env: Env): boolean {
-  return (settings.uploadMode === "direct" || settings.uploadMode === "multipart") && directUploadConfigured(env);
+  return (
+    (settings.uploadMode === "direct" || settings.uploadMode === "multipart") &&
+    directUploadConfigured(env) &&
+    settings.directUploadCorsConfirmed
+  );
 }
 
 function multipartUploadEnabled(settings: AppSettings, env: Env): boolean {
-  return settings.uploadMode === "multipart" && directUploadConfigured(env);
+  return settings.uploadMode === "multipart" && directUploadConfigured(env) && settings.directUploadCorsConfirmed;
 }
 
 function directUploadConfigured(env: Env): boolean {

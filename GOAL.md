@@ -200,6 +200,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Direct/multipart production enablement smoke tests can move to real browser upload proof only after deployed R2 S3-compatible secrets, reviewed R2 CORS, and protected admin upload-mode opt-in are complete; when blocked, they should document the exact sanitized boundary and keep Worker-mediated fallback proof current.
 - Direct/multipart production-boundary maintenance releases can keep the public release/update channel aligned with the latest production enablement boundary while preserving the source-only, no-secret, no-Cloudflare-mutation release model.
 - Direct/multipart production proof passes can re-check deployed secret-name and R2 CORS readiness, prove the Worker-mediated fallback with harmless upload/download cleanup, and leave real browser direct/multipart proof operator-owned until prerequisites are complete.
+- Admin direct/multipart readiness gates can expose runtime secret availability and operator-confirmed R2 CORS readiness, prevent unsafe mode switches, and keep Cloudflare API tokens, secret values, and CORS mutation out of the deployed admin portal.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -296,3 +297,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 94. Complete operator-assisted direct/multipart production enablement and smoke test. Completed with production enablement blocked pending deployed secrets, R2 CORS, and protected admin opt-in; Worker-mediated fallback and blocked direct/multipart endpoints were reverified.
 95. Publish the direct/multipart production-boundary maintenance release. Completed.
 96. Complete real direct/multipart production enablement and proof. Completed with deployed direct/multipart prerequisites still absent, Worker-mediated production fallback freshly proven and cleaned up, and real browser direct/multipart proof left operator-owned.
+97. Add admin direct/multipart readiness gates. Completed with admin-visible secret/CORS readiness, persistent operator CORS confirmation, gated direct/multipart mode switching, and Worker-mediated fallback preserved.

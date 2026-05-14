@@ -340,7 +340,8 @@ test("app settings helpers parse defaults and typed values", async () => {
       all: [
         { key: "storage_cap_bytes", value: "10737418240", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "default_upload_ttl_seconds", value: "604800", updated_at: "2026-05-08T12:00:00.000Z" },
-        { key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" }
+        { key: "upload_mode", value: "multipart", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" }
       ]
     },
     {
@@ -355,6 +356,7 @@ test("app settings helpers parse defaults and typed values", async () => {
     storageCapBytes: 10_737_418_240,
     defaultUploadTtlSeconds: 604_800,
     uploadMode: "multipart",
+    directUploadCorsConfirmed: true,
     updateSourceUrl: null,
     updateChannel: "stable",
     autoUpdateEnabled: false,
@@ -382,6 +384,7 @@ test("app settings helpers parse defaults and typed values", async () => {
     storageCapBytes: null,
     defaultUploadTtlSeconds: null,
     uploadMode: "direct",
+    directUploadCorsConfirmed: false,
     updateSourceUrl: null,
     updateChannel: "stable",
     autoUpdateEnabled: false,
@@ -411,6 +414,7 @@ test("app settings helpers validate and persist known setting keys", async () =>
     {
       all: [
         { key: "upload_mode", value: "direct", updated_at: "2026-05-08T12:00:00.000Z" },
+        { key: "direct_upload_cors_confirmed", value: "true", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "update_source_url", value: "https://github.com/example/glyph", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "update_channel", value: "beta", updated_at: "2026-05-08T12:00:00.000Z" },
         { key: "auto_update_enabled", value: "true", updated_at: "2026-05-08T12:00:00.000Z" },
@@ -427,6 +431,7 @@ test("app settings helpers validate and persist known setting keys", async () =>
     storageCapBytes: null,
     defaultUploadTtlSeconds: 3600,
     uploadMode: "direct",
+    directUploadCorsConfirmed: true,
     updateSourceUrl: "https://github.com/example/glyph",
     updateChannel: "beta",
     autoUpdateEnabled: true,
@@ -445,6 +450,7 @@ test("app settings helpers validate and persist known setting keys", async () =>
       ["storage_cap_bytes", ""],
       ["default_upload_ttl_seconds", "3600"],
       ["upload_mode", "direct"],
+      ["direct_upload_cors_confirmed", "true"],
       ["update_source_url", "https://github.com/example/glyph"],
       ["update_channel", "beta"],
       ["auto_update_enabled", "true"],
@@ -452,6 +458,7 @@ test("app settings helpers validate and persist known setting keys", async () =>
     ]
   );
   await assert.rejects(() => setAppSetting(db, "upload_mode", "invalid"));
+  await assert.rejects(() => setAppSetting(db, "direct_upload_cors_confirmed", "sometimes"));
   await assert.rejects(() => setAppSetting(db, "update_source_url", "http://example.com/glyph"));
   await assert.rejects(() => setAppSetting(db, "update_channel", "nightly"));
   await assert.rejects(() => setAppSetting(db, "auto_update_enabled", "sometimes"));
@@ -479,6 +486,7 @@ test("update settings helpers persist source channel and automatic opt-in", asyn
     storageCapBytes: null,
     defaultUploadTtlSeconds: null,
     uploadMode: "worker",
+    directUploadCorsConfirmed: false,
     updateSourceUrl: "https://github.com/example/glyph",
     updateChannel: "beta",
     autoUpdateEnabled: true,

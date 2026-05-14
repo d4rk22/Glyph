@@ -24,6 +24,14 @@ export function adminNoticeMessage(notice: string | null): string | null {
       return "Upload mode updated.";
     case "invalid-upload-mode":
       return "Upload mode must be worker-mediated, direct-to-R2, or multipart direct-to-R2.";
+    case "direct-upload-secrets-missing":
+      return "Direct and multipart uploads require deployed R2 signing secrets before changing upload mode.";
+    case "direct-upload-cors-unconfirmed":
+      return "Direct and multipart uploads require confirmed R2 CORS for this origin before changing upload mode.";
+    case "direct-upload-cors-confirmed":
+      return "Direct upload R2 CORS readiness saved. Glyph did not change Cloudflare CORS.";
+    case "direct-upload-cors-unconfirmed-saved":
+      return "Direct upload R2 CORS readiness cleared. Worker-mediated uploads remain available.";
     case "r2-cleanup-complete":
       return "R2 cleanup retry finished.";
     case "r2-cleanup-partial":

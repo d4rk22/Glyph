@@ -13,6 +13,10 @@ const scheduledMaintenanceMigration = readFileSync(
   new URL("../migrations/0009_scheduled_maintenance.sql", import.meta.url),
   "utf8"
 );
+const directUploadReadinessMigration = readFileSync(
+  new URL("../migrations/0010_direct_upload_readiness.sql", import.meta.url),
+  "utf8"
+);
 
 test("migrations include the core metadata and auth tables", () => {
   const allMigrations = [
@@ -23,7 +27,9 @@ test("migrations include the core metadata and auth tables", () => {
     directUploadMigration,
     multipartUploadMigration,
     updateSettingsMigration,
-    updateCheckResultsMigration
+    updateCheckResultsMigration,
+    scheduledMaintenanceMigration,
+    directUploadReadinessMigration
   ].join("\n");
 
   for (const table of ["uploads", "admin_users", "webauthn_credentials", "admin_sessions", "webauthn_challenges", "app_settings"]) {
@@ -112,6 +118,12 @@ test("scheduled maintenance migration seeds maintenance settings", () => {
   }
 
   assert.match(scheduledMaintenanceMigration, /INSERT OR IGNORE INTO app_settings/);
+});
+
+test("direct upload readiness migration seeds CORS confirmation setting", () => {
+  assert.match(directUploadReadinessMigration, /'direct_upload_cors_confirmed'/);
+  assert.match(directUploadReadinessMigration, /'false'/);
+  assert.match(directUploadReadinessMigration, /INSERT OR IGNORE INTO app_settings/);
 });
 
 test("uploads table keeps file bytes out of D1 metadata", () => {
