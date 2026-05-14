@@ -706,6 +706,14 @@ Phase 100 operator-assisted admin readiness-gate verification is documented:
 - The remaining signed-in dashboard proof is unchanged and operator-owned: verify the runtime signing-secret visibility, expected CORS origin, CORS readiness checkbox save/clear persistence, gated direct/multipart mode switching, Worker-mediated fallback, and admin safety text from an authenticated browser session.
 - No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
 
+Phase 101 signed-in admin readiness verification is recorded:
+
+- The operator-confirmed signed-in `/admin` dashboard shows Worker-mediated as the current upload mode, runtime R2 signing secrets missing without exposing values, R2 CORS not confirmed, and direct modes blocked.
+- The readiness panel shows the expected CORS origin as `https://glyph.hi-660.workers.dev` and displays the local helper guidance: `pnpm run deploy:glyph -- --turnkey-secrets --yes --apply-cors --public-base-url https://glyph.hi-660.workers.dev`.
+- Worker-mediated mode remains available as the safe production fallback. No upload-mode switch, R2 CORS confirmation, secret setup, file upload, passkey action, Worker deploy, migration, or Cloudflare mutation was performed for this documentation pass.
+- Remaining direct/multipart enablement is operator-owned: set R2 S3-compatible Wrangler secrets, apply reviewed R2 CORS for the workers.dev origin, confirm CORS readiness in protected `/admin`, switch to direct or multipart mode, then run harmless browser upload smoke tests.
+- No screenshots, API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, private file details, R2 object keys, short IDs, sensitive logs, or private resource identifiers were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
