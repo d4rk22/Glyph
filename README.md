@@ -656,6 +656,15 @@ Phase 94 direct/multipart production enablement smoke test is in place:
 - Real direct-to-R2 single-part and multipart browser upload proof remains operator-owned: set the required deployed R2 S3-compatible secrets, apply reviewed R2 CORS for the final origin, enable direct or multipart mode from protected `/admin`, then perform harmless direct/multipart browser uploads and cleanup.
 - No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
 
+Phase 95 direct/multipart production-boundary maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.15`.
+- `v0.3.15` publishes the phase 94 production-boundary proof through the GitHub release channel.
+- The release highlights that Worker-mediated uploads remain healthy while direct/multipart production enablement is intentionally blocked pending deployed R2 S3-compatible Wrangler secrets, reviewed R2 CORS, and protected admin upload-mode opt-in.
+- The release captures the workers.dev public upload page remaining Worker-mediated, direct and multipart initiate endpoints returning not-enabled responses, the harmless Worker-mediated upload/download proof passing, cleanup and deleted-link not-found verification passing, and real direct/multipart browser upload proof remaining operator-owned.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload beyond deliberate harmless verification, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+- Operators still own setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
