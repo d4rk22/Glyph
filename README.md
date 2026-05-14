@@ -699,6 +699,13 @@ Phase 99 production readiness-gate deploy verification is in place:
 - Remaining operator-owned proof: sign in to `/admin`, confirm the runtime signing-secret status, expected CORS origin, CORS readiness checkbox persistence, gated direct/multipart mode switching, preserved Worker-mediated fallback, and the admin safety text before enabling real direct/multipart browser uploads.
 - No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
 
+Phase 100 operator-assisted admin readiness-gate verification is documented:
+
+- The in-app browser still reached the expected passkey login surface for `https://glyph.hi-660.workers.dev/admin`, but no signed-in admin session was available to Codex, so the protected dashboard controls remain operator-assisted.
+- Read-only production checks were repeated: `/health`, `/admin`, and `/` remain healthy, and direct plus multipart initiate probes still return HTTP 409 not-enabled responses without creating pending uploads.
+- The remaining signed-in dashboard proof is unchanged and operator-owned: verify the runtime signing-secret visibility, expected CORS origin, CORS readiness checkbox save/clear persistence, gated direct/multipart mode switching, Worker-mediated fallback, and admin safety text from an authenticated browser session.
+- No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
