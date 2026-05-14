@@ -690,6 +690,15 @@ Phase 98 admin direct/multipart readiness gates maintenance release is in place:
 - The release remains source-only; no npm package, Worker deploy, remote migration application, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 - Operators still own applying the remote `0010_direct_upload_readiness.sql` migration during intentional deploy/update, setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, confirming CORS readiness in protected `/admin`, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 99 production readiness-gate deploy verification is in place:
+
+- The remote `0010_direct_upload_readiness.sql` migration was applied intentionally through a temporary non-committed Wrangler config, then the current Worker was deployed to `https://glyph.hi-660.workers.dev`.
+- Post-deploy verification passed for `/health`, `/admin`, and `/` on the workers.dev origin. The public upload page remains Worker-mediated and does not expose direct-upload browser hooks while prerequisites are absent.
+- Direct and multipart initiate probes both returned HTTP 409 not-enabled responses, so public endpoints remain unavailable until mode, signing secrets, and operator-confirmed CORS readiness are in place.
+- The protected `/admin` readiness UI itself remains operator-assisted in production because passkey sessions are browser-bound. In this environment, `/admin` reached the expected passkey login surface but could not access the signed-in dashboard without the operator's browser session.
+- Remaining operator-owned proof: sign in to `/admin`, confirm the runtime signing-secret status, expected CORS origin, CORS readiness checkbox persistence, gated direct/multipart mode switching, preserved Worker-mediated fallback, and the admin safety text before enabling real direct/multipart browser uploads.
+- No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
