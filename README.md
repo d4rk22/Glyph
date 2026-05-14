@@ -714,6 +714,15 @@ Phase 101 signed-in admin readiness verification is recorded:
 - Remaining direct/multipart enablement is operator-owned: set R2 S3-compatible Wrangler secrets, apply reviewed R2 CORS for the workers.dev origin, confirm CORS readiness in protected `/admin`, switch to direct or multipart mode, then run harmless browser upload smoke tests.
 - No screenshots, API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, private file details, R2 object keys, short IDs, sensitive logs, or private resource identifiers were committed.
 
+Phase 102 direct/multipart secret and CORS setup is pending operator secret entry:
+
+- The reviewed `--turnkey-secrets --public-base-url https://glyph.hi-660.workers.dev` plan was run and confirmed the required deployed Wrangler secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`, plus optional `R2_BUCKET_NAME`.
+- The confirmed setup path was started with `--turnkey-secrets --yes --apply-cors --public-base-url https://glyph.hi-660.workers.dev`, but it stopped at the first Wrangler secret prompt because no operator secret value was entered.
+- No Wrangler secret was set, no R2 CORS policy was applied, no upload mode was switched, no file was uploaded, no Worker was deployed, no migration was applied, and no Cloudflare resource was changed by this phase.
+- The reviewed R2 CORS recommendation remains: allow browser `PUT` requests from `https://glyph.hi-660.workers.dev` to the `glyph-files` bucket and expose `ETag` for multipart uploads.
+- Remaining direct/multipart enablement is unchanged: rerun the confirmed secret setup with operator-entered values, apply reviewed R2 CORS, confirm CORS readiness in protected `/admin`, switch upload mode, then run harmless direct/multipart browser smoke tests.
+- No API tokens, R2 S3 secret values, access key values, account IDs, passkey data, cookies, session IDs, real D1 IDs, private file details, R2 object keys, short IDs, screenshots, sensitive logs, or private resource identifiers were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
