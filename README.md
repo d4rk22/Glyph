@@ -638,6 +638,14 @@ Phase 92 direct/multipart production readiness proof is in place:
 - Browser automation still cannot perform protected passkey/admin actions in this environment, so verification of the protected upload-mode controls and real direct/multipart browser uploads remains operator-owned after secrets and CORS are configured.
 - No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
 
+Phase 93 direct/multipart readiness proof maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.14`.
+- `v0.3.14` publishes the phase 92 direct/multipart production readiness proof through the GitHub release channel.
+- The release highlights the production Worker-mediated fallback proof, harmless upload/download round trip, smoke-test cleanup and deleted-link not-found verification, direct and multipart initiate endpoints returning not-enabled responses, missing deployed direct/multipart secrets, missing R2 CORS policy, and workers.dev-aligned `--turnkey-secrets` guidance.
+- The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+- Operators still own setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

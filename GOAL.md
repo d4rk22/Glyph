@@ -289,3 +289,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 90. Complete the deployed admin delete smoke-test closure. Completed with operator-assisted admin deletion verified and deleted short-link not-found behavior confirmed.
 91. Publish the admin delete smoke-test closure maintenance release. Completed.
 92. Prove direct/multipart upload readiness in production. Completed with Worker-mediated fallback verified, direct/multipart correctly blocked pending secrets/CORS/admin opt-in, and sanitized operator-owned follow-ups documented.
+93. Publish the direct/multipart readiness proof maintenance release. Completed.
