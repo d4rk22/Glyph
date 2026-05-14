@@ -197,6 +197,7 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 - Deployed-app smoke tests can verify the live workers.dev health/admin/upload surfaces, harmless public upload and short-link download, cleanup/deleted-link behavior, and document any remaining operator-owned passkey/admin UI proof without committing sensitive runtime evidence.
 - Operator-assisted admin passkey smoke tests can verify or precisely document the WebAuthn boundary for first-admin bootstrap, protected admin access, listing, metadata, link-copy affordances, deletion, and any production UI/action bugs while keeping passkey/session evidence out of the repository.
 - Direct/multipart production readiness proofs can verify the deployed Worker-mediated fallback, confirm direct/multipart endpoints stay unavailable until secrets, CORS, and admin upload-mode opt-in are configured, and document sanitized operator-owned steps without committing secret values, short IDs, object keys, or private Cloudflare identifiers.
+- Direct/multipart production enablement smoke tests can move to real browser upload proof only after deployed R2 S3-compatible secrets, reviewed R2 CORS, and protected admin upload-mode opt-in are complete; when blocked, they should document the exact sanitized boundary and keep Worker-mediated fallback proof current.
 - Type checking passes.
 - Available tests pass.
 - Wrangler dry-run passes.
@@ -290,3 +291,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 91. Publish the admin delete smoke-test closure maintenance release. Completed.
 92. Prove direct/multipart upload readiness in production. Completed with Worker-mediated fallback verified, direct/multipart correctly blocked pending secrets/CORS/admin opt-in, and sanitized operator-owned follow-ups documented.
 93. Publish the direct/multipart readiness proof maintenance release. Completed.
+94. Complete operator-assisted direct/multipart production enablement and smoke test. Completed with production enablement blocked pending deployed secrets, R2 CORS, and protected admin opt-in; Worker-mediated fallback and blocked direct/multipart endpoints were reverified.

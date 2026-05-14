@@ -646,6 +646,16 @@ Phase 93 direct/multipart readiness proof maintenance release is in place:
 - The release remains source-only; no npm package, Worker deploy, remote migration, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, screenshot/session data/short ID/object key commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
 - Operators still own setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
 
+Phase 94 direct/multipart production enablement smoke test is in place:
+
+- The workers.dev production instance still has no deployed direct/multipart Wrangler secrets, and the `glyph-files` R2 bucket still reports no CORS policy. The direct/multipart browser upload path was therefore not enabled in production.
+- The public upload page remains Worker-mediated: it does not render the direct-upload data flag, and the production `upload_mode` setting is unset, so Glyph defaults to Worker-mediated uploads.
+- Direct single-part and multipart initiate probes both returned HTTP 409 with clear not-enabled responses, confirming those endpoints stay unavailable until the operator completes secrets, CORS, and protected admin upload-mode opt-in.
+- A fresh harmless Worker-mediated upload/download round trip on workers.dev passed, the downloaded bytes matched the uploaded file, and the smoke-test artifact was cleaned up with D1 metadata marked deleted and the short link returning the polished not-found response.
+- The workers.dev `--turnkey-secrets` plan was reviewed and continues to print the required secret commands plus the workers.dev-aligned R2 CORS rule without printing or storing secret values.
+- Real direct-to-R2 single-part and multipart browser upload proof remains operator-owned: set the required deployed R2 S3-compatible secrets, apply reviewed R2 CORS for the final origin, enable direct or multipart mode from protected `/admin`, then perform harmless direct/multipart browser uploads and cleanup.
+- No API tokens, secret values, passkey data, cookies, session IDs, account IDs, real D1 IDs, object keys, short IDs, sensitive logs, screenshots, or private file details were committed.
+
 ## Prerequisites
 
 - Node.js 22 or newer.
