@@ -682,6 +682,14 @@ Phase 97 admin direct/multipart readiness gates are in place:
 - If prerequisites are missing, `/admin` keeps the previous upload mode, shows a clear notice, and public initiate endpoints remain unavailable instead of creating pending downloadable uploads.
 - Glyph still does not mutate R2 CORS or set Wrangler secrets from the admin portal. Operators apply CORS and secrets from a trusted local machine with the deploy helper, then confirm readiness in `/admin`.
 
+Phase 98 admin direct/multipart readiness gates maintenance release is in place:
+
+- The package-backed Glyph version is `0.3.16`.
+- `v0.3.16` publishes the phase 97 admin readiness gate through the GitHub release channel.
+- The release highlights protected `/admin` direct/multipart readiness, runtime R2 signing-secret visibility, operator-confirmed R2 CORS readiness, expected CORS origin display, exact local `--turnkey-secrets --yes --apply-cors` command guidance, gated direct/multipart upload-mode switching, preserved Worker-mediated fallback, direct/multipart initiate endpoint safety, and the new `0010_direct_upload_readiness.sql` migration.
+- The release remains source-only; no npm package, Worker deploy, remote migration application, admin-executed update, automatic update, token storage, secret-value storage, account ID or private resource identifier commit, DNS record creation, zone creation, certificate issuance, custom-domain creation/attachment, Cloudflare scheduled-trigger API creation, R2 CORS automation, file upload, admin creation, passkey flow, GitHub release automation from the app, or Cloudflare mutation is part of the release process.
+- Operators still own applying the remote `0010_direct_upload_readiness.sql` migration during intentional deploy/update, setting direct/multipart R2 S3-compatible Wrangler secrets, applying reviewed R2 CORS for the final origin, confirming CORS readiness in protected `/admin`, enabling direct or multipart upload mode from protected `/admin`, proving real direct/multipart browser uploads, optional custom-domain setup, optional scheduled-trigger/admin opt-ins, and replacing the placeholder D1 database ID in local deployment config.
+
 ## Prerequisites
 
 - Node.js 22 or newer.

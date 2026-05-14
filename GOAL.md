@@ -298,3 +298,4 @@ These were intentionally excluded from the MVP but are now candidates for v2:
 95. Publish the direct/multipart production-boundary maintenance release. Completed.
 96. Complete real direct/multipart production enablement and proof. Completed with deployed direct/multipart prerequisites still absent, Worker-mediated production fallback freshly proven and cleaned up, and real browser direct/multipart proof left operator-owned.
 97. Add admin direct/multipart readiness gates. Completed with admin-visible secret/CORS readiness, persistent operator CORS confirmation, gated direct/multipart mode switching, and Worker-mediated fallback preserved.
+98. Publish the admin direct/multipart readiness gates maintenance release. Completed.
